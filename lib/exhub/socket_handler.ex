@@ -14,7 +14,6 @@ defmodule Exhub.SocketHandler do
   end
 
   def websocket_handle({:text, "exhub-pong"}, state) do
-    Logger.debug("Received pong!")
     schedule_ping(state)
     {:reply, {:text, "nil"}, state}
   end
@@ -29,7 +28,6 @@ defmodule Exhub.SocketHandler do
   end
 
   def websocket_info(:ping, state) do
-    Logger.debug("Sending ping..")
     {:reply, {:text, "(exhub--pong)"}, state}
   end
 

@@ -84,6 +84,13 @@
     (exhub-start))
   (websocket-send-text exhub--websocket payload))
 
+(defun exhub-call (&rest func-args)
+  "Call Exhub function from Emacs."
+  (if (exhub-open-connection)
+      (websocket-send-text exhub--websocket
+                           (json-encode (list "func" func-args)))
+    (message "[Exhub] Application has exited.")))
+
 (defun exhub-open-connection ()
   "Check if the websocket connection is open."
   (websocket-openp exhub--websocket))

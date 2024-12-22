@@ -24,7 +24,8 @@ defmodule Exhub.MixProject do
     [
       {:jason, "~> 1.4"},
       {:plug_cowboy, "~> 2.7"},
-      {:plug_socket, "~> 0.1"}
+      {:plug_socket, "~> 0.1"},
+      {:langchain, "~> 0.3.0-rc.0"}
     ]
   end
 end

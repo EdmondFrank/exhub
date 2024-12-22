@@ -24,12 +24,31 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    mix deps.get
    ```
 
-3. **Build**:
+3. **Configuration**:
+
+The configuration for Exhub is managed in `config/config.exs`. Here are the relevant settings:
+
+- **LLM Configuration**:
+  ```elixir
+  config :exhub,
+    llm: %{
+      model: "Qwen/Qwen2.5-7B-Instruct",
+      api_base: "https://ai.gitee.com/v1"
+    }
+  ```
+
+- **Langchain Configuration**:
+  ```elixir
+  config :langchain,
+    openai_key: "your api key"
+  ```
+  
+4. **Build**:
    ```bash
    MIX_ENV=prod mix release
    ```
 
-4. **Run the Server**:
+5. **Run the Server**:
    ```bash
    _build/prod/rel/exhub/bin/exhub start
    ```
@@ -53,5 +72,37 @@ Use the `exhub-send` function to send messages to the Elixir server:
 ```elisp
 (exhub-send "your message here")
 ```
+
+## exhub-translate
+
+The `exhub-translate` package provides translation functionality for Emacs using Exhub.
+
+### Setup
+
+Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
+```elisp
+(require 'exhub-translate)
+```
+
+### Usage
+
+#### Insert Translations
+
+- `exhub-translate-insert`: Insert translation based on the current mode.
+- `exhub-translate-insert-original-translation`: Insert original translation.
+- `exhub-translate-insert-with-line`: Insert translation with line style.
+- `exhub-translate-insert-with-underline`: Insert translation with underline style.
+- `exhub-translate-insert-with-camel`: Insert translation with camel case style.
+
+#### Replace Translations
+
+- `exhub-translate-replace`: Replace the current symbol with its translation.
+- `exhub-translate-replace-with-line`: Replace with line style.
+- `exhub-translate-replace-with-underline`: Replace with underline style.
+- `exhub-translate-replace-with-camel`: Replace with camel case style.
+
+#### Posframe Translation
+
+- `exhub-translate-posframe`: Show translation in a posframe.
 
 
