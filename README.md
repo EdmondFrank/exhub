@@ -97,6 +97,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 - `exhub-chat-adjust-code`: Adjust code using Exhub.
 - `exhub-chat-comment-code`: Add comments to code using Exhub.
 - `exhub-chat-refactory-code`: Refactor code using Exhub.
+- `exhub-chat-format-code`: Format code using Exhub.
 
 #### Document Polishing
 

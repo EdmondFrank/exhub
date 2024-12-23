@@ -286,6 +286,28 @@ If nil, it uses the current buffer."
                 end
                 "exhub-chat-return-code")))
 
+(defun exhub-chat-format-code ()
+  (interactive)
+  (let* ((code (if (region-active-p)
+                   (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                 (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+         (begin (if (region-active-p)
+                    (region-beginning)
+                  (point-min)))
+         (end (if (region-active-p)
+                  (region-end)
+                (point-max)))
+         (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode))))
+    (exhub-call "exhub-chat"
+                (format "Please format the following %s code and output the code with pretty format." mode)
+                (buffer-name)
+                code
+                "Formatting..."
+                "Format code done."
+                begin
+                end
+                "exhub-chat-return-code")))
+
 (defun exhub-chat-refactory-code ()
   (interactive)
   (let* ((code (if (region-active-p)
