@@ -35,6 +35,9 @@
 (defvar exhub--websocket nil
   "Websocket connection to Exhub.")
 
+(defvar exhub--ping-timer nil
+  "Timer for sending ping messages to the WebSocket.")
+
 (defvar exhub--elixir-process nil
   "Elixir process.")
 
@@ -61,8 +64,11 @@
                    (lambda (_websocket frame)
                      (let ((body (websocket-frame-text frame)))
                        (exhub-eval body)))
-                   :on-close (lambda (_websocket) (message "websocket closed"))))
-            (setq success t))
+                   :on-close (lambda (_websocket)
+                               (message "websocket closed")
+                               (exhub--stop-ping-timer))))
+            (setq success t)
+            (exhub--start-ping-timer))  ; Start the ping timer
         (error
          (message "Attempt %d to connect to Exhub failed: %s" (1+ retry-count) err)
          (sleep-for (+ 1 (random 2)))  ; Sleep for 1 to 2 seconds
@@ -74,7 +80,8 @@
   "Restart the websocket connection."
   (interactive)
   (when (exhub-open-connection)
-    (websocket-close exhub--websocket))
+    (websocket-close exhub--websocket)
+    (exhub--stop-ping-timer))  ; Stop the ping timer
   (exhub-start))
 
 (defun exhub-send (payload)
@@ -99,9 +106,29 @@
   "Evaluate elisp code stored in STRING."
   (eval (car (read-from-string string))))
 
+(defun exhub-pong ()
+  "A no-operation function that does nothing."
+  nil)
+
 (defun exhub--pong ()
   "Send a pong message to the websocket."
   (exhub-send "exhub-pong"))
+
+(defun exhub--ping ()
+  "Send a pong message to the websocket."
+  (exhub-send "exhub-ping"))
+
+(defun exhub--start-ping-timer ()
+  "Start the ping timer to send ping messages to the WebSocket."
+  (when (exhub-open-connection)
+    (setq exhub--ping-timer
+          (run-with-timer 30 30 'exhub--ping))))
+
+(defun exhub--stop-ping-timer ()
+  "Stop the ping timer."
+  (when exhub--ping-timer
+    (cancel-timer exhub--ping-timer)
+    (setq exhub--ping-timer nil)))
 
 (defun exhub-start-elixir ()
   "Start the Elixir application."

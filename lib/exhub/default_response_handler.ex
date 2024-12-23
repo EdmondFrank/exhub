@@ -11,9 +11,9 @@ defmodule Exhub.DefaultResponseHandler do
               msg =
                 case action do
                   "replace" ->
-                    ~s[(exhub-translate-update-translation-in-buffer "#{content}" "#{style}" "#{translation}" "#{buffer_name}" "#{placeholder}")]
+                    ~s[(exhub-translate-update-translation-in-buffer #{inspect(content)} "#{style}" #{inspect(translation)} "#{buffer_name}" "#{placeholder}")]
                   "posframe" ->
-                    ~s[(exhub-translate-show-translation-posframe "#{translation}")]
+                    ~s[(exhub-translate-show-translation-posframe #{inspect(translation)})]
                   _ ->
                     ~s[(message "Unknown action for exhub-translate")]
                 end

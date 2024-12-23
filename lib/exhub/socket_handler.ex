@@ -18,6 +18,10 @@ defmodule Exhub.SocketHandler do
     {:reply, {:text, "nil"}, state}
   end
 
+  def websocket_handle({:text, "exhub-ping"}, state) do
+    {:reply, {:text, "(exhub-pong)"}, state}
+  end
+
   def websocket_handle({:text, message}, state) do
     Logger.debug("Received message #{inspect message}")
     dispatch_message(message)
@@ -48,7 +52,7 @@ defmodule Exhub.SocketHandler do
     end)
   end
 
-  @ping_interval 6_000
+  @ping_interval 30_000
   defp schedule_ping(_) do
     Process.send_after(self(), :ping, @ping_interval)
   end
