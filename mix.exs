@@ -31,7 +31,9 @@ defmodule Exhub.MixProject do
       {:jason, "~> 1.4"},
       {:plug_cowboy, "~> 2.7"},
       {:plug_socket, "~> 0.1"},
-      {:langchain, "~> 0.3.0-rc.0"}
+      {:instructor, git: "https://github.com/thmsmlr/instructor_ex", ref: "71b25956c2d014fb3a5e1207c1a339c28af1b596"},
+      {:langchain, "~> 0.3.0-rc.0"},
+      {:req, "~> 0.5.8", override: true}
     ]
   end
 end
