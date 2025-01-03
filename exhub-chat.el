@@ -299,7 +299,7 @@ If nil, it uses the current buffer."
                 (point-max)))
          (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode))))
     (exhub-call "exhub-chat"
-                (format "Please format the following %s code and output the code with pretty format." mode)
+                (format "Please format the following %s code and output the code with pretty format and indent based on the indentation of the first line." mode)
                 (buffer-name)
                 code
                 "Formatting..."

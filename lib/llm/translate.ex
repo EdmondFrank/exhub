@@ -16,7 +16,7 @@ defmodule Exhub.Llm.Translate do
       Message.new_system!("""
       You are a helpful AI translator, Expertise in converting user input between ``` and ``` into a specific language and returning only the translated content.
       """),
-      Message.new_user!("help me translate ```#{content}``` to `#{to_lang}`")
+      Message.new_user!("help me translate ```#{content}``` to `#{to_lang}`, only return the translated content.")
     ]
     {:ok, updated_chain} =
     LLMChain.new!(llm_chain)
