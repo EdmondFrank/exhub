@@ -145,8 +145,16 @@
   (interactive)
   (when exhub--elixir-process
     (when (process-live-p exhub--elixir-process)
-      (kill-process exhub--elixir-process)))
+      (kill-process exhub--elixir-process)
+      (setq exhub--elixir-process nil)))
   (exhub-start-elixir))
+
+
+(defun exhub-restart ()
+  "Restart the websocket connection and the Elixir application."
+  (interactive)
+  (exhub-restart-elixir)
+  (exhub-restart-websocket))
 
 (provide 'exhub)
 ;;; exhub.el ends here

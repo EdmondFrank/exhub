@@ -3,9 +3,7 @@ import Config
 
 config :exhub,
   llm: %{
-    api_base: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen2.5-Coder-32B-Instruct"
+    api_base: "https://api.mistral.ai/v1",
+    api_key: "api_key",
+    model: "mistral/codestral-latest"
   }
-
-config :langchain,
-  openai_key: "Your api key"
