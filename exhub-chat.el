@@ -336,6 +336,27 @@ If nil, it uses the current buffer."
               (point)
               (point)))
 
+(defun exhub-chat-generate-pull-desc ()
+  (interactive)
+  (let* ((buffer (generate-new-buffer (format "*exhub-chat-pull-desc-buffer*")))
+         (head-branch (read-string "Enter head branch: "))
+         (target-branch (read-string "Enter target branch: "))
+         (diff-output (shell-command-to-string (format "git diff %s %s" target-branch head-branch)))
+         (content (if (region-active-p)
+                      (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                    (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
+    (split-window-right)
+    (other-window 1)
+    (switch-to-buffer buffer)
+    (markdown-mode)
+    (delete-region (point-min) (point-max))
+    (exhub-call "exhub-chat"
+                (format "Please generate a pull request description for the following diff:\n%s" diff-output)
+                (buffer-name)
+                ""
+                "Generating pull request description..."
+                "Generate pull request description done.")))
+
 (defun exhub-chat-translate-into-chinese ()
   (interactive)
   (let* ((buffer (generate-new-buffer (format "*exhub-chat-translate-buffer*")))
