@@ -12,9 +12,9 @@ defmodule Exhub.DefaultResponseHandler do
               msg =
                 case action do
                   "replace" ->
-                    ~s[(exhub-translate-update-translation-in-buffer #{inspect(content)} "#{style}" #{inspect(translation)} "#{buffer_name}" "#{placeholder}")]
+                    ~s[(exhub-translate-update-translation-in-buffer #{inf_inspect(content)} "#{style}" #{inf_inspect(translation)} "#{buffer_name}" "#{placeholder}")]
                   "posframe" ->
-                    ~s[(exhub-translate-show-translation-posframe #{inspect(translation)})]
+                    ~s[(exhub-translate-show-translation-posframe #{inf_inspect(translation)})]
                   _ ->
                     ~s[(message "Unknown action for exhub-translate")]
                 end
@@ -23,7 +23,7 @@ defmodule Exhub.DefaultResponseHandler do
 
           ["func", ["exhub-chat", user_message, buffer_name]] ->
             with {:ok, reply} <- Chat.execute(user_message) do
-              Exhub.send_message(~s[(exhub-chat-response 1 #{inspect(reply)} "#{buffer_name}")])
+              Exhub.send_message(~s[(exhub-chat-response 1 #{inf_inspect(reply)} "#{buffer_name}")])
               Exhub.send_message(~s[(exhub-chat-finish-answer "#{buffer_name}")])
             end
 
@@ -37,29 +37,37 @@ defmodule Exhub.DefaultResponseHandler do
                 #{diff}
                 """
                 with {:ok, reply} <- Chat.execute(user_message) do
-                  Exhub.send_message(~s[(exhub-chat-return-code 1 #{inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
+                  Exhub.send_message(~s[(exhub-chat-return-code 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
                 end
                 notify("Generate messages done.")
               {"", 0} ->
                 notify("Please Staged changes at first")
               reason ->
-                notify("Unknown error: #{inspect(reason)}")
+                notify("Unknown error: #{inf_inspect(reason)}")
             end
 
           ["func", ["exhub-chat", prompt, buffer_name, text, notify_start, notify_end]] ->
             notify(notify_start)
             user_message = if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
             with {:ok, reply} <- Chat.execute(user_message) do
-              Exhub.send_message(~s[(exhub-chat-response 1 #{inspect(reply)} "#{buffer_name}")])
+              Exhub.send_message(~s[(exhub-chat-response 1 #{inf_inspect(reply)} "#{buffer_name}")])
             end
             notify(notify_end)
 
+          ["func", ["exhub-chat", system_prompt, prompt, buffer_name, text, notify_start, notify_end]] ->
+            notify(notify_start)
+            sys_message = system_prompt |> String.trim()
+            user_message = if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+            with {:ok, reply} <- Chat.execute(sys_message, user_message) do
+              Exhub.send_message(~s[(exhub-chat-response 1 #{inf_inspect(reply)} "#{buffer_name}")])
+            end
+            notify(notify_end)
 
           ["func", ["exhub-chat", prompt, buffer_name, text, notify_start, notify_end, region_begin, region_end, func]] ->
             notify(notify_start)
             user_message = if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
             with {:ok, reply} <- Chat.execute(user_message) do
-              Exhub.send_message(~s[(#{func} 1 #{inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
+              Exhub.send_message(~s[(#{func} 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
             end
             notify(notify_end)
           msg -> Logger.debug("Unknown message: #{msg}")
@@ -68,7 +76,11 @@ defmodule Exhub.DefaultResponseHandler do
     end
   end
 
+  defp inf_inspect(object) do
+    inspect(object, printable_limit: :infinity)
+  end
+
   defp notify(msg) do
-    Exhub.send_message(~s[(message #{inspect(msg)})])
+    Exhub.send_message(~s[(message #{inf_inspect(msg)})])
   end
 end

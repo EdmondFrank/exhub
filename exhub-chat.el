@@ -357,6 +357,30 @@ If nil, it uses the current buffer."
                 "Generating pull request description..."
                 "Generate pull request description done.")))
 
+(defun exhub-chat-generate-pull-review ()
+  (interactive)
+  (let* ((buffer (generate-new-buffer (format "*exhub-chat-pull-review-buffer*")))
+         (target-branch (read-string "Enter target branch: "))
+         (magit-buffer (magit-merge-preview target-branch))
+         (diff-output (with-current-buffer magit-buffer
+                        (buffer-substring-no-properties (point-min) (point-max))))
+         (content (if (region-active-p)
+                      (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                    (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
+    (kill-buffer magit-buffer)
+    (split-window-right)
+    (other-window 1)
+    (switch-to-buffer buffer)
+    (markdown-mode)
+    (delete-region (point-min) (point-max))
+    (exhub-call "exhub-chat"
+                "You are a software developer responsible for conducting code reviews in the Engineering department of a technology/software company. After reviewing a code submission, generate a comprehensive report summarizing the findings. Include information such as identified issues, recommendations for improvement, areas of strength, and overall code quality assessment. The report should be well-structured, easy to understand, and provide actionable feedback to the developer."
+                (format "Please generate a code review for the following diff:\n%s" diff-output)
+                (buffer-name)
+                ""
+                "Generating pull request review..."
+                "Generate pull request review done.")))
+
 (defun exhub-chat-translate-into-chinese ()
   (interactive)
   (let* ((buffer (generate-new-buffer (format "*exhub-chat-translate-buffer*")))
