@@ -171,11 +171,12 @@ If nil, it uses the current buffer."
     (exhub-chat-with-message prompt)))
 
 (defun exhub-chat-return-code (serial-number content buffer begin end)
-  (let* ((block-start (string-match "```" content))
+  (let* ((block-start (or (string-match "```" content)
+                          (string-match "`" content)))
          (code-begin (when block-start
-                       (+ (string-match "\n" content (+ block-start 3)) 1)))
+                       (+ (string-match "\n" content (+ block-start (if (string= (substring content block-start (+ block-start 3)) "```") 3 1))) 1)))
          (code-end (when code-begin
-                     (string-match "```" content code-begin)))
+                     (string-match (if (string= (substring content block-start (+ block-start 3)) "```") "```" "`") content code-begin)))
          (code (when (and code-begin code-end)
                  (substring content code-begin code-end))))
 
