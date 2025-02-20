@@ -110,6 +110,8 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 #### Commit Message Generation
 
 - `exhub-chat-generate-commit-message`: Generate a commit message using Exhub.
+- `exhub-chat-generate-pull-desc`: Generate a pull request description using Exhub.
+- `exhub-chat-generate-pull-review`: Generate a pull request review using Exhub.
 
 #### Translation
 
