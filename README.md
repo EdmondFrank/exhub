@@ -140,10 +140,11 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 #### Replace Translations
 
-- `exhub-translate-replace`: Replace the current symbol with its translation.
+- `exhub-translate-replace`: Replace the current symbol with its English translation.
 - `exhub-translate-replace-with-line`: Replace with line style.
 - `exhub-translate-replace-with-underline`: Replace with underline style.
 - `exhub-translate-replace-with-camel`: Replace with camel case style.
+- `exhub-translate-replace-zh`: Translate and replace the selected region to Chinese.
 
 #### Posframe Translation
 
