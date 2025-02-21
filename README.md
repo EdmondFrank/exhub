@@ -32,17 +32,12 @@ The configuration for Exhub is managed in `config/config.exs`. Here are the rele
   ```elixir
   config :exhub,
     llm: %{
-      model: "Qwen/Qwen2.5-7B-Instruct",
-      api_base: "https://ai.gitee.com/v1"
+      api_base: "https://ai.gitee.com/v1",
+      api_key: "your api key",
+      model: "openai/Qwen2.5-72B-Instruct"
     }
   ```
 
-- **Langchain Configuration**:
-  ```elixir
-  config :langchain,
-    openai_key: "your api key"
-  ```
-  
 4. **Build**:
    ```bash
    MIX_ENV=prod mix release
