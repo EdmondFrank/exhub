@@ -158,6 +158,17 @@
   (interactive)
   (exhub-translate-replace-symbol "camel"))
 
+(defun exhub-translate-replace-zh ()
+  "Translate and replace the selected region to Chinese."
+  (interactive)
+  (let ((region (if (use-region-p)
+                    (buffer-substring-no-properties (region-beginning) (region-end))
+                  (thing-at-point 'symbol))))
+    (if (use-region-p)
+        (kill-region (region-beginning) (region-end))
+      (kill-region (beginning-of-thing 'symbol) (end-of-thing 'symbol)))
+    (exhub-translate-query-translation region "origin" "zh")))
+
 ;;;;;;;;;;;;;;;;;;;;; Helper functions ;;;;;;;;;;;;;;;;;;;;;
 (defun exhub-translate-replace-symbol (style)
   (let ((word (if (use-region-p)
@@ -166,7 +177,7 @@
     (if (use-region-p)
         (kill-region (region-beginning) (region-end))
       (kill-region (beginning-of-thing 'symbol) (end-of-thing 'symbol)))
-    (exhub-translate-query-translation word style)))
+    (exhub-translate-query-translation word style "EN")))
 
 (defun exhub-translate-match-modes (mode-list)
   (cl-remove-if 'null (mapcar #'(lambda (mode) (derived-mode-p mode)) mode-list)))
@@ -235,7 +246,7 @@
               (kill-region translate-start translate-end)
 
               ;; Query translation.
-              (exhub-translate-query-translation word exhub-translate-active-style)
+              (exhub-translate-query-translation word exhub-translate-active-style "EN")
 
               ;; Inactive.
               (exhub-translate-inactive nil)))
@@ -303,7 +314,7 @@
   "Generate a 32 character UUID."
   (md5 (number-to-string (float-time))))
 
-(defun exhub-translate-query-translation (word style)
+(defun exhub-translate-query-translation (word style lang)
   (if (string-equal word "")
       (message "Nothing input, cancel translate.")
     (let ((placeholder (exhub-translate-generate-uuid)))
@@ -317,7 +328,7 @@
       (puthash placeholder (point) exhub-translate-placeholder-hash)
 
       ;; Query translation.
-      (exhub-translate-retrieve-translation word style placeholder "EN" "replace")
+      (exhub-translate-retrieve-translation word style placeholder lang "replace")
       )))
 
 (defun exhub-translate-retrieve-translation (word style placeholder lang action)
