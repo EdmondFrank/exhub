@@ -129,6 +129,17 @@ If nil, it uses the current buffer."
         (message "Please do not enter an empty prompt.")
       (exhub-chat-with-message prompt))))
 
+(defun exhub-chat-with-temp-buffer ()
+  "Start a chat session with Exhub in a new temporary buffer."
+  (interactive)
+  (let* ((prompt (read-string "Chat with Exhub: "))
+         (temp-buffer (generate-new-buffer " *exhub-chat-temp-buffer*")))
+    (if (string-empty-p (string-trim prompt))
+        (message "Please do not enter an empty prompt.")
+      (with-current-buffer temp-buffer
+        (insert (format "## User:\n%s\n" prompt))
+        (exhub-chat-with-message prompt)))))
+
 (defun exhub-chat-with-multiline ()
   (interactive)
   (let* ((bufname (buffer-name))
@@ -149,7 +160,6 @@ If nil, it uses the current buffer."
     (other-window 1)
     (with-current-buffer temp-buffer
       (exhub-chat-edit-mode)
-      (markdown-mode)
       (set (make-local-variable 'exhub-chat-edit-buffer-name) (buffer-name temp-buffer)))
     (switch-to-buffer temp-buffer)
     (exhub-chat--edit-set-header-line)))
