@@ -141,6 +141,19 @@ If nil, it uses the current buffer."
     (switch-to-buffer edit-buffer)
     (exhub-chat--edit-set-header-line)))
 
+(defun exhub-chat-with-multiline-with-temp-buffer ()
+  "Start a multiline chat session in a new temporary buffer."
+  (interactive)
+  (let* ((temp-buffer (generate-new-buffer " *exhub-chat-temp-edit-buffer*")))
+    (split-window-below -12)
+    (other-window 1)
+    (with-current-buffer temp-buffer
+      (exhub-chat-edit-mode)
+      (markdown-mode)
+      (set (make-local-variable 'exhub-chat-edit-buffer-name) (buffer-name temp-buffer)))
+    (switch-to-buffer temp-buffer)
+    (exhub-chat--edit-set-header-line)))
+
 (defun exhub-chat--edit-set-header-line ()
   "Set header line."
   (setq header-line-format

@@ -85,6 +85,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 - `exhub-chat`: Start a chat session with Exhub.
 - `exhub-chat-with-multiline`: Start a chat session with Exhub using a multiline input buffer.
+- `exhub-chat-with-multiline-with-temp-buffer`: Start a chat session with Exhub using a new temporary buffer.
 
 #### Code Generation
 
