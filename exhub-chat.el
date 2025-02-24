@@ -184,27 +184,28 @@ If nil, it uses the current buffer."
     (exhub-chat-with-message prompt)))
 
 (defun exhub-chat-return-code (serial-number content buffer begin end)
-  (let* ((block-start (or (string-match "```" content)
-                          (string-match "`" content)))
-         (code-begin (when block-start
-                       (+ (string-match "\n" content (+ block-start (if (string= (substring content block-start (+ block-start 3)) "```") 3 1))) 1)))
-         (code-end (when code-begin
-                     (string-match (if (string= (substring content block-start (+ block-start 3)) "```") "```" "`") content code-begin)))
-         (code (when (and code-begin code-end)
-                 (substring content code-begin code-end))))
+  (when (and begin end)
+    (let* ((block-start (or (string-match "```" content)
+                            (string-match "`" content)))
+           (code-begin (when block-start
+                         (+ (string-match "\n" content (+ block-start (if (string= (substring content block-start (+ block-start 3)) "```") 3 1))) 1)))
+           (code-end (when code-begin
+                       (string-match (if (string= (substring content block-start (+ block-start 3)) "```") "```" "`") content code-begin)))
+           (code (when (and code-begin code-end)
+                   (substring content code-begin code-end))))
 
-    (if (and code (equal serial-number 1))
-        (progn
-          (setq exhub-chat-drafts (list))
-          (push code exhub-chat-drafts)
-          (with-current-buffer buffer
-            (delete-region begin end)
-            (goto-char begin)
-            (setq exhub-chat-draft--begin begin)
-            (insert code)
-            (setq exhub-chat-draft--end (+ exhub-chat-draft--begin (length code)))))
-      (when code
-        (push code exhub-chat-drafts)))))
+      (if (and code (equal serial-number 1))
+          (progn
+            (setq exhub-chat-drafts (list))
+            (push code exhub-chat-drafts)
+            (with-current-buffer buffer
+              (delete-region begin end)
+              (goto-char begin)
+              (setq exhub-chat-draft--begin begin)
+              (insert code)
+              (setq exhub-chat-draft--end (+ exhub-chat-draft--begin (length code)))))
+        (when code
+          (push code exhub-chat-drafts))))))
 
 (defun exhub-chat-generate-code ()
   (interactive)
