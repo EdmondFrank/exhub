@@ -85,11 +85,8 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 ### Usage
 
-- `gitee-open-buffer`: Open a new Org-mode buffer to display Gitee issues.
-- `gitee-fetch-issues`: Fetch issues from Gitee API.
-- `gitee-populate-buffer`: Populate the Gitee buffer with issues.
-- `exhub-gitee-call`: Call a Gitee API function using Exhub.
-- `exhub-gitee-response`: Handle the response from the Gitee API.
+- `gitee-open-issues-buffer`: Open a new Org-mode buffer to display Gitee issues.
+- `gitee-open-issue-detail-buffer`: Open a new Org-mode buffer to display a Gitee issue detail.
 
 ## exhub-chat
 
