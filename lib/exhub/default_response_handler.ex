@@ -70,6 +70,11 @@ defmodule Exhub.DefaultResponseHandler do
               Exhub.send_message(~s[(#{func} 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
             end
             notify(notify_end)
+
+          ["func", ["exhub-gitee", module, func, callback, args]] ->
+            with {200, body, _response} <- apply(Module.concat(GiteeCat, module), String.to_existing_atom(func), [GiteeCat.Client.new() | args]) do
+              Exhub.send_message(~s[(#{callback} #{inf_inspect(Jason.encode!(body))})])
+            end
           msg -> Logger.debug("Unknown message: #{msg}")
         end
         nil
