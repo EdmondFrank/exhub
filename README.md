@@ -35,6 +35,10 @@ The configuration for Exhub is managed in `config/config.exs`. Here are the rele
       api_base: "https://ai.gitee.com/v1",
       api_key: "your api key",
       model: "openai/Qwen2.5-72B-Instruct"
+    },
+    gitee_cat: %{
+      endpoint: "https://api.gitee.com/",
+      auth: %{cookie: "your cookie"} # or %{access_token: "your acccess token"}
     }
   ```
 
@@ -67,6 +71,25 @@ Use the `exhub-send` function to send messages to the Elixir server:
 ```elisp
 (exhub-send "your message here")
 ```
+
+## exhub-gitee
+
+The `exhub-gitee` package provides Gitee integration for Emacs using Exhub.
+
+### Setup
+
+Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
+```elisp
+(require 'exhub-gitee)
+```
+
+### Usage
+
+- `gitee-open-buffer`: Open a new Org-mode buffer to display Gitee issues.
+- `gitee-fetch-issues`: Fetch issues from Gitee API.
+- `gitee-populate-buffer`: Populate the Gitee buffer with issues.
+- `exhub-gitee-call`: Call a Gitee API function using Exhub.
+- `exhub-gitee-response`: Handle the response from the Gitee API.
 
 ## exhub-chat
 
