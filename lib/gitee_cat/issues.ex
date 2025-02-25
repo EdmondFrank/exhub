@@ -15,4 +15,9 @@ defmodule GiteeCat.Issues do
   def children(client, ent_id, issue_id, params \\ %{}, options \\ []) do
     get("enterprises/#{ent_id}/issues/#{issue_id}/children", client, params, options)
   end
+
+  @spec detail(Client.t(), pos_integer(), pos_integer(), any, KeyWord.t()) :: GiteeCat.response()
+  def detail(client, ent_id, issue_id, params \\ %{}, options \\ []) do
+    get("enterprises/#{ent_id}/issues/#{issue_id}", client, params, options)
+  end
 end
