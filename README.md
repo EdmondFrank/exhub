@@ -119,6 +119,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 #### Document Polishing
 
 - `exhub-chat-polish-document`: Polish and proofread a document using Exhub.
+- `exhub-chat-improve-document`: Improve and correct grammar and spelling errors in a document using Exhub.
 
 #### Code Explanation
 
