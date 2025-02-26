@@ -217,6 +217,20 @@ If nil, it uses the current buffer."
         (when code
           (push code exhub-chat-drafts))))))
 
+(defun exhub-chat-return-text (serial-number content buffer begin end)
+  (when (and begin end)
+    (if (equal serial-number 1)
+        (progn
+          (setq exhub-chat-drafts (list))
+          (push content exhub-chat-drafts)
+          (with-current-buffer buffer
+            (delete-region begin end)
+            (goto-char begin)
+            (setq exhub-chat-draft--begin begin)
+            (insert content)
+            (setq exhub-chat-draft--end (+ exhub-chat-draft--begin (length content)))))
+      (push content exhub-chat-drafts))))
+
 (defun exhub-chat-generate-code ()
   (interactive)
   (let* ((selection (if (region-active-p)
@@ -269,6 +283,21 @@ If nil, it uses the current buffer."
                 document
                 "Polishing..."
                 "Polish document done.")))
+
+(defun exhub-chat-improve-document ()
+  (interactive)
+  (let* ((document (if (region-active-p)
+                       (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                     (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
+    (exhub-call "exhub-chat"
+                "You are an expert in English writing grammar checking and strengthening. Your main task is to help users improve their English writing by checking for grammatical errors and correcting them directly. Please improve the following documents and fix any grammar or spelling errors. Only return the improved documents, not other extraneous text!\n--- Here are document: \n"
+                (buffer-name)
+                document
+                "Adjusting..."
+                "Adjust document done."
+                (region-beginning)
+                (region-end)
+                "exhub-chat-return-text")))
 
 (defun exhub-chat-explain-code ()
   (interactive)

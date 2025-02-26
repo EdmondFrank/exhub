@@ -32,12 +32,12 @@ defmodule Exhub.DefaultResponseHandler do
             case System.cmd("git", ["diff", "--staged"], cd: dir) do
               {diff, 0} when diff != "" ->
                 user_message = """
-                Please generate a patch title for the following diff content, mainly analyze the content starting with - or + at the beginning of the line, with a concise and informative summary instead of a mechanical list. The title should not exceed 100 characters in length, and the format of the words in the title should be: the first word capitalized, all other words lowercase, unless they are proper nouns, if the diff content starts with 'Subproject commit', you extract the submodule name 'xxx', and reply 'Update xxx modules'. Please just put the commit message in code block and don't give any explanations or instructions.
+                Please generate a patch title for the following diff content, mainly analyze the content starting with - or + at the beginning of the line, with a concise and informative summary instead of a mechanical list. The title should not exceed 100 characters in length, and the format of the words in the title should be: the first word capitalized, all other words lowercase, unless they are proper nouns, if the diff content starts with 'Subproject commit', you extract the submodule name 'xxx', and reply 'Update xxx modules'. Please just put the commit message and don't give any explanations or instructions.
                 \n
                 #{diff}
                 """
                 with {:ok, reply} <- Chat.execute(user_message) do
-                  Exhub.send_message(~s[(exhub-chat-return-code 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
+                  Exhub.send_message(~s[(exhub-chat-return-text 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
                 end
                 notify("Generate messages done.")
               {"", 0} ->
