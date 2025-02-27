@@ -33,7 +33,7 @@ defmodule Exhub.MixProject do
       {:plug_socket, "~> 0.1"},
       {:castore, "~> 1.0"},
       {:httpoison, "~> 2.0"},
-      {:hermes_mcp, git: "https://github.com/zoedsoupe/hermes-mcp", ref: "6eda15bce370f5e8abb9b60ec7bf16b694837037"},
+      {:hermes_mcp, git: "https://github.com/zoedsoupe/hermes-mcp", ref: "3ddc323571305815f997dc6df60049fc26e6793d"},
       {:instructor, git: "https://github.com/thmsmlr/instructor_ex", ref: "71b25956c2d014fb3a5e1207c1a339c28af1b596"},
       {:langchain, git: "https://github.com/brainlid/langchain", ref: "8237816315ef6333bdde4848810bde13f847b70d"},
       {:req, "~> 0.5.8", override: true}

@@ -9,6 +9,8 @@ defmodule Exhub.Application do
   def start(_type, _args) do
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
+      {Exhub.Llm.Mcp.ServerManager, name: Exhub.Llm.Mcp.ServerManager},
+      {Exhub.Llm.Mcp.ClientManager, name: Exhub.Llm.Mcp.ClientManager},
       cowboy_spec()
     ]
 

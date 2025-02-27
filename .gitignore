@@ -26,3 +26,4 @@ exhub-*.tar
 /tmp/
 .aider*
 .env
+llm_logging.md
