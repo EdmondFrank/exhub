@@ -173,4 +173,31 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 - `exhub-translate-posframe`: Show translation in a posframe.
 
+## exhub-tool
+
+The `exhub-tool` package provides integration with MCP Tools using Exhub.
+
+### Setup
+
+Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
+```elisp
+(require 'exhub-tool)
+```
+
+### Usage
+
+#### Start Git MCP Server
+
+- `exhub-start-git-mcp-server`: Start the Git MCP server (required `pip install mcp_server_git` at first).
+- `exhub-start-file-mcp-server`: Start the Git MCP server (required `npx` at first).
+
+#### Chat with Git
+
+- `exhub-chat-with-git`: Chat with Exhub using a registered Git server.
+- `exhub-chat-with-tools`: Chat with Exhub using all mcp tools.
+
+#### Tool Call
+
+- `exhub-tool-call`: Call a Tools Server or Client API function using Exhub.
+
 

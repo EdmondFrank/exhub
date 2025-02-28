@@ -4,8 +4,9 @@ defmodule Exhub.ResponseHandlers.ExhubTool do
   alias Exhub.Llm.Mcp.ClientManager
 
   def call(["exhub-tool", "start-server", callback, [unique_name, command | args]]) do
-    with {:ok, _pid} <- ServerManager.new(String.to_atom(unique_name), command, args),
-         {:ok, _pid} <- ClientManager.new(unique_name, String.to_atom(unique_name)) do
+    with  server_name <- String.to_atom(unique_name),
+         {:ok, _pid} <- ServerManager.new(server_name, command, args),
+         {:ok, _pid} <- ClientManager.new(:"#{server_name}_client", server_name) do
       Exhub.send_message(~s[(#{callback} "#{unique_name}")])
     end
   end

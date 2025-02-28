@@ -7,7 +7,7 @@ defmodule Exhub.Llm.Chain do
   @config Application.compile_env(:exhub, :llm, %{model: "openai/gpt-3.5-turbo"})
 
   def create_llm_chain do
-    [provider, model_name] = String.split(@config[:model], "/")
+    [provider, model_name] = String.split(@config[:model], "/", parts: 2)
 
     llm_config = %{endpoint: "#{@config[:api_base]}/chat/completions", model: model_name, api_key: @config[:api_key]}
 

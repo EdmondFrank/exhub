@@ -1,7 +1,6 @@
 defmodule Exhub.Llm.Mcp.ClientManager do
   use GenServer
-  alias Hermes.Client
-  alias Hermes.Transport.STDIO
+  alias Exhub.Llm.Mcp.Client
   require Logger
 
   @impl true
@@ -35,10 +34,10 @@ defmodule Exhub.Llm.Mcp.ClientManager do
       nil ->
         {:ok, client} =
           Client.start_link(
-            name: server_name,
-            transport: STDIO,
+            name: client_name,
+            transport: server_name,
             client_info: %{
-              "name" => client_name,
+              "name" => "#{client_name}",
               "version" => "1.0.0"
             },
             capabilities: %{

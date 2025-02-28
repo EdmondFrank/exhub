@@ -17,7 +17,7 @@
 
 ;;; Variables
 (defvar gitee-issues-buffer-name "*Gitee Issues*" "Gitee issues buffer name.")
-(defcustom gitee-default-ent-id 1 "Default enterprise ID for Gitee API calls." :type 'integer :group 'gitee)
+(defcustom gitee-default-ent-id 1 "Default enterprise ID for Gitee API calls." :type 'integer :group 'exhub-gitee)
 
 ;;; Handle functions
 

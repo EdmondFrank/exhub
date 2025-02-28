@@ -35,7 +35,7 @@ defmodule Exhub.Llm.Mcp.ServerManager do
   def handle_call({:new, name, command, args}, _from, state) do
     case Map.get(state.registry, name) do
       nil ->
-        {:ok, pid} = STDIO.start_link(command: command, args: args, client: name)
+        {:ok, pid} = STDIO.start_link(name: name, command: command, args: args, client: :"#{name}_client")
         new_registry = Map.put(state.registry, name, pid)
         {:reply, {:ok, pid}, %{state | registry: new_registry}}
 
