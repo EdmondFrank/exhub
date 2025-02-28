@@ -186,18 +186,14 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 ### Usage
 
-#### Start Git MCP Server
+#### Start Tool MCP Server
 
 - `exhub-start-git-mcp-server`: Start the Git MCP server (required `pip install mcp_server_git` at first).
 - `exhub-start-file-mcp-server`: Start the Git MCP server (required `npx` at first).
 
-#### Chat with Git
+#### Chat with Tools
 
 - `exhub-chat-with-git`: Chat with Exhub using a registered Git server.
 - `exhub-chat-with-tools`: Chat with Exhub using all mcp tools.
-
-#### Tool Call
-
-- `exhub-tool-call`: Call a Tools Server or Client API function using Exhub.
 
 
