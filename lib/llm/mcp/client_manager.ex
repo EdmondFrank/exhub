@@ -31,25 +31,31 @@ defmodule Exhub.Llm.Mcp.ClientManager do
 
   @impl true
   def handle_call({:build, client_name, server_name}, _from, state) do
-    {:ok, client} =
-      Client.start_link(
-        name: server_name,
-        transport: STDIO,
-        client_info: %{
-          "name" => client_name,
-          "version" => "1.0.0"
-        },
-        capabilities: %{
-          "roots" => %{
-            "listChanged" => true
-          },
-          "sampling" => %{}
-        }
-      )
+    case Map.get(state.registry, client_name) do
+      nil ->
+        {:ok, client} =
+          Client.start_link(
+            name: server_name,
+            transport: STDIO,
+            client_info: %{
+              "name" => client_name,
+              "version" => "1.0.0"
+            },
+            capabilities: %{
+              "roots" => %{
+                "listChanged" => true
+              },
+              "sampling" => %{}
+            }
+          )
 
-    Logger.info("Client started on PID #{inspect(client)}")
-    new_registry = Map.put(state.registry, client_name, %{client: client, server_name: server_name, client_name: client_name})
-    {:reply, {:ok, client}, %{state | registry: new_registry}}
+        Logger.info("Client started on PID #{inspect(client)}")
+        new_registry = Map.put(state.registry, client_name, %{client: client, server_name: server_name, client_name: client_name})
+        {:reply, {:ok, client}, %{state | registry: new_registry}}
+
+      %{client: client} ->
+        {:reply, {:ok, client}, state}
+    end
   end
 
   @impl true

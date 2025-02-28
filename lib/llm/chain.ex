@@ -31,4 +31,14 @@ defmodule Exhub.Llm.Chain do
 
     updated_chain |> ChainResult.to_string()
   end
+
+  def execute(llm_chain, initial_messages, functions, custom_context) do
+    {:ok, updated_chain} =
+      LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
+      |> LLMChain.add_tools(functions)
+      |> LLMChain.add_messages(initial_messages)
+      |> LLMChain.run(mode: :while_needs_response)
+
+    updated_chain |> ChainResult.to_string()
+  end
 end
