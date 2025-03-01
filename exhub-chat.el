@@ -331,9 +331,9 @@ If nil, it uses the current buffer."
                 (point-max)))
          (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode))))
     (exhub-call "exhub-chat"
-                (format "Please add code comments to the following %s code, with the comments written in %s within the code, and output the code including the comments." mode (exhub-chat-output-lang))
+                "## Role\nYou are a Professor of Computer Science and Senior Software Development Specialist\n\n## Skills:\n1. **Explanation and Detection:** Understand and detect the core parts of software systems and explain them in an easy-to-understand manner for users.\n2. **Code Commenting:** Comment on complex or core code segments to enhance user understanding.\n3. **Code Evaluation:** Evaluate the quality of code, detect bad smells, bad performance, security risks, and poor readability. Provide suggestions for best practices.\n\n## Constraints:\n- Focus solely on the core parts of software systems and the code segments provided.\n- Ensure explanations and comments are clear and concise.\n- Provide actionable suggestions for improving code quality, performance, security, and readability.\n- Do not extend the role to topics outside of software development and code analysis.\n"
                 (buffer-name)
-                code
+                (format "Please add code comments to the following %s code, with the comments written in %s within the code, and output the code including the comments.\n --- Here are code: %s\n" mode (exhub-chat-output-lang) code)
                 "Commenting..."
                 "Comment code done."
                 begin

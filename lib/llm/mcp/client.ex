@@ -196,6 +196,7 @@ defmodule Exhub.Llm.Mcp.Client do
 
   @impl true
   def init(%{} = opts) do
+    # Initialize the client state with provided options
     state = %{
       transport: opts.transport,
       client_info: opts.client_info,
@@ -212,11 +213,14 @@ defmodule Exhub.Llm.Mcp.Client do
 
   @impl true
   def handle_call({:request, method, params}, from, state) do
+    # Generate a unique request ID for the request
     request_id = generate_request_id()
 
+    # Validate the capability, encode the request, and send it to the transport
     with :ok <- validate_capability(state, method),
          {:ok, request_data} <- encode_request(method, params, request_id),
          :ok <- send_to_transport(state.transport, request_data) do
+      # Update the pending requests map with the new request
       pending = Map.put(state.pending_requests, request_id, {from, method})
 
       {:noreply, %{state | pending_requests: pending}}
@@ -226,24 +230,29 @@ defmodule Exhub.Llm.Mcp.Client do
   end
 
   def handle_call({:merge_capabilities, additional_capabilities}, _from, state) do
+    # Merge additional capabilities into the client's capabilities
     updated_capabilities = deep_merge(state.capabilities, additional_capabilities)
 
     {:reply, updated_capabilities, %{state | capabilities: updated_capabilities}}
   end
 
   def handle_call(:get_server_capabilities, _from, state) do
+    # Return the server's capabilities
     {:reply, state.server_capabilities, state}
   end
 
   def handle_call(:get_server_info, _from, state) do
+    # Return the server's information
     {:reply, state.server_info, state}
   end
 
   def handle_call(:close, _from, %{transport: transport, pending_requests: pending} = state) do
+    # Log a warning if there are pending requests
     if map_size(pending) > 0 do
       Logger.warning("Closing client with #{map_size(pending)} pending requests")
     end
 
+    # Send a notification for each pending request
     for {request_id, _} <- pending do
       send_notification(state, "notifications/cancelled", %{
         "requestId" => request_id,
@@ -251,7 +260,7 @@ defmodule Exhub.Llm.Mcp.Client do
       })
     end
 
-
+    # Close the transport and stop the client process
     transport.close()
 
     {:stop, :normal, state}
@@ -259,6 +268,7 @@ defmodule Exhub.Llm.Mcp.Client do
 
   @impl true
   def handle_info(:initialize, state) do
+    # Log the initialization process and encode the request
     Logger.info("Making initial client <> server handshake")
 
     params = %{
@@ -271,6 +281,7 @@ defmodule Exhub.Llm.Mcp.Client do
 
     with {:ok, request_data} <- encode_request("initialize", params, request_id),
          :ok <- send_to_transport(state.transport, request_data) do
+      # Update the pending requests map with the new request
       from = {self(), generate_request_id()}
       pending = Map.put(state.pending_requests, request_id, {from, "initialize"})
 
@@ -286,6 +297,7 @@ defmodule Exhub.Llm.Mcp.Client do
   end
 
   def handle_info({:response, response_data}, state) do
+    # Decode the response and handle it based on its type
     case Message.decode(response_data) do
       {:ok, [error]} when Message.is_error(error) ->
         Logger.error("Received error response: #{inspect(error)}")
@@ -313,20 +325,22 @@ defmodule Exhub.Llm.Mcp.Client do
   # Response handling
 
   defp handle_error(%{"error" => error, "id" => id}, id, state) do
+    # Remove the request from the pending requests map and reply to the caller
     {{from, _method}, pending} = Map.pop(state.pending_requests, id)
 
-    # unblocks original caller
     GenServer.reply(from, {:error, error})
 
     %{state | pending_requests: pending}
   end
 
   defp handle_error(response, _, state) do
+    # Log a warning for unknown request IDs
     Logger.warning("Received error response for unknown request ID: #{response["id"]}")
     state
   end
 
   defp handle_response(%{"id" => id, "result" => %{"serverInfo" => _} = result}, id, state) do
+    # Update the server capabilities and info, and remove the request from the pending requests map
     %{pending_requests: pending} = state
 
     state = %{
@@ -336,18 +350,17 @@ defmodule Exhub.Llm.Mcp.Client do
         pending_requests: Map.delete(pending, id)
     }
 
-    Logger.info("Client initialized successfully, notifing server")
+    Logger.info("Client initialized successfully, notifying server")
 
-    # we need to confirm to the server the handshake
     :ok = send_notification(state, "notifications/initialized")
 
     state
   end
 
   defp handle_response(%{"id" => id, "result" => result}, id, state) do
+    # Remove the request from the pending requests map and reply to the caller
     {{from, method}, pending} = Map.pop(state.pending_requests, id)
 
-    # unblocks original caller
     cond do
       method == "ping" -> GenServer.reply(from, :pong)
       result["isError"] -> GenServer.reply(from, {:error, result})
@@ -358,6 +371,7 @@ defmodule Exhub.Llm.Mcp.Client do
   end
 
   defp handle_response(%{"id" => _} = response, _, state) do
+    # Log a warning for unknown request IDs
     Logger.warning("Received response for unknown request ID: #{response["id"]}")
     state
   end
@@ -369,6 +383,7 @@ defmodule Exhub.Llm.Mcp.Client do
   end
 
   defp validate_capability(%{server_capabilities: server_capabilities}, method) do
+    # Validate the capability based on the server's capabilities
     capability = String.split(method, "/", parts: 2)
 
     if valid_capability?(server_capabilities, capability) do
@@ -393,6 +408,7 @@ defmodule Exhub.Llm.Mcp.Client do
   end
 
   defp generate_request_id do
+    # Generate a unique request ID using system time, node hash, and unique integer
     binary = <<
       System.system_time(:nanosecond)::64,
       :erlang.phash2({node(), self()}, 16_777_216)::24,
@@ -403,38 +419,45 @@ defmodule Exhub.Llm.Mcp.Client do
   end
 
   defp encode_request(method, params, request_id) do
+    # Encode the request using the Hermes Message module
     Message.encode_request(%{"method" => method, "params" => params}, request_id)
   end
 
   defp encode_notification(method, params) do
+    # Encode the notification using the Hermes Message module
     Message.encode_notification(%{"method" => method, "params" => params})
   end
 
   defp send_to_transport(transport, data) when is_atom(transport) and is_binary(data) do
+    # Send the data to the transport using GenServer.call
     with {:error, reason} <- GenServer.call(transport, {:send, data}) do
       {:error, {:transport_error, reason}}
     end
   end
 
   defp send_to_transport(transport, data) when is_pid(transport) and is_binary(data) do
+    # Send the data to the transport using GenServer.call
     with {:error, reason} <- GenServer.call(transport, {:send, data}) do
       {:error, {:transport_error, reason}}
     end
   end
 
   defp send_to_transport(transport, data) do
+    # Send the data to the transport using the transport's send_message function
     with {:error, reason} <- transport.send_message(data) do
       {:error, {:transport_error, reason}}
     end
   end
 
   defp send_notification(state, method, params \\ %{}) do
+    # Encode the notification and send it to the transport
     with {:ok, notification_data} <- encode_notification(method, params) do
       send_to_transport(state.transport, notification_data)
     end
   end
 
   defp deep_merge(map1, map2) do
+    # Merge two maps deeply
     Map.merge(map1, map2, fn
       _, v1, v2 when is_map(v1) and is_map(v2) -> deep_merge(v1, v2)
       _, _, v2 -> v2
