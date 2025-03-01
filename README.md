@@ -107,6 +107,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 - `exhub-chat-with-temp-buffer`: Start a chat session with Exhub in a new temporary buffer.
 - `exhub-chat-with-multiline`: Start a chat session with Exhub using a multiline input buffer.
 - `exhub-chat-with-multiline-with-temp-buffer`: Start a chat session with Exhub using a new temporary buffer.
+- `exhub-chat-optimize-prompts`: Optimize prompts using Exhub.
 
 #### Code Generation
 

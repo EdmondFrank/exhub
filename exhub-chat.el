@@ -435,6 +435,25 @@ If nil, it uses the current buffer."
                 "Generating pull request review..."
                 "Generate pull request review done.")))
 
+(defun exhub-chat-optimize-prompts ()
+  (interactive)
+  (let* ((buffer (generate-new-buffer (format "*exhub-chat-prompts-buffer*")))
+         (content (if (region-active-p)
+                      (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                    (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
+    (split-window-right)
+    (other-window 1)
+    (switch-to-buffer buffer)
+    (markdown-mode)
+    (delete-region (point-min) (point-max))
+    (exhub-call "exhub-chat"
+                "I want you to become my Prompt engineer. Your goal is to help me craft the best possible prompt for my needs.\nThe prompt will be used by you. You will follow the following process:\n1. You first gather detailed information about my specific requirements and goals.\n2. Based on my input, you will generate 2 sections:\na) Revised prompt (provide your rewritten prompt, it should be clear, concise, and easily understood by you, And the prompt should contain at least three parts: 1) Role, define the role basic description that match my requirements and goals; 2) Skills, define the skills and skill description that need to meet my specific requirements and goals; 3) Constraints, limit the role to focus on my specific requirements and goals, and don't extend it to irrelevant topics).\nb) Questions (ask any relevant questions pertaining to what additional information is needed from me to improve the prompt).\n3. We will continue this iterative process with me providing additional information to you and you updating the prompt in the Revised prompt section until I say we are done\n"
+                (format "Write or optimise role-based template prompts for the following requirements:\n```\n%s\n```" content)
+                (buffer-name)
+                ""
+                "Optimizing prompts..."
+                "Optimizte prompts done.")))
+
 (defun exhub-chat-translate-into-chinese ()
   (interactive)
   (let* ((buffer (generate-new-buffer (format "*exhub-chat-translate-buffer*")))
