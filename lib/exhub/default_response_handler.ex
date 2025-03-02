@@ -2,6 +2,7 @@ defmodule Exhub.DefaultResponseHandler do
   alias Exhub.ResponseHandlers.ExhubTranslate
   alias Exhub.ResponseHandlers.ExhubChat
   alias Exhub.ResponseHandlers.ExhubTool
+  alias Exhub.ResponseHandlers.ExhubFile
   alias Exhub.ResponseHandlers.ExhubGitee
 
   require Logger
@@ -16,6 +17,7 @@ defmodule Exhub.DefaultResponseHandler do
               "exhub-chat" -> ExhubChat.call(args)
               "exhub-gitee" -> ExhubGitee.call(args)
               "exhub-tool" -> ExhubTool.call(args)
+              "exhub-file" -> ExhubFile.call(args)
               action -> Logger.debug("Unknown action: #{action}, data: #{data}")
             end
           _ -> Logger.debug("Unknown message: #{data}")
