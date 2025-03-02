@@ -64,6 +64,9 @@ If nil, it uses the current buffer."
 (defvar exhub-chat-lang (or (ignore-errors (car (split-string (getenv "LANG") "\\.")))
                             (car (split-string current-language-environment "-"))))
 
+(defvar exhub-chat-code-explain-prompt
+  "## Role\nYou are a Professor of Computer Science and Senior Software Development Specialist\n\n## Skills:\n1. **Explanation and Detection:** Understand and detect the core parts of software systems and explain them in an easy-to-understand manner for users.\n2. **Code Commenting:** Comment on complex or core code segments to enhance user understanding.\n3. **Code Evaluation:** Evaluate the quality of code, detect bad smells, bad performance, security risks, and poor readability. Provide suggestions for best practices.\n\n## Constraints:\n- Focus solely on the core parts of software systems and the code segments provided.\n- Ensure explanations and comments are clear and concise.\n- Provide actionable suggestions for improving code quality, performance, security, and readability.\n- Do not extend the role to topics outside of software development and code analysis.\n")
+
 (defun exhub-chat-output-lang ()
   (pcase exhub-chat-lang
     ("zh_CN" "中文")
@@ -266,6 +269,47 @@ If nil, it uses the current buffer."
                 (region-end)
                 "exhub-chat-return-code")))
 
+(defun exhub-chat-explain-code ()
+  (interactive)
+  (let* ((code (if (region-active-p)
+                   (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                 (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+         (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode)))
+         (buffer (generate-new-buffer (format "*exhub-chat-explain-buffer*"))))
+    (split-window-right)
+    (other-window 1)
+    (switch-to-buffer buffer)
+    (markdown-mode)
+    (delete-region (point-min) (point-max))
+    (exhub-call "exhub-chat"
+                exhub-chat-code-explain-prompt
+                (buffer-name)
+                (format "Please explain in detail the meaning of the following %s code, in %s, leave a blank line between each sentence:\--- Here are code: %s\n" mode (exhub-chat-output-lang) code)
+                "Explaining..."
+                "Explain code done.")))
+
+(defun exhub-chat-comment-code ()
+  (interactive)
+  (let* ((code (if (region-active-p)
+                   (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
+                 (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+         (begin (if (region-active-p)
+                    (region-beginning)
+                  (point-min)))
+         (end (if (region-active-p)
+                  (region-end)
+                (point-max)))
+         (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode))))
+    (exhub-call "exhub-chat"
+                exhub-chat-code-explain-prompt
+                (buffer-name)
+                (format "Please add code comments to the following %s code, with the comments written in %s within the code, and output the code including the comments.\n --- Here are code: %s\n" mode (exhub-chat-output-lang) code)
+                "Commenting..."
+                "Comment code done."
+                begin
+                end
+                "exhub-chat-return-code")))
+
 (defun exhub-chat-polish-document ()
   (interactive)
   (let* ((document (if (region-active-p)
@@ -298,47 +342,6 @@ If nil, it uses the current buffer."
                 (region-beginning)
                 (region-end)
                 "exhub-chat-return-text")))
-
-(defun exhub-chat-explain-code ()
-  (interactive)
-  (let* ((code (if (region-active-p)
-                   (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
-                 (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
-         (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode)))
-         (buffer (generate-new-buffer (format "*exhub-chat-explain-buffer*"))))
-    (split-window-right)
-    (other-window 1)
-    (switch-to-buffer buffer)
-    (markdown-mode)
-    (delete-region (point-min) (point-max))
-    (exhub-call "exhub-chat"
-                (format "Please explain in detail the meaning of the following %s code, in %s, leave a blank line between each sentence:\n" mode (exhub-chat-output-lang))
-                (buffer-name)
-                code
-                "Explaining..."
-                "Explain code done.")))
-
-(defun exhub-chat-comment-code ()
-  (interactive)
-  (let* ((code (if (region-active-p)
-                   (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
-                 (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
-         (begin (if (region-active-p)
-                    (region-beginning)
-                  (point-min)))
-         (end (if (region-active-p)
-                  (region-end)
-                (point-max)))
-         (mode (replace-regexp-in-string "\\(-ts\\)?-mode$" "" (symbol-name major-mode))))
-    (exhub-call "exhub-chat"
-                "## Role\nYou are a Professor of Computer Science and Senior Software Development Specialist\n\n## Skills:\n1. **Explanation and Detection:** Understand and detect the core parts of software systems and explain them in an easy-to-understand manner for users.\n2. **Code Commenting:** Comment on complex or core code segments to enhance user understanding.\n3. **Code Evaluation:** Evaluate the quality of code, detect bad smells, bad performance, security risks, and poor readability. Provide suggestions for best practices.\n\n## Constraints:\n- Focus solely on the core parts of software systems and the code segments provided.\n- Ensure explanations and comments are clear and concise.\n- Provide actionable suggestions for improving code quality, performance, security, and readability.\n- Do not extend the role to topics outside of software development and code analysis.\n"
-                (buffer-name)
-                (format "Please add code comments to the following %s code, with the comments written in %s within the code, and output the code including the comments.\n --- Here are code: %s\n" mode (exhub-chat-output-lang) code)
-                "Commenting..."
-                "Comment code done."
-                begin
-                end
-                "exhub-chat-return-code")))
 
 (defun exhub-chat-format-code ()
   (interactive)
