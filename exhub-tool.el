@@ -12,6 +12,7 @@
 (defvar exhub-mcp-server-all-name "mcp-server-all" "All MCP servers")
 (defvar exhub-mcp-server-git-name "mcp-server-git" "Git MCP server name.")
 (defvar exhub-mcp-server-file-name "mcp-server-file" "File MCP server name.")
+(defvar exhub-mcp-server-github-name "mcp-server-github" "Github MCP server name.")
 (defcustom exhubt-mcp-default-allowed-dir (expand-file-name "~") "Default allowed dir for Tools access." :type 'string :group 'exhub-tool)
 
 (defun exhub-start-git-mcp-server ()
@@ -23,6 +24,16 @@
   "Start the File MCP server"
   (interactive)
   (exhub-tool-call "start-server" "message" exhub-mcp-server-file-name "npx" "-y" "@modelcontextprotocol/server-filesystem" exhubt-mcp-default-allowed-dir))
+
+(defun exhub-start-github-mcp-server ()
+  "Start the GitHub MCP server"
+  (interactive)
+  (let ((github-token (read-passwd "Please enter your GitHub personal access token: ")))
+    (if (string-empty-p (string-trim github-token))
+        (message "Please enter a valid GitHub personal access token.")
+      (setenv "GITHUB_PERSONAL_ACCESS_TOKEN" github-token)
+      (message "Starting the GitHub MCP server...")
+      (exhub-tool-call "start-server" "message" exhub-mcp-server-github-name "npx" "-y" "@modelcontextprotocol/server-github"))))
 
 (defun exhub-chat-with-git ()
   "Chat with Exhub using a registered Git server."
