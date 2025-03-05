@@ -16,10 +16,42 @@
 (require 'exhub)
 
 ;;; Variables
+(defvar gitee-pulls-buffer-name "*Gitee Pulls*" "Gitee pulls buffer name.")
 (defvar gitee-issues-buffer-name "*Gitee Issues*" "Gitee issues buffer name.")
 (defcustom gitee-default-ent-id 1 "Default enterprise ID for Gitee API calls." :type 'integer :group 'exhub-gitee)
 
 ;;; Handle functions
+
+(defun gitee-show-pulls (response)
+  "Render the Gitee Pulls buffer with pulls."
+  (with-current-buffer (get-buffer-create gitee-pulls-buffer-name)
+    (org-mode)                      ; Ensure the buffer is in Org-mode
+    (erase-buffer)
+    (insert "* Gitee Pulls\n")
+    (let* ((json-object-type 'hash-table)
+           (json-array-type 'list)
+           (json-key-type 'string)
+           (json (json-read-from-string response))
+           (pulls (gethash "data" json)))
+      (dolist (pull pulls)
+        (let* ((title (gethash "title" pull))
+               (id (gethash "id" pull))
+               (state (gethash "state" pull))
+               (author (gethash "remark" (gethash "author" pull)))
+               (source-branch (gethash "branch" (gethash "source_branch" pull)))
+               (target-branch (gethash "branch" (gethash "target_branch" pull)))
+               (org-state (cond
+                           ((string= state "opened") "TODO")
+                           ((string= state "reopened") "TODO")
+                           ((string= state "closed") "REJECTED")
+                           ((string= state "merged") "DONE")
+                           (t "UNKNOWN"))))
+          (insert (format "** %s %s\n" org-state title))
+          (org-set-property "ID" (number-to-string id))
+          (org-set-property "AUTHOR" author)
+          (org-set-property "SOURCE_BRANCH" source-branch)
+          (org-set-property "TARGET_BRANCH" target-branch)
+          (org-todo org-state))))))
 
 (defun gitee-show-issues (response)
   "Render the Gitee Issues buffer with issues."
@@ -89,12 +121,26 @@
     (insert "* Gitee Issues\n")
     (gitee--fetch-issues)))
 
+(defun gitee-open-pulls-buffer ()
+  "Open a new Org-mode buffer to display Gitee pulls."
+  (interactive)
+  (let ((buffer (get-buffer-create gitee-pulls-buffer-name)))
+    (switch-to-buffer buffer)
+    (org-mode)                      ; Ensure the buffer is in Org-mode
+    (erase-buffer)
+    (insert "* Gitee Pulls\n")
+    (gitee--fetch-pulls)))
+
 
 ;;; Functions to interact with the Gitee API
 
 (defun gitee--fetch-issues ()
   "Fetch issues from Gitee API."
   (exhub-gitee-call "Issues" "list" 'gitee-show-issues gitee-default-ent-id '(:only_related_me 1)))
+
+(defun gitee--fetch-pulls ()
+  "Fetch pulls from Gitee API."
+  (exhub-gitee-call "Pulls" "list" 'gitee-show-pulls gitee-default-ent-id '(:scope "related_to_me")))
 
 (defun gitee--fetch-issue-detail (issue-id)
   "Fetch an issue detail from Gitee API."

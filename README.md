@@ -87,6 +87,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 - `gitee-open-issues-buffer`: Open a new Org-mode buffer to display Gitee issues.
 - `gitee-open-issue-detail-buffer`: Open a new Org-mode buffer to display a Gitee issue detail.
+- `gitee-open-pulls-buffer`: Open a new Org-mode buffer to display Gitee pulls.
 
 ## exhub-chat
 
