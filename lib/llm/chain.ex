@@ -3,13 +3,14 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.Utils.ChainResult
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.ChatModels.ChatMistralAI
-
-  @config Application.compile_env(:exhub, :llm, %{model: "openai/gpt-3.5-turbo"})
+  alias Exhub.Llm.LlmConfigServer
 
   def create_llm_chain do
-    [provider, model_name] = String.split(@config[:model], "/", parts: 2)
+    {:ok, config} = LlmConfigServer.get_default_llm_config
 
-    llm_config = %{endpoint: "#{@config[:api_base]}/chat/completions", model: model_name, api_key: @config[:api_key]}
+    [provider, model_name] = String.split(config[:model], "/", parts: 2)
+
+    llm_config = %{endpoint: "#{config[:api_base]}/chat/completions", model: model_name, api_key: config[:api_key]}
 
     llm =
       case provider do

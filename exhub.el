@@ -27,7 +27,9 @@
 
 ;;; Code:
 
+(require 'json)
 (require 'websocket)
+
 
 (defvar exhub-endpoint "ws://localhost:9069/exhub"
   "Endpoint of exhub elixir application.")
@@ -130,6 +132,21 @@
     (cancel-timer exhub--ping-timer)
     (setq exhub--ping-timer nil)))
 
+(defun exhub--switch-model-callback (response)
+  (let* ((json-object-type 'hash-table)
+         (json-array-type 'list)
+         (json-key-type 'string)
+         (llm-names (json-read-from-string response))
+         (choices (mapcar (lambda (name) (cons name name)) llm-names)))
+    (let ((selected-llm (completing-read "Select a model to switch to: " choices)))
+      (exhub-call "exhub-config" "set-model" selected-llm))))
+
+(defun exhub-switch-model ()
+  "Switch the model by calling the Exhub configuration to list available models and prompt the user to select one."
+  (interactive)
+  ;; Call the Exhub configuration to list available models and handle the callback to prompt the user for selection
+  (exhub-call "exhub-config" "switch-model" "exhub--switch-model-callback"))
+
 (defun exhub-start-elixir ()
   "Start the Elixir application."
   (interactive)
@@ -148,7 +165,6 @@
       (kill-process exhub--elixir-process)
       (setq exhub--elixir-process nil)))
   (exhub-start-elixir))
-
 
 (defun exhub-restart ()
   "Restart the websocket connection and the Elixir application."
