@@ -31,10 +31,18 @@ The configuration for Exhub is managed in `config/config.exs`. Here are the rele
 - **LLM Configuration**:
   ```elixir
   config :exhub,
-    llm: %{
-      api_base: "https://ai.gitee.com/v1",
-      api_key: "your api key",
-      model: "openai/Qwen2.5-72B-Instruct"
+    llms: %{
+      "qwen2.5-32b-instruct" => %{
+        api_base: "https://ai.gitee.com/v1",
+        api_key: "your api key",
+        model: "qwen2.5-32b-instruct"
+      },
+      "gpt-4o" => %{
+        api_base: "https://api.openai.com/v1",
+        api_key: "your api key",
+        model: "gpt-4o-mini"
+      },
+      # ... 
     },
     gitee_cat: %{
       endpoint: "https://api.gitee.com/",
@@ -71,6 +79,22 @@ Use the `exhub-send` function to send messages to the Elixir server:
 ```elisp
 (exhub-send "your message here")
 ```
+
+## exhub-config
+
+The `exhub-config` package provides configuration management for Exhub.
+
+### Setup
+```elisp
+;; Built-in extension of exhub package
+(require 'exhub)
+```
+
+### Usage
+
+#### Switch Model
+
+- `exhub-switch-model`: Switch the model by calling the Exhub configuration to list available models and prompt the user to select one.
 
 ## exhub-gitee
 
