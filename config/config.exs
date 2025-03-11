@@ -32,6 +32,11 @@ config :exhub,
       api_base: "http://127.0.0.1:9069/google/v1",
       api_key: "your token",
       model: "google/gemini-2.0-flash",
+    },
+    "command-r-plus" => %{
+      api_base: "http://127.0.0.1:9069/cohere/v1",
+      api_key: "your token",
+      model: "openai/command-r-plus",
     }
   },
   proxy: "http://127.0.0.1:7890",

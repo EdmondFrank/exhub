@@ -1,5 +1,4 @@
 defmodule Exhub.ProxyPlug do
-
   @doc """
   reverse conn proxy to upstream
   """
@@ -17,7 +16,11 @@ defmodule Exhub.ProxyPlug do
     body =
       cond do
         pre_body == "" && Plug.Conn.get_req_header(conn, "content-type") == ["application/json"] ->
-          Jason.encode!(conn.body_params)
+          if List.first(conn.path_info) == "cohere" do
+            Jason.encode!(Map.delete(conn.body_params, "n"))
+          else
+            Jason.encode!(conn.body_params)
+          end
 
         pre_body == "" &&
             Plug.Conn.get_req_header(conn, "content-type") == [
@@ -27,7 +30,7 @@ defmodule Exhub.ProxyPlug do
 
         true ->
           pre_body
-    end
+      end
 
     conn
     |> Map.put(:path_info, conn.path_params["path"])
