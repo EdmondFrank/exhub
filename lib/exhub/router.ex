@@ -18,6 +18,10 @@ defmodule Exhub.Router do
     ProxyPlug.forward_upstream(conn, "https://api.groq.com/openai/v1", client_options: [proxy: @proxy])
   end
 
+  post "/google/v1/*path" do
+    ProxyPlug.forward_upstream(conn, "https://generativelanguage.googleapis.com/", client_options: [proxy: @proxy])
+  end
+
   match _ do
     send_resp(conn, 200, "<html><head></head><body>Connect to WS enpoint at \"/exhub\"</body></html>")
   end

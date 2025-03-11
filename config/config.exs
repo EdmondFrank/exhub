@@ -27,6 +27,11 @@ config :exhub,
       api_base: "http://127.0.0.1:9069/groq/v1",
       api_key: "your token",
       model: "openai/llama-3.3-70b-versatile",
+    },
+    "gemini-2.0-flash" => %{
+      api_base: "http://127.0.0.1:9069/google/v1",
+      api_key: "your token",
+      model: "google/gemini-2.0-flash",
     }
   },
   proxy: "http://127.0.0.1:7890",

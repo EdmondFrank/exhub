@@ -3,6 +3,7 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.Utils.ChainResult
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.ChatModels.ChatMistralAI
+  alias LangChain.ChatModels.ChatGoogleAI
   alias Exhub.Llm.LlmConfigServer
 
   def create_llm_chain do
@@ -10,10 +11,15 @@ defmodule Exhub.Llm.Chain do
 
     [provider, model_name] = String.split(config[:model], "/", parts: 2)
 
-    llm_config = %{endpoint: "#{config[:api_base]}/chat/completions", model: model_name, api_key: config[:api_key]}
+    llm_config =
+      case provider do
+        "google" -> %{endpoint: config[:api_base], model: model_name, api_key: config[:api_key]}
+        _ -> %{endpoint: "#{config[:api_base]}/chat/completions", model: model_name, api_key: config[:api_key]}
+      end
 
     llm =
       case provider do
+        "google" -> ChatGoogleAI.new!(llm_config)
         "mistral" -> ChatMistralAI.new!(llm_config)
         _ -> ChatOpenAI.new!(llm_config)
       end
