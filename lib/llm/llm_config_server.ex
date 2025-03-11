@@ -2,7 +2,7 @@ defmodule Exhub.Llm.LlmConfigServer do
   use GenServer
 
   # Define the default LLM name
-  @default_llm_name "qwen2.5-32b-instruct"
+  @default_llm_name "codestral/codestral-latest"
 
   # Fetch the LLM configurations from the application environment
   @config Application.compile_env(:exhub, :llms)
@@ -36,6 +36,10 @@ defmodule Exhub.Llm.LlmConfigServer do
     GenServer.call(__MODULE__, :list_llm_names)
   end
 
+  def get_default_llm_name do
+    GenServer.call(__MODULE__, :get_default_llm_name)
+  end
+
   # Initialize the GenServer with the configuration and set the default LLM name
   def init(config) do
     # Set the default LLM name in the configuration map
@@ -44,8 +48,12 @@ defmodule Exhub.Llm.LlmConfigServer do
   end
 
   def handle_call(:list_llm_names, _from, config) do
-    llm_names = Map.keys(config) |> Enum.reject(&(&1 == :current_llm))
+    llm_names = Map.keys(config) |> Enum.reject(&(&1 == config[:current_llm] || &1 == :current_llm))
     {:reply, llm_names, config}
+  end
+
+  def handle_call(:get_default_llm_name, _from, config) do
+    {:reply, config[:current_llm], config}
   end
 
   # Handle the call to retrieve the configuration for a specific LLM

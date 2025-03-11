@@ -10,6 +10,11 @@ defmodule Exhub.ResponseHandlers.ExhubConfig do
     Exhub.send_message(~s[(message "Model has successfully changed to #{llm_name}")])
   end
 
+  def call(["exhub-config", "current-model", callback]) do
+    llm_name = LlmConfigServer.get_default_llm_name
+    Exhub.send_message(~s[(#{callback} "#{llm_name}")])
+  end
+
   defp inf_inspect(object) do
     inspect(object, printable_limit: :infinity)
   end

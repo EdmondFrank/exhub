@@ -141,11 +141,22 @@
     (let ((selected-llm (completing-read "Select a model to switch to: " choices)))
       (exhub-call "exhub-config" "set-model" selected-llm))))
 
+(defun exhub--display-current-model-callback (model-name)
+  "Display the current model name in the minibuffer and copy it to the clipboard."
+  (message "Current Model: %s" model-name)
+  (kill-new model-name))
+
 (defun exhub-switch-model ()
   "Switch the model by calling the Exhub configuration to list available models and prompt the user to select one."
   (interactive)
+
   ;; Call the Exhub configuration to list available models and handle the callback to prompt the user for selection
   (exhub-call "exhub-config" "switch-model" "exhub--switch-model-callback"))
+
+(defun exhub-model ()
+  (interactive)
+  ;; Call the Exhub configuration to get the current model name
+  (exhub-call "exhub-config" "current-model" "exhub--display-current-model-callback"))
 
 (defun exhub-start-elixir ()
   "Start the Elixir application."
