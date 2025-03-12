@@ -8,6 +8,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Message Handling**: Enables sending and receiving messages between Emacs and the Elixir server.
 - **Erlang/Elixir Backend**: Leverages Elixir and Erlang for robust backend processing.
 - **Emacs Integration**: Provides Emacs Lisp functions to interact seamlessly with the Elixir server.
+- **Agent Integration**: Allows integration with agents for enhanced functionality.
 
 ## Installation
 
@@ -241,4 +242,28 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 - `exhub-preview-markdown`: Preview the current buffer with markdown using Exhub.
 
+## exhub-agent
 
+The `exhub-agent` package provides agent integration for Emacs using Exhub.
+
+### Setup
+
+Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
+```elisp
+(require 'exhub-agent)
+```
+
+### Usage
+
+#### Chat with Agents
+
+- `exhub-chat-with-agent`: Chat with existing or new agents in Exhub World.
+- `exhub-chat-kill-agent`: Kill an existing agent in Exhub World.
+
+## Contributing
+
+Feel free to contribute to Exhub by opening issues or pull requests on the [GitHub repository](https://github.com/edmondfrank/exhub).
+
+## License
+
+Exhub is licensed under the [MIT License](LICENSE).

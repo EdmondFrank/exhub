@@ -14,28 +14,28 @@ defmodule Exhub.Llm.World do
   Creates an agent in the World.
   """
   def create_agent(agent_name, agent_module, opts) do
-    GenServer.call(__MODULE__, {:create_agent, agent_name, agent_module, opts})
+    GenServer.call(__MODULE__, {:create_agent, agent_name, agent_module, opts}, :infinity)
   end
 
   @doc """
   Stops an agent in the World.
   """
   def stop_agent(agent_name) do
-    GenServer.call(__MODULE__, {:stop_agent, agent_name})
+    GenServer.call(__MODULE__, {:stop_agent, agent_name}, :infinity)
   end
 
   @doc """
   Sends a message to an agent in the World.
   """
   def send_message(agent_name, message) do
-    GenServer.call(__MODULE__, {:send_message, agent_name, message})
+    GenServer.call(__MODULE__, {:send_message, agent_name, message}, :infinity)
   end
 
   @doc """
   Lists all agents in the World.
   """
   def list_agents() do
-    GenServer.call(__MODULE__, :list_agents)
+    GenServer.call(__MODULE__, :list_agents, :infinity)
   end
 
   @impl true
@@ -56,7 +56,7 @@ defmodule Exhub.Llm.World do
   @impl true
   def handle_call({:stop_agent, agent_name}, _from, state) do
     agent = Map.get(state.agents, agent_name)
-    SwarmEx.stop_agent(agent)
+    :ok = SwarmEx.stop_agent(agent)
     new_agents = Map.delete(state.agents, agent_name)
     {:reply, :ok, %{state | agents: new_agents}}
   end
