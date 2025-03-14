@@ -11,6 +11,11 @@ config :exhub,
     "openai/Qwen/Qwen2.5-Coder-32B-Instruct" => %{
       api_base: "https://api.siliconflow.cn/v1",
       api_key: "your token",
+      model: "openai/Qwen/Qwen2.5-Coder-32B-Instruct",
+    },
+    "openai/Qwen/Qwen2.5-32B-Instruct" => %{
+      api_base: "https://api.siliconflow.cn/v1",
+      api_key: "your token",
       model: "openai/Qwen/Qwen2.5-32B-Instruct",
     },
     "codestral/codestral-latest" => %{
