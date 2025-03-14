@@ -218,6 +218,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 - `exhub-start-git-mcp-server`: Start the Git MCP server (required `pip install mcp_server_git` at first).
 - `exhub-start-file-mcp-server`: Start the File MCP server (required `npx` at first)
 - `exhub-start-k8s-mcp-server`: Start the K8s MCP server (required `npx` and `kubectl` at first).
+- `exhub-start-gitee-mcp-server`: Start the Gitee MCP server (required `mcp-gitee` at first).
 - `exhub-start-github-mcp-server`: Start the GitHub MCP server (required `npx` at first).
 
 #### Chat with Tools
