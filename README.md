@@ -1,3 +1,4 @@
+
 # Exhub
 
 Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket communication. It facilitates real-time interaction and communication between Emacs and the Elixir server.
@@ -264,6 +265,16 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 - `exhub-agent-init-tools`: Initialize tools with existing or new agents in the Exhub world.
 - `exhub-agent-tool-call`: Interact with tools using existing or new agents in the Exhub world.
 - `exhub-agent-kill`: Kill an existing agent in the Exhub world.
+
+#### Agent Keybindings
+
+When in `exhub-agent-mode`, the following keybindings are available:
+
+- `C-c c`: `exhub-agent-chat`
+- `C-c r`: `exhub-agent-tool-reply`
+- `C-c i`: `exhub-agent-init-tools`
+- `C-c k`: `exhub-agent-kill`
+- `C-c t`: `exhub-agent-tool-call`
 
 ## Contributing
 
