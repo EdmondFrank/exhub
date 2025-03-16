@@ -43,7 +43,7 @@ The configuration for Exhub is managed in `config/config.exs`. Here are the rele
         api_key: "your api key",
         model: "gpt-4o-mini"
       },
-      # ... 
+      # ...
     },
     gitee_cat: %{
       endpoint: "https://api.gitee.com/",
@@ -258,8 +258,10 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 #### Chat with Agents
 
-- `exhub-chat-with-agent`: Chat with existing or new agents in Exhub World.
-- `exhub-chat-kill-agent`: Kill an existing agent in Exhub World.
+- `exhub-agent-chat`: Chat with existing or new agents in the Exhub world.
+- `exhub-agent-tool-reply`: Reply to an existing agent using the output of a shell command.
+- `exhub-agent-init-tools`: Initialize tools with existing or new agents in the Exhub world.
+- `exhub-agent-kill`: Kill an existing agent in the Exhub world.
 
 ## Contributing
 
