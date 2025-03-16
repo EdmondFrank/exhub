@@ -9,6 +9,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Erlang/Elixir Backend**: Leverages Elixir and Erlang for robust backend processing.
 - **Emacs Integration**: Provides Emacs Lisp functions to interact seamlessly with the Elixir server.
 - **Agent Integration**: Allows integration with agents for enhanced functionality.
+- **MCP Tools Integration**: Provides integration with MCP Tools for extended functionality.
 
 ## Installation
 

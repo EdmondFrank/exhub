@@ -35,6 +35,22 @@
 (defvar exhub-agent-json-key-type 'string
   "The JSON key type for Exhub agents.")
 
+(defvar exhub-agent-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; Add keybindings for exhub-agent-mode
+    (define-key map (kbd "C-c c") 'exhub-agent-chat)
+    (define-key map (kbd "C-c r") 'exhub-agent-tool-reply)
+    (define-key map (kbd "C-c i") 'exhub-agent-init-tools)
+    (define-key map (kbd "C-c k") 'exhub-agent-kill)
+    (define-key map (kbd "C-c t") 'exhub-agent-tool-call)
+    map))
+
+(define-derived-mode exhub-agent-mode markdown-mode "exhub-agent"
+  "The major mode for Exhub Agent."
+  (setq-local mode-map exhub-agent-mode-map))
+
+(add-to-list 'auto-mode-alist '("\\.chat$" . exhub-agent-mode))
+
 (defun exhub-agent-chat ()
   "Chat with existing or new agents in the Exhub world."
   (interactive)
