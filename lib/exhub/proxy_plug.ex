@@ -6,7 +6,7 @@ defmodule Exhub.ProxyPlug do
     params =
       ReverseProxyPlug.init(
         upstream: upstream,
-        response_mode: Keyword.get(opts, :response_mode, :buffer),
+        response_mode: Keyword.get(opts, :response_mode, :stream),
         client_options: Keyword.get(opts, :client_options, []),
         preserve_host_header: Keyword.get(opts, :preserve_host_header, false)
       )

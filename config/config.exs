@@ -8,6 +8,11 @@ config :exhub,
       api_key: "your token",
       model: "openai/Qwen2.5-72B-Instruct",
     },
+    "openai/QwQ-32B" => %{
+      api_base: "http://localhost:9069/samba/v1",
+      api_key: "your token",
+      model: "openai/QwQ-32B"
+    },
     "openai/Qwen/Qwen2.5-Coder-32B-Instruct" => %{
       api_base: "https://api.siliconflow.cn/v1",
       api_key: "your token",
