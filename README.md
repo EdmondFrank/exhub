@@ -261,6 +261,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 - `exhub-agent-chat`: Chat with existing or new agents in the Exhub world.
 - `exhub-agent-tool-reply`: Reply to an existing agent using the output of a shell command.
 - `exhub-agent-init-tools`: Initialize tools with existing or new agents in the Exhub world.
+- `exhub-agent-tool-call`: Interact with tools using existing or new agents in the Exhub world.
 - `exhub-agent-kill`: Kill an existing agent in the Exhub world.
 
 ## Contributing

@@ -55,6 +55,17 @@
   (interactive)
   (exhub-agent-call "list-agents" "exhub--chat-kill-agent"))
 
+(defun exhub-agent-tool-call ()
+  "Interact with tools using existing or new agents in the Exhub world."
+  (interactive)
+  (let ((command (read-string "Enter shell command: ")))
+    (if (string-empty-p (string-trim command))
+        (message "Please enter a valid shell command.")
+      (let ((output (shell-command-to-string command)))
+        (if (string-empty-p (string-trim output))
+            (message "Shell command output is empty.")
+          (message "Shell command executed successfully: %s" output))))))
+
 (defun exhub--init-tools-select-or-create-agent (response)
   "Initialize tools with Exhub by using an existing agent or creating a new one.
 RESPONSE is the response from the server, containing the list of agents."
