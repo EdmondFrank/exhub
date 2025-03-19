@@ -29,12 +29,15 @@ defmodule Exhub.Llm.World.Agent do
 
   @impl true
   def handle_message(message, state) when is_binary(message) do
-    {:ok, updated_chain} =
-      state[:llm_chain]
-      |> LLMChain.add_message(Message.new_user!(message))
-      |> LLMChain.run(mode: :while_needs_response)
-
-    {:ok, response} = updated_chain |> ChainResult.to_string()
-    {:ok, response, %{state| llm_chain: updated_chain}}
+    case state[:llm_chain]
+         |> LLMChain.add_message(Message.new_user!(message))
+         |> LLMChain.run(mode: :while_needs_response) do
+      {:ok, updated_chain} ->
+        {:ok, response} = updated_chain |> ChainResult.to_string()
+        {:ok, response, %{state | llm_chain: updated_chain}}
+      {:error, _, error} ->
+        Logger.error("LLMChain.run failed: #{inspect(error)}")
+        {:error, error, state}
+    end
   end
 end

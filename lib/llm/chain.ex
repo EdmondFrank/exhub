@@ -5,6 +5,7 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.ChatModels.ChatMistralAI
   alias LangChain.ChatModels.ChatGoogleAI
   alias Exhub.Llm.LlmConfigServer
+  require Logger
 
   def create_llm_chain do
     {:ok, config} = LlmConfigServer.get_default_llm_config
@@ -31,21 +32,27 @@ defmodule Exhub.Llm.Chain do
   end
 
   def execute(llm_chain, initial_messages) do
-    {:ok, updated_chain} =
-      LLMChain.new!(llm_chain)
-      |> LLMChain.add_messages(initial_messages)
-      |> LLMChain.run(mode: :while_needs_response)
-
-    updated_chain |> ChainResult.to_string()
+    case LLMChain.new!(llm_chain)
+         |> LLMChain.add_messages(initial_messages)
+         |> LLMChain.run(mode: :while_needs_response) do
+      {:ok, updated_chain} ->
+        updated_chain |> ChainResult.to_string()
+      {:error, _, error} ->
+        Logger.error("LLMChain.run failed: #{inspect(error)}")
+        {:error, error}
+    end
   end
 
   def execute(llm_chain, initial_messages, functions, custom_context) do
-    {:ok, updated_chain} =
-      LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
-      |> LLMChain.add_tools(functions)
-      |> LLMChain.add_messages(initial_messages)
-      |> LLMChain.run(mode: :while_needs_response)
-
-    updated_chain |> ChainResult.to_string()
+    case LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
+         |> LLMChain.add_tools(functions)
+         |> LLMChain.add_messages(initial_messages)
+         |> LLMChain.run(mode: :while_needs_response) do
+      {:ok, updated_chain} ->
+        updated_chain |> ChainResult.to_string()
+      {:error, _, error} ->
+        Logger.error("LLMChain.run failed: #{inspect(error)}")
+        {:error, error}
+    end
   end
 end
