@@ -3,6 +3,7 @@ defmodule Exhub.Llm.World.Agent do
   alias LangChain.Message
   alias LangChain.Chains.LLMChain
   alias LangChain.Utils.ChainResult
+  alias LangChain.LangChainError
   use SwarmEx.Agent
 
   require Logger
@@ -35,9 +36,9 @@ defmodule Exhub.Llm.World.Agent do
       {:ok, updated_chain} ->
         {:ok, response} = updated_chain |> ChainResult.to_string()
         {:ok, response, %{state | llm_chain: updated_chain}}
-      {:error, _, error} ->
+      {:error, _, %LangChainError{message: message} = error} ->
         Logger.error("LLMChain.run failed: #{inspect(error)}")
-        {:error, error, state}
+        {:ok, message, state}
     end
   end
 end

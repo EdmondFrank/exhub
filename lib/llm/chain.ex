@@ -4,6 +4,7 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.ChatModels.ChatMistralAI
   alias LangChain.ChatModels.ChatGoogleAI
+  alias LangChain.LangChainError
   alias Exhub.Llm.LlmConfigServer
   require Logger
 
@@ -37,9 +38,9 @@ defmodule Exhub.Llm.Chain do
          |> LLMChain.run(mode: :while_needs_response) do
       {:ok, updated_chain} ->
         updated_chain |> ChainResult.to_string()
-      {:error, _, error} ->
+      {:error, _, %LangChainError{message: message} = error} ->
         Logger.error("LLMChain.run failed: #{inspect(error)}")
-        {:error, error}
+        message
     end
   end
 
@@ -50,9 +51,9 @@ defmodule Exhub.Llm.Chain do
          |> LLMChain.run(mode: :while_needs_response) do
       {:ok, updated_chain} ->
         updated_chain |> ChainResult.to_string()
-      {:error, _, error} ->
+      {:error, _, %LangChainError{message: message} = error} ->
         Logger.error("LLMChain.run failed: #{inspect(error)}")
-        {:error, error}
+        message
     end
   end
 end
