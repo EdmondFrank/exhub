@@ -26,6 +26,14 @@ defmodule Exhub.ResponseHandlers.ExhubTool do
     end
   end
 
+  def call(["exhub-tool", "stop-server", callback, [unique_name]]) do
+    with server_name <- String.to_atom(unique_name),
+         :ok <- ServerManager.kill(server_name),
+         :ok <- ClientManager.kill(:"#{server_name}_client") do
+      Exhub.send_message(~s[(#{callback} "#{unique_name} stopped")])
+    end
+  end
+
   defp inf_inspect(object) do
     inspect(object, printable_limit: :infinity)
   end

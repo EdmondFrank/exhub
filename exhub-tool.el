@@ -53,6 +53,40 @@
   (interactive)
   (exhub-tool-call "start-server" "message" exhub-mcp-server-k8s-name "npx" "-y" "mcp-server-kubernetes"))
 
+(defun exhub-stop-git-mcp-server ()
+  "Stop the Git MCP server"
+  (interactive)
+  (exhub-tool-call "stop-server" "message" exhub-mcp-server-git-name))
+
+(defun exhub-stop-gitee-mcp-server ()
+  "Stop the Gitee MCP server"
+  (interactive)
+  (exhub-tool-call "stop-server" "message" exhub-mcp-server-gitee-name))
+
+(defun exhub-stop-file-mcp-server ()
+  "Stop the File MCP server"
+  (interactive)
+  (exhub-tool-call "stop-server" "message" exhub-mcp-server-file-name))
+
+(defun exhub-stop-github-mcp-server ()
+  "Stop the GitHub MCP server"
+  (interactive)
+  (exhub-tool-call "stop-server" "message" exhub-mcp-server-github-name))
+
+(defun exhub-stop-k8s-mcp-server ()
+  "Stop the Kubernetes MCP server"
+  (interactive)
+  (exhub-tool-call "stop-server" "message" exhub-mcp-server-k8s-name))
+
+(defun exhub-stop-all-mcp-servers ()
+  "Stop all MCP servers"
+  (interactive)
+  (exhub-stop-git-mcp-server)
+  (exhub-stop-gitee-mcp-server)
+  (exhub-stop-file-mcp-server)
+  (exhub-stop-github-mcp-server)
+  (exhub-stop-k8s-mcp-server))
+
 (defun exhub-chat-with-git ()
   "Chat with Exhub using a registered Git server."
   (interactive)
