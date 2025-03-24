@@ -50,7 +50,7 @@ defmodule Exhub.Llm.World do
   def handle_call({:create_agent, agent_name, agent_module, opts}, _from, state) do
     {:ok, agent} = SwarmEx.create_agent(state.network, agent_module, opts)
     new_agents = Map.put(state.agents, agent_name, agent)
-    {:reply, agent, %{state | agents: new_agents}}
+    {:reply, {:ok, agent}, %{state | agents: new_agents}}
   end
 
   @impl true

@@ -3,10 +3,15 @@ import Config
 
 config :exhub,
   llms: %{
-    "qwen2.5-72b-instruct" => %{
+    "openai/Qwen2.5-72B-Instruct" => %{
       api_base: "https://ai.gitee.com/v1",
       api_key: "your token",
       model: "openai/Qwen2.5-72B-Instruct",
+    },
+    "openai/DeepSeek-V3" => %{
+      api_base: "https://ai.gitee.com/v1",
+      api_key: "your token",
+      model: "openai/DeepSeek-V3",
     },
     "openai/QwQ-32B" => %{
       api_base: "http://localhost:9069/samba/v1",
