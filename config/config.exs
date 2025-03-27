@@ -62,6 +62,11 @@ config :exhub,
       api_base: "http://127.0.0.1:9069/cohere/v1",
       api_key: "your token",
       model: "openai/command-r-plus",
+    },
+    "command-a-03-2025" => %{
+      api_base: "http://127.0.0.1:9069/cohere/v1",
+      api_key: "your token",
+      model: "openai/command-a-03-2025",
     }
   },
   proxy: "http://127.0.0.1:7890",
