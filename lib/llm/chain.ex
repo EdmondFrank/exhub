@@ -4,6 +4,7 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.ChatModels.ChatOpenAI
   alias LangChain.ChatModels.ChatMistralAI
   alias LangChain.ChatModels.ChatGoogleAI
+  alias LangChain.ChatModels.ChatAnthropic
   alias LangChain.LangChainError
   alias Exhub.Llm.LlmConfigServer
   require Logger
@@ -49,6 +50,7 @@ defmodule Exhub.Llm.Chain do
     llm_config =
       case provider do
         "google" -> %{endpoint: config[:api_base], model: model_name, api_key: config[:api_key]}
+        "anthropic" -> %{endpoint: "#{config[:api_base]}/messages", model: model_name, api_key: config[:api_key]}
         _ -> %{endpoint: "#{config[:api_base]}/chat/completions", model: model_name, api_key: config[:api_key]}
       end
 
@@ -56,6 +58,7 @@ defmodule Exhub.Llm.Chain do
       case provider do
         "google" -> ChatGoogleAI.new!(llm_config)
         "mistral" -> ChatMistralAI.new!(llm_config)
+        "anthropic" -> ChatAnthropic.new!(llm_config)
         _ -> ChatOpenAI.new!(llm_config)
       end
 

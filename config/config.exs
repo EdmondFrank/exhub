@@ -33,6 +33,16 @@ config :exhub,
       api_key: "your token",
       model: "mistral/codestral-latest",
     },
+    "anthropic/claude-3-5-sonnet-latest" => %{
+      api_base: "http://127.0.0.1:9069/anthropic/v1",
+      api_key: "your token",
+      model: "anthropic/claude-3-5-sonnet-latest",
+    },
+    "mistral/mistral-small-latest" => %{
+      api_base: "https://api.mistral.ai/v1",
+      api_key: "your token",
+      model: "mistral/mistral-small-latest",
+    },
     "mistral/mistral-large-latest" => %{
       api_base: "https://api.mistral.ai/v1",
       api_key: "your token",

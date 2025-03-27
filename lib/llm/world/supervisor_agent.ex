@@ -7,7 +7,7 @@ defmodule Exhub.Llm.World.SupervisorAgent do
 
   require Logger
 
-  @default_llm_name "openai/Qwen2.5-72B-Instruct"
+  @default_llm_name "mistral/mistral-small-latest"
 
   @llm_doc """
   You are AgentMatcher, an intelligent assistant designed to analyze user queries and match them with the most suitable agent or department. Your task is to understand the user's request, identify key entities and intents, and determine which agent or department would be best equipped to handle the query.
