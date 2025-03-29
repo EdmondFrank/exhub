@@ -11,6 +11,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Emacs Integration**: Provides Emacs Lisp functions to interact seamlessly with the Elixir server.
 - **Agent Integration**: Allows integration with agents for enhanced functionality.
 - **MCP Tools Integration**: Provides integration with MCP Tools for extended functionality.
+- **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 
 ## Installation
 
@@ -275,6 +276,37 @@ When in `exhub-agent-mode`, the following keybindings are available:
 - `C-c i`: `exhub-agent-init-tools`
 - `C-c k`: `exhub-agent-kill`
 - `C-c t`: `exhub-agent-tool-call`
+
+## exhub-fim
+
+The `exhub-fim` package provides LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
+
+### Setup
+
+Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
+```elisp
+(require 'exhub-fim)
+```
+
+### Usage
+
+#### Code Completion
+
+- `exhub-fim-show-suggestion`: Show code suggestion using overlay at point.
+- `exhub-fim-next-suggestion`: Cycle to next suggestion.
+- `exhub-fim-previous-suggestion`: Cycle to previous suggestion.
+- `exhub-fim-accept-suggestion`: Accept the current overlay suggestion.
+- `exhub-fim-dismiss-suggestion`: Dismiss the current overlay suggestion.
+- `exhub-fim-accept-suggestion-line`: Accept N lines of the current suggestion.
+- `exhub-fim-complete-with-minibuffer`: Complete using minibuffer interface.
+
+#### Automatic Suggestion
+
+- `exhub-fim-auto-suggestion-mode`: Toggle automatic code suggestions.
+
+#### Provider Configuration
+
+- `exhub-fim-configure-provider`: Configure a exhub-fim provider interactively.
 
 ## Contributing
 
