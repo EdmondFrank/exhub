@@ -14,6 +14,7 @@
 (defvar exhub-mcp-server-file-name "mcp-server-file" "File MCP server name.")
 (defvar exhub-mcp-server-github-name "mcp-server-github" "Github MCP server name.")
 (defvar exhub-mcp-server-gitee-name "mcp-server-gitee" "Gitee MCP server name.")
+(defvar exhub-mcp-server-gitee-ent-name "mcp-server-gitee-ent" "Gitee Ent MCP server name.")
 (defvar exhub-mcp-server-k8s-name "mcp-server-k8s" "Kubernetes MCP server name.")
 
 (defcustom exhubt-mcp-default-allowed-dir (expand-file-name "~") "Default allowed dir for Tools access." :type 'string :group 'exhub-tool)
@@ -32,6 +33,21 @@
       (setenv "GITEE_ACCESS_TOKEN" gitee-token)
       (message "Starting the Gitee MCP server...")
       (exhub-tool-call "start-server" "message" exhub-mcp-server-gitee-name "mcp-gitee"))))
+
+(defun exhub-start-gitee-mcp-ent-server ()
+  "Start the Gitee MCP server"
+  (interactive)
+  (let ((gitee-token (read-passwd "Please enter your Gitee enterprise access token: ")))
+    (if (string-empty-p (string-trim gitee-token))
+        (message "Please enter a valid Gitee personal access token.")
+      (setenv "GITEE_MCP_ENT_ACCESS_TOKEN" gitee-token)
+      (message "Starting the Gitee MCP Ent server...")
+      (exhub-tool-call "start-server" "message" exhub-mcp-server-gitee-ent-name "mcp-gitee-ent"))))
+
+(defun exhub-stop-gitee-mcp-ent-server ()
+  "Stop the Git MCP server"
+  (interactive)
+  (exhub-tool-call "stop-server" "message" exhub-mcp-server-gitee-ent-name))
 
 (defun exhub-start-file-mcp-server ()
   "Start the File MCP server"
