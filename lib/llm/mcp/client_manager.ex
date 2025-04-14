@@ -1,6 +1,6 @@
 defmodule Exhub.Llm.Mcp.ClientManager do
   use GenServer
-  alias Exhub.Llm.Mcp.Client
+  alias Hermes.Client
   require Logger
 
   @impl true

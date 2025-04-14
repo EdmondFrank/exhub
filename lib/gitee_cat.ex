@@ -22,7 +22,12 @@ defmodule GiteeCat do
 
   @spec process_response_body(binary) :: term
   def process_response_body(""), do: nil
-  def process_response_body(body), do: Jason.decode!(body, deserialization_options())
+  def process_response_body(body) do
+    case Jason.decode(body, deserialization_options()) do
+      {:ok, decoded} -> decoded
+      {:error, _} -> body  # Return the raw body if it's not valid JSON
+    end
+  end
 
   @spec process_response(HTTPoison.Response.t() | {integer, any, HTTPoison.Response.t()}) ::
           response

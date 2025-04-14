@@ -14,6 +14,7 @@
 (require 'org)
 (require 'org-element)
 (require 'exhub)
+(require 'diff-mode) ; Ensure diff-mode is loaded
 
 ;;; Variables
 (defvar gitee-pulls-buffer-name "*Gitee Pulls*" "Gitee pulls buffer name.")
@@ -36,6 +37,7 @@
       (dolist (pull pulls)
         (let* ((title (gethash "title" pull))
                (id (gethash "id" pull))
+               (project-id (gethash "id" (gethash "project" pull)))
                (state (gethash "state" pull))
                (author (gethash "remark" (gethash "author" pull)))
                (source-branch (gethash "branch" (gethash "source_branch" pull)))
@@ -51,7 +53,46 @@
           (org-set-property "AUTHOR" author)
           (org-set-property "SOURCE_BRANCH" source-branch)
           (org-set-property "TARGET_BRANCH" target-branch)
-          (org-todo org-state))))))
+          (org-todo org-state)
+          ;; Add a link to show the diff
+          (insert (format "[[elisp:(gitee-show-pull-diff %d %d)][Show Diff]]\n" project-id id)))))))
+
+(defun gitee-show-pull-diff (project-id pull-id)
+  "Fetch and display the raw diff for the pull request identified by PROJECT-ID and PULL-ID."
+  (interactive "nProject ID: \nnPull ID: ")
+  (let ((buffer-name (format "*Gitee Pull Diff %d*" pull-id)))
+    (with-current-buffer (get-buffer-create buffer-name)
+      (erase-buffer)  ; Clear the buffer
+      ;; Insert title before calling the async function
+      (insert (format "* Gitee Pull Diff for Pull ID: %d\n\n" pull-id))
+      (gitee--fetch-pull-diff project-id pull-id 'gitee-handle-pull-diff-response))  ; Use named function
+    (switch-to-buffer buffer-name)))
+
+(defun gitee-handle-pull-diff-response (response)
+  "Handle the response from fetching the pull diff and display it in diff-mode."
+  (let ((inhibit-read-only t)) ; Allow modification even if buffer became read-only
+    (condition-case err
+        (let* ((json-object-type 'string) ; Expecting a simple string from JSON parse
+               (json-array-type 'list)
+               (json-key-type 'string)
+               ;; Attempt to parse the response as a JSON string
+               (diff-content (json-read-from-string response)))
+          (if (stringp diff-content)
+              (progn
+                (insert diff-content) ; Insert the *parsed* diff content
+                (goto-char (point-min)) ; Go to the beginning of the buffer
+                (diff-mode)        ; Enable diff-mode for syntax highlighting and navigation
+                (setq buffer-read-only t)) ; Make the buffer read-only after inserting content
+            ;; Handle cases where JSON parsing succeeded but didn't yield a string
+            (insert (format "Error: Expected diff string but got type %s" (type-of diff-content)))))
+      ;; Handle JSON parsing errors or other errors during processing
+      (error (insert (format "Error processing diff response: %s\nRaw response:\n%s"
+                             (error-message-string err)
+                             response))))))
+
+(defun gitee--fetch-pull-diff (project-id pull-id callback)
+  "Fetch the raw diff for the pull request using PROJECT-ID and PULL-ID, then call CALLBACK with the response."
+  (exhub-gitee-call "Pulls" "raw_diff" callback gitee-default-ent-id project-id pull-id))
 
 (defun gitee-show-issues (response)
   "Render the Gitee Issues buffer with issues."
@@ -101,7 +142,7 @@
         (switch-to-buffer detail-buffer-name)
         (insert (format "* %s %s\n%s\n" org-state title description))))))
 
-;;; Functions to interative with an Org-mode buffer with issues
+;;; Functions to interact with an Org-mode buffer with issues
 
 (defun gitee-open-issue-detail-buffer ()
   "Fetch the issue detail for the current issue in the Gitee buffer."

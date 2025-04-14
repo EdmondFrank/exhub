@@ -3,7 +3,7 @@ defmodule Exhub.Llm.Chat do
   alias LangChain.Function
 
   alias Exhub.Llm.Chain
-  alias Exhub.Llm.Mcp.Client
+  alias Hermes.Client
   alias Exhub.Llm.Mcp.ClientManager
   require Logger
 
