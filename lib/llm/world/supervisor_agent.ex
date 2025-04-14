@@ -90,7 +90,8 @@ defmodule Exhub.Llm.World.SupervisorAgent do
       {:ok, %__MODULE__{userinput: user_message, selected_agent: agent, confidence: _confidence}} ->
         case SwarmEx.send_message_to_pid(state[agent], user_message) do
           {:ok, reply} ->
-            {:ok, reply, state}
+            combined_reply = "#{reply} | Selected Agent: #{agent}"  # Combine selected_agent with reply
+            {:ok, combined_reply, state}  # Ensure reply is binary
           error ->
             Logger.error("Supervisor agent failed: #{inspect(error)}")
             {:ok, inspect(error), state}
