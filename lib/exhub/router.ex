@@ -30,6 +30,10 @@ defmodule Exhub.Router do
     ProxyPlug.forward_upstream(conn, "https://api.sambanova.ai/v1", client_options: [proxy: @proxy])
   end
 
+  post "/openai/v1/*path" do
+    ProxyPlug.forward_upstream(conn, "http://localhost:4444/v1")
+  end
+
   post "/anthropic/v1/*path" do
     ProxyPlug.forward_upstream(conn, "https://api.anthropic.com/v1", client_options: [proxy: @proxy])
   end
