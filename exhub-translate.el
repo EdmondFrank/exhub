@@ -56,7 +56,7 @@
 (defvar exhub-translate-underline-style-mode-list
   '(ruby-mode))
 
-(defvar exhub-translate-default-style "underline"
+(defvar exhub-translate-default-style "origin"
   "The default translation style, which can be set to \"origin\", \"line\", \"camel\" or \"underline\".")
 ;;;;;;;;;;;;;;;;;;;;; Interactive functions ;;;;;;;;;;;;;;;;;;;;;
 (defun exhub-translate-insert (arg)

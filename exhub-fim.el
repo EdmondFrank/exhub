@@ -31,7 +31,7 @@
 (declare-function consult--read "consult")
 (declare-function consult--insertion-preview "consult")
 
-(defcustom exhub-fim-auto-suggestion-debounce-delay 0.8
+(defcustom exhub-fim-auto-suggestion-debounce-delay 0.4
   "Debounce delay in seconds for auto-suggestions."
   :type 'number)
 
