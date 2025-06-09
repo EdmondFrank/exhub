@@ -8,6 +8,17 @@ config :exhub,
       api_key: "your token",
       model: "openai/Qwen2.5-72B-Instruct",
     },
+
+    "openai/Qwen3-235B-A22B" => %{
+      api_base: "https://ai.gitee.com/v1",
+      api_key: "your token",
+      model: "openai/Qwen3-235B-A22B",
+    },
+    "openai/cursor/gpt-4o-mini" => %{
+      api_base: "http://127.0.0.1:9069/openai/v1",
+      api_key: "your token",
+      model: "openai/cursor/gpt-4o-mini",
+    },
     "openai/gpt-4o-mini" => %{
       api_base: "http://localhost:4444/v1",
       api_key: "edmondfrank",
