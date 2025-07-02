@@ -15,7 +15,13 @@ defmodule Exhub.ProxyPlug do
 
     conn =
       Enum.reduce(custom_headers, conn, fn {header, value}, conn ->
-        IO.inspect({header, value})
+        # Ensure headers are lowercase for consistency
+        header = String.downcase(header)
+
+        # Remove existing header if it exists
+        conn = Plug.Conn.delete_req_header(conn, header)
+
+        # Add the new header
         Plug.Conn.put_req_header(conn, header, value)
       end)
 
