@@ -1,9 +1,11 @@
 defmodule Exhub.Router do
   alias Exhub.ProxyPlug
-  @proxy Application.compile_env(:exhub, :proxy, "")
   require Logger
   use Plug.Router
   use PlugSocket
+
+  @proxy Application.compile_env(:exhub, :proxy, "")
+  @default_timeout Application.compile_env(:exhub, :default_timeout, 1_800_000)
 
   plug Plug.Parsers,
     parsers: [:urlencoded, {:json, json_decoder: Jason}],
@@ -44,7 +46,9 @@ defmodule Exhub.Router do
 
     # Model to target mapping (extendable)
     model_target_map = %{
-      "qwen3-235b-a22b" => "https://ai.gitee.com/v1"
+      "qwen3-235b-a22b" => "https://ai.gitee.com/v1",
+      "gemini-2.5-pro" => "http://localhost:8765/v1",
+      "gemini-2.5-flash" => "http://localhost:8765/v1"
     }
 
     # Model to token mapping (extendable)
@@ -56,10 +60,12 @@ defmodule Exhub.Router do
 
     token = Map.get(model_token_map, model_name, Application.get_env(:exhub, :openai_api_key, ""))
 
+    options = [custom_headers: [{"Authorization", "Bearer #{token}"}], client_options: [timeout: @default_timeout, recv_timeout: @default_timeout]]
+
     ProxyPlug.forward_upstream(
       conn,
       target_url,
-      custom_headers: [{"Authorization", "Bearer #{token}"}]
+      options
     )
   end
 
