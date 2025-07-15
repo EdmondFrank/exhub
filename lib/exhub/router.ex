@@ -46,6 +46,7 @@ defmodule Exhub.Router do
 
     # Model to target mapping (extendable)
     model_target_map = %{
+      "kimi-k2-instruct" => "https://ai.gitee.com/v1",
       "qwen3-235b-a22b" => "https://ai.gitee.com/v1",
       "gemini-2.5-pro" => "http://localhost:8765/v1",
       "gemini-2.5-flash" => "http://localhost:8765/v1"
