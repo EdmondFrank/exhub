@@ -54,7 +54,8 @@ defmodule Exhub.Router do
 
     # Model to token mapping (extendable)
     model_token_map = %{
-      "qwen3-235b-a22b" => Application.get_env(:exhub, :giteeai_api_key, "")
+      "qwen3-235b-a22b" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "kimi-k2-instruct" => Application.get_env(:exhub, :giteeai_api_key, "")
     }
 
     target_url = Map.get(model_target_map, model_name, "http://localhost:4444/v1")
