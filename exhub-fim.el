@@ -115,6 +115,14 @@ When non-nil and a completion item has multiple lines, create another
 completion item containing only its first line."
   :type 'boolean)
 
+(defcustom exhub-fim-show-error-message-on-minibuffer nil
+  "Whether to show the error messages in minibuffer.
+When non-nil, if a request fails or times out without generating even
+a single token, the error message will be shown in the minibuffer.
+Note that you can always inspect `exhub-fim-buffer-name' to view the
+complete error log."
+  :type 'boolean)
+
 (defcustom exhub-fim-after-cursor-filter-length 15
   "Length of context after cursor used to filter completion text.
 
@@ -273,6 +281,8 @@ fib(5)")
            :api-key "CODESTRAL_API_KEY"
            :template (:prompt exhub-fim--default-fim-prompt-function
                               :suffix exhub-fim--default-fim-suffix-function)
+           :get-text-fn exhub-fim--openai-get-text-fn
+           :transform ()
            :optional nil)
   "Config options for Exhub-fim Codestral provider.")
 
@@ -301,11 +311,14 @@ fib(5)")
            :name "Deepseek"
            :template (:prompt exhub-fim--default-fim-prompt-function
                               :suffix exhub-fim--default-fim-suffix-function)
+           :get-text-fn exhub-fim--openai-fim-get-text-fn
+           :transform ()
            :optional nil)
   "Config options for Exhub-fim OpenAI FIM compatible provider.")
 
 (defvar exhub-fim-gemini-options
   `(:model "gemini-2.0-flash"
+           :end-point "http://localhost:9069/google/v1/models"
            :api-key "GEMINI_API_KEY"
            :system
            (:template exhub-fim-default-system-template
@@ -328,17 +341,31 @@ fib(5)")
        (not (or (evil-insert-state-p)
                 (evil-emacs-state-p)))))
 
-(defun exhub-fim-set-optional-options (options key val &optional field)
-  "Set the value of KEY in the FIELD of OPTIONS to VAL.
-If FIELD is not provided, it defaults to :optional.  If VAL is nil,
-then remove KEY from OPTIONS.  This helper function simplifies setting
-values in a two-level nested plist structure."
-  (let ((field (or field :optional)))
-    (if val
-        (setf (plist-get options field)
-              (plist-put (plist-get options field) key val))
-      (setf (plist-get options field)
-            (map-delete (plist-get options field) key)))))
+(defmacro exhub-fim-set-nested-plist (plist val &rest attributes)
+  "Set or delete a PLIST's nested ATTRIBUTES.
+PLIST is the plist to set.  If VAL is non-nil, set the nested
+attribute to VAL.  If VAL is nil, delete the final attribute from its
+parent plist."
+  (if (null attributes)
+      (error "exhub-fim-set-nested-plist requires at least one attribute key"))
+  (if val
+      (let ((access-form plist))
+        (dolist (attr attributes)
+          (setq access-form `(plist-get ,access-form ,attr)))
+        `(setf ,access-form ,val))
+    (let* ((all-but-last-attributes (butlast attributes))
+           (last-attribute (car (last attributes)))
+           (parent-plist-accessor plist))
+      (dolist (attr all-but-last-attributes)
+        (setq parent-plist-accessor `(plist-get ,parent-plist-accessor ,attr)))
+      `(setf ,parent-plist-accessor (map-delete ,parent-plist-accessor ,last-attribute)))))
+
+(defun exhub-fim-set-optional-options (options key val &optional parent-key)
+  "Set the value of KEY in the PARENT-KEY of OPTIONS to VAL.
+If PARENT-KEY is not provided, it defaults to :optional.  If VAL is nil,
+then remove KEY from OPTIONS."
+  (let ((parent-key (or parent-key :optional)))
+    (exhub-fim-set-nested-plist options val parent-key key)))
 
 (defun exhub-fim--eval-value (value)
   "Eval a VALUE for exhub-fim.
@@ -1019,6 +1046,22 @@ to be called when completion items arrive."
            (exhub-fim--handle-chat-completion-timeout
             context err --response-- #'exhub-fim--claude-get-text-fn "Claude" callback)))
     exhub-fim--current-requests)))
+
+(defun exhub-fim--transform-openai-chat-to-gemini-chat (chat)
+  "Convert OpenAI-format chat to Gemini format.
+CHAT is a list of plists with :role and :content keys"
+  (let (new-chat)
+    (dolist (message chat)
+      (let ((gemini-message
+             (pcase (plist-get message :role)
+               ("user"
+                `(:role "user" :parts [(:text ,(plist-get message :content))]))
+               ("assistant"
+                `(:role "model" :parts [(:text ,(plist-get message :content))]))
+               (_ nil))))
+        (when gemini-message
+          (push gemini-message new-chat))))
+    (nreverse new-chat)))
 
 (defun exhub-fim--gemini-get-text-fn (json)
   "Function to get the completion from a JSON object for gemini."
