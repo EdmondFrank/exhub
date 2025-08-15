@@ -47,8 +47,10 @@ defmodule Exhub.Router do
     # Model to target mapping (extendable)
     model_target_map = %{
       "step3" => "https://ai.gitee.com/v1",
+      "glm-4_5v" => "https://ai.gitee.com/v1",
       "deepseek-v3" => "https://ai.gitee.com/v1",
       "deepseek-r1" => "https://ai.gitee.com/v1",
+      "gpt-oss-120b" => "https://ai.gitee.com/v1",
       "internvl3-78b" => "https://ai.gitee.com/v1",
       "kimi-k2-instruct" => "https://ai.gitee.com/v1",
       "qwen3-235b-a22b" => "https://ai.gitee.com/v1",
@@ -61,8 +63,10 @@ defmodule Exhub.Router do
     # Model to token mapping (extendable)
     model_token_map = %{
       "step3" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "glm-4_5v" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-r1" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "gpt-oss-120b" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "internvl3-78b" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "kimi-k2-instruct" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "qwen3-235b-a22b" => Application.get_env(:exhub, :giteeai_api_key, ""),
