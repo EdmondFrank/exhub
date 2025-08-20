@@ -47,6 +47,7 @@ defmodule Exhub.Router do
     # Model to target mapping (extendable)
     model_target_map = %{
       "step3" => "https://ai.gitee.com/v1",
+      "glm-4_5" => "https://ai.gitee.com/v1",
       "glm-4_5v" => "https://ai.gitee.com/v1",
       "deepseek-v3" => "https://ai.gitee.com/v1",
       "deepseek-r1" => "https://ai.gitee.com/v1",
@@ -63,6 +64,7 @@ defmodule Exhub.Router do
     # Model to token mapping (extendable)
     model_token_map = %{
       "step3" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "glm-4_5" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "glm-4_5v" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-r1" => Application.get_env(:exhub, :giteeai_api_key, ""),
