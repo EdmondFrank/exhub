@@ -14,6 +14,16 @@ config :exhub,
       api_key: "your token",
       model: "openai/Qwen3-235B-A22B",
     },
+    "openai/qwen3-235b-a22b-instruct-2507" => %{
+      api_base: "https://ai.gitee.com/v1",
+      api_key: "your token",
+      model: "openai/qwen3-235b-a22b-instruct-2507",
+    },
+    "openai/qwen3-coder-480b-a35b-instruct" => %{
+      api_base: "https://ai.gitee.com/v1",
+      api_key: "your token",
+      model: "openai/qwen3-coder-480b-a35b-instruct",
+    },
     "openai/kimi-k2-instruct" => %{
       api_base: "https://ai.gitee.com/v1",
       api_key: "your token",
@@ -38,6 +48,11 @@ config :exhub,
       api_base: "http://localhost:9069/samba/v1",
       api_key: "your token",
       model: "openai/QwQ-32B"
+    },
+    "openai/gemini-2.5-pro" => %{
+      api_base: "http://localhost:9069/openai/v1",
+      api_key: "your token",
+      model: "openai/gemini-2.5-pro"
     },
     "openai/Qwen/Qwen2.5-Coder-32B-Instruct" => %{
       api_base: "https://api.siliconflow.cn/v1",
