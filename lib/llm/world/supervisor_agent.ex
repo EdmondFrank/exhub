@@ -58,6 +58,7 @@ defmodule Exhub.Llm.World.SupervisorAgent do
   end
 
   @impl true
+  @spec init(keyword()) :: {:ok, map()} | {:error, term()}
   def init(opts) do
     {:ok, opts}
   end
@@ -66,6 +67,7 @@ defmodule Exhub.Llm.World.SupervisorAgent do
   def terminate(_reason, _state), do: :ok
 
   @impl true
+  @spec handle_message(String.t(), map()) :: {:ok, any(), map()}
   def handle_message(message, state) when is_binary(message) do
     %{llm: %{endpoint: endpoint, model: model, api_key: api_key}} = Chain.create_llm_chain(@default_llm_name)
     uri = URI.parse(endpoint)

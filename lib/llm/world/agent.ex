@@ -9,6 +9,7 @@ defmodule Exhub.Llm.World.Agent do
   require Logger
 
   @impl true
+  @spec init(keyword()) :: {:ok, map()} | {:error, term()}
   def init(opts) do
     initial_messages =
     if opts[:system_message] do
@@ -29,6 +30,7 @@ defmodule Exhub.Llm.World.Agent do
   def terminate(_reason, _state), do: :ok
 
   @impl true
+  @spec handle_message(String.t(), map()) :: {:ok, any(), map()}
   def handle_message(message, state) when is_binary(message) do
     case state[:llm_chain]
          |> LLMChain.add_message(Message.new_user!(message))

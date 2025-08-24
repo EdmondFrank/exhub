@@ -13,6 +13,7 @@ defmodule Exhub.Llm.World.SearchAgent do
   @proxy Application.compile_env(:exhub, :proxy, "")
 
   @impl true
+  @spec init(keyword()) :: {:ok, map()} | {:error, term()}
   def init(opts) do
     initial_messages = [
       Message.new_system!("""
@@ -98,6 +99,7 @@ defmodule Exhub.Llm.World.SearchAgent do
   def terminate(_reason, _state), do: :ok
 
   @impl true
+  @spec handle_message(String.t(), map()) :: {:ok, any(), map()}
   def handle_message(message, state) when is_binary(message) do
     case state[:llm_chain]
          |> LLMChain.add_message(Message.new_user!(message))
