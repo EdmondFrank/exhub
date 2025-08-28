@@ -10,7 +10,11 @@ defmodule Exhub.Router do
   plug Plug.Parsers,
     parsers: [:urlencoded, {:json, json_decoder: Jason}],
     pass:  ["*/*"]
-  socket "/exhub", Exhub.SocketHandler
+
+  socket "/exhub", Exhub.SocketHandler,
+    websocket: [timeout: @default_timeout, recv_timeout: @default_timeout],
+    longpoll: false
+
   plug :match
   plug :dispatch
 

@@ -26,7 +26,7 @@ defmodule Exhub.Application do
     Plug.Cowboy.child_spec(
       scheme: :http,
       plug: Exhub.Router,
-      options: [port: port(), dispatch: dispatch()])
+      options: [port: port(), dispatch: dispatch(), protocol_options: [idle_timeout: 1_800_000]])
   end
 
 
