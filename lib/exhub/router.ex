@@ -64,6 +64,7 @@ defmodule Exhub.Router do
       "kimi-k2-instruct" => "https://ai.gitee.com/v1",
       "qwen3-235b-a22b" => "https://ai.gitee.com/v1",
       "qwen3-235b-a22b-instruct-2507" => "https://ai.gitee.com/v1",
+      "qwen3-next-80b-a3b-instruct" => "https://ai.gitee.com/v1",
       "qwen3-coder-480b-a35b-instruct" => "https://ai.gitee.com/v1",
       "gemini-2.5-pro" => "http://localhost:8765/v1",
       "gemini-2.5-flash" => "http://localhost:8765/v1"
@@ -85,6 +86,7 @@ defmodule Exhub.Router do
       "kimi-k2-instruct" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "qwen3-235b-a22b" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "qwen3-235b-a22b-instruct-2507" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "qwen3-next-80b-a3b-instruct" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "qwen3-coder-480b-a35b-instruct" => Application.get_env(:exhub, :giteeai_api_key, "")
     }
 

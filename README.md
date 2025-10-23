@@ -11,6 +11,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Agent Integration**: Allows integration with agents for enhanced functionality.
 - **MCP Tools Integration**: Provides integration with MCP Tools for extended functionality.
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
+- **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
 
 ## Installation
 
@@ -31,22 +32,142 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 
 The configuration for Exhub is managed in `config/config.exs`. Here are the relevant settings:
 
-- **LLM Configuration**:
+- **LLM Configuration with DRY Approach**:
   ```elixir
-  config :exhub,
-    llms: %{
-      "qwen2.5-32b-instruct" => %{
-        api_base: "https://ai.gitee.com/v1",
-        api_key: "your api key",
-        model: "qwen2.5-32b-instruct"
-      },
-      "gpt-4o" => %{
-        api_base: "https://api.openai.com/v1",
-        api_key: "your api key",
-        model: "gpt-4o-mini"
-      },
-      # ...
+  # Store common values in variables instead of module attributes
+  gitee_api_base = "https://ai.gitee.com/v1"
+  gitee_api_key = "your api key"
+
+  # Define LLM configurations using the DRY approach
+  llms_config = %{
+    "openai/Qwen2.5-72B-Instruct" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/Qwen2.5-72B-Instruct"
     },
+    "openai/Qwen3-235B-A22B" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/Qwen3-235B-A22B"
+    },
+    "openai/qwen3-next-80b-a3b-instruct" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/qwen3-next-80b-a3b-instruct"
+    },
+    "openai/qwen3-235b-a22b-instruct-2507" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/qwen3-235b-a22b-instruct-2507"
+    },
+    "openai/qwen3-coder-480b-a35b-instruct" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/qwen3-coder-480b-a35b-instruct"
+    },
+    "openai/kimi-k2-instruct" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/kimi-k2-instruct"
+    },
+    "openai/cursor/gpt-4o-mini" => %{
+      api_base: "http://127.0.0.1:9069/openai/v1",
+      api_key: "your token",
+      model: "openai/cursor/gpt-4o-mini"
+    },
+    "openai/gpt-4o-mini" => %{
+      api_base: "http://localhost:4444/v1",
+      api_key: "edmondfrank",
+      model: "openai/gpt-4o-mini"
+    },
+    "openai/deepseek-v3_1-terminus" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/deepseek-v3_1-terminus"
+    },
+    "openai/deepseek-v3.2-exp" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/deepseek-v3.2-exp"
+    },
+    "openai/glm-4.6" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/glm-4.6"
+    },
+    "openai/DeepSeek-V3" => %{
+      api_base: gitee_api_base,
+      api_key: gitee_api_key,
+      model: "openai/DeepSeek-V3"
+    },
+    "openai/QwQ-32B" => %{
+      api_base: "http://localhost:9069/samba/v1",
+      api_key: "your token",
+      model: "openai/QwQ-32B"
+    },
+    "openai/gemini-2.5-pro" => %{
+      api_base: "http://127.0.0.1:9069/openai/v1",
+      api_key: "your token",
+      model: "openai/gemini-2.5-pro"
+    },
+    "openai/Qwen/Qwen2.5-Coder-32B-Instruct" => %{
+      api_base: "https://api.siliconflow.cn/v1",
+      api_key: "your token",
+      model: "openai/Qwen/Qwen2.5-Coder-32B-Instruct"
+    },
+    "openai/Qwen/Qwen2.5-32B-Instruct" => %{
+      api_base: "https://api.siliconflow.cn/v1",
+      api_key: "your token",
+      model: "openai/Qwen/Qwen2.5-32B-Instruct"
+    },
+    "codestral/codestral-latest" => %{
+      api_base: "https://codestral.mistral.ai/v1",
+      api_key: "your token",
+      model: "mistral/codestral-latest"
+    },
+    "anthropic/claude-3-5-sonnet-latest" => %{
+      api_base: "http://127.0.0.1:9069/anthropic/v1",
+      api_key: "your token",
+      model: "anthropic/claude-3-5-sonnet-latest"
+    },
+    "mistral/mistral-small-latest" => %{
+      api_base: "https://api.mistral.ai/v1",
+      api_key: "your token",
+      model: "mistral/mistral-small-latest"
+    },
+    "mistral/mistral-large-latest" => %{
+      api_base: "https://api.mistral.ai/v1",
+      api_key: "your token",
+      model: "mistral/mistral-large-latest"
+    },
+    "groq/llama-3.3-70b-versatile" => %{
+      api_base: "http://127.0.0.1:9069/groq/v1",
+      api_key: "your token",
+      model: "openai/llama-3.3-70b-versatile"
+    },
+    "gemini/gemini-2.0-flash" => %{
+      api_base: "http://127.0.0.1:9069/google/v1",
+      api_key: "your token",
+      model: "google/gemini-2.0-flash"
+    },
+    "command-r-plus" => %{
+      api_base: "http://127.0.0.1:9069/cohere/v1",
+      api_key: "your token",
+      model: "openai/command-r-plus"
+    },
+    "command-a-03-2025" => %{
+      api_base: "http://127.0.0.1:9069/cohere/v1",
+      api_key: "your token",
+      model: "openai/command-a-03-2025"
+    }
+  }
+
+  config :exhub,
+    gemini_api_base: "http://localhost:8765/v1",
+    giteeai_api_key: gitee_api_key,
+    openai_api_key: "your token",
+    llms: llms_config,
+    proxy: "http://127.0.0.1:7890",
     gitee_cat: %{
       endpoint: "https://api.gitee.com/",
       auth: %{cookie: "your cookie"} # or %{access_token: "your acccess token"}
@@ -151,9 +272,7 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 - `gitee-open-issues-buffer`: Open a new Org-mode buffer to display Gitee issues.
 - `gitee-open-issue-detail-buffer`: Open a new Org-mode buffer to display a Gitee issue detail.
-- `gitee-open-pulls-buffer`: Open a new Org-mode buffer to display Gitee pulls.
-
-## exhub-chat
+- `gitee-open-pulls-buffer`: Open a new Org-mode buffer to display Gitee pulls.## exhub-chat
 
 The `exhub-chat` package provides chat functionality for Emacs using Exhub.
 
@@ -333,6 +452,25 @@ Ensure the environment variable `GEMINI_API_KEY` is exported in the shell that l
 ```bash
 export GEMINI_API_KEY="your-gemini-key"
 ```
+
+## Recent Enhancements
+
+### Configuration Improvements
+- **DRY Configuration Approach**: Common API base and key values are now stored in variables for easier maintenance
+- **Enhanced LLM Support**: Added support for new models including:
+  - `qwen3-next-80b-a3b-instruct`
+  - `deepseek-v3_1-terminus`
+  - `deepseek-v3.2-exp`
+  - `glm-4.6`
+
+### Advanced Configuration Management
+- **Improved LLM Config Server**: Enhanced validation, error handling, and type specifications
+- **Better State Management**: Robust configuration state handling with fallback mechanisms
+- **Type Safety**: Added proper type specifications for better code reliability
+
+### Router Enhancements
+- **Extended Model Support**: Updated router to support the new `qwen3-next-80b-a3b-instruct` model
+- **Consistent API Mapping**: Improved API base and key mapping for all supported models
 
 ## Contributing
 
