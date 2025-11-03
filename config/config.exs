@@ -16,6 +16,11 @@ llms_config = %{
     api_key: gitee_api_key,
     model: "openai/Qwen3-235B-A22B"
   },
+  "openai/minimax-m2" => %{
+    api_base: gitee_api_base,
+    api_key: gitee_api_key,
+    model: "openai/minimax-m2"
+  },
   "openai/qwen3-next-80b-a3b-instruct" => %{
     api_base: gitee_api_base,
     api_key: gitee_api_key,
