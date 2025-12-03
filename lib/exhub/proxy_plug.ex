@@ -41,6 +41,13 @@ defmodule Exhub.ProxyPlug do
           Jason.encode!(conn.body_params)
         end
 
+        case conn.body_params do
+          %{"model" => "deepseek-v3.2"} ->
+            Jason.encode!(Map.put(conn.body_params, "max_tokens", 8192))
+          _ ->
+            Jason.encode!(conn.body_params)
+        end
+
         pre_body == "" &&
           Plug.Conn.get_req_header(conn, "content-type") == [
           "application/x-www-form-urlencoded"

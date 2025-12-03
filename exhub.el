@@ -65,7 +65,10 @@
                    :on-message
                    (lambda (_websocket frame)
                      (let ((body (websocket-frame-text frame)))
-                       (exhub-eval body)))
+                       (condition-case err
+                           (exhub-eval body)
+                         (error
+                          (message "Error evaluating WebSocket message: %s" err)))))
                    :on-close (lambda (_websocket)
                                (message "websocket closed")
                                (exhub--stop-ping-timer))))

@@ -56,6 +56,11 @@ llms_config = %{
     api_key: gitee_api_key,
     model: "openai/deepseek-v3_1-terminus"
   },
+  "openai/deepseek-v3.2" => %{
+    api_base: gitee_api_base,
+    api_key: gitee_api_key,
+    model: "openai/deepseek-v3.2"
+  },
   "openai/deepseek-v3.2-exp" => %{
     api_base: gitee_api_base,
     api_key: gitee_api_key,

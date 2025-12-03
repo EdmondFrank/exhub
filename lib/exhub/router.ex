@@ -58,20 +58,24 @@ defmodule Exhub.Router do
       "deepseek-r1" => "https://ai.gitee.com/v1",
       "deepseek-v3_1" => "https://ai.gitee.com/v1",
       "deepseek-v3_1-terminus" => "https://ai.gitee.com/v1",
+      "deepseek-v3.2" => "https://ai.gitee.com/v1",
       "deepseek-v3.2-exp" => "https://ai.gitee.com/v1",
       "gpt-oss-120b" => "https://ai.gitee.com/v1",
       "internvl3-78b" => "https://ai.gitee.com/v1",
       "kimi-k2-instruct" => "https://ai.gitee.com/v1",
+      "kimi-k2-thinking" => "https://ai.gitee.com/v1",
+      "kimi-for-coding" => "https://api.kimi.com/coding/v1",
       "qwen3-235b-a22b" => "https://ai.gitee.com/v1",
       "qwen3-235b-a22b-instruct-2507" => "https://ai.gitee.com/v1",
       "qwen3-next-80b-a3b-instruct" => "https://ai.gitee.com/v1",
       "qwen3-coder-480b-a35b-instruct" => "https://ai.gitee.com/v1",
       "tngtech/deepseek-r1t2-chimera:free" => "https://openrouter.ai/api/v1",
       "minimax/minimax-m2:free" => "https://openrouter.ai/api/v1",
-      "minimax-m2" => "https://api.gitee.com/v1",
+      "minimax-m2" => "https://ai.gitee.com/v1",
       "minimax-m2-preview" => "https://api.minimaxi.com/v1",
       "gemini-2.5-pro" => "http://localhost:8765/v1",
-      "gemini-2.5-flash" => "http://localhost:8765/v1"
+      "gemini-2.5-flash" => "http://localhost:8765/v1",
+      "openrouter/polaris-alpha" => "https://openrouter.ai/api/v1"
     }
 
     # Model to token mapping (extendable)
@@ -84,10 +88,13 @@ defmodule Exhub.Router do
       "deepseek-r1" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3_1" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3_1-terminus" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "deepseek-v3.2" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3.2-exp" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "gpt-oss-120b" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "internvl3-78b" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "kimi-k2-instruct" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "kimi-k2-thinking" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "kimi-for-coding" => Application.get_env(:exhub, :kimi_api_key, ""),
       "qwen3-235b-a22b" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "qwen3-235b-a22b-instruct-2507" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "qwen3-next-80b-a3b-instruct" => Application.get_env(:exhub, :giteeai_api_key, ""),
@@ -96,6 +103,7 @@ defmodule Exhub.Router do
       "minimax/minimax-m2:free" => Application.get_env(:exhub, :openrouter_api_key, ""),
       "minimax-m2" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "minimax-m2-preview" => Application.get_env(:exhub, :minimax_api_key, ""),
+      "openrouter/polaris-alpha" => Application.get_env(:exhub, :openrouter_api_key, "")
     }
 
     target_url = Map.get(model_target_map, model_name, "http://localhost:4444/v1")
