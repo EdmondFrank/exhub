@@ -14,9 +14,9 @@ defmodule Exhub.Llm.Chain do
     create_llm_chain_from_config(config)
   end
 
-  def create_llm_chain(llm_name) do
+  def create_llm_chain(llm_name, opts \\ %{}) do
     {:ok, config} = LlmConfigServer.get_llm_config(llm_name)
-    create_llm_chain_from_config(config)
+    create_llm_chain_from_config(config, opts)
   end
 
   def execute(llm_chain, initial_messages) do
@@ -44,16 +44,29 @@ defmodule Exhub.Llm.Chain do
     end
   end
 
-  defp create_llm_chain_from_config(config) do
+  def run(llm_chain, initial_messages, functions, custom_context, callbacks \\ %{}) do
+    chain = LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
+    # chain = if functions != [], do: LLMChain.add_tools(chain, functions), else: chain
+    chain = LLMChain.add_messages(chain, initial_messages)
+    chain = if map_size(callbacks) > 0, do: LLMChain.add_callback(chain, callbacks), else: chain
+    LLMChain.run(chain)
+  end
+
+  defp create_llm_chain_from_config(config, opts \\ %{}) do
     [provider, model_name] = String.split(config[:model], "/", parts: 2)
 
-    llm_config =
+    # Base configuration
+    base_config =
       case provider do
         "google" -> %{endpoint: config[:api_base], model: model_name, api_key: config[:api_key]}
         "anthropic" -> %{endpoint: "#{config[:api_base]}/messages", model: model_name, api_key: config[:api_key]}
         _ -> %{endpoint: "#{config[:api_base]}/chat/completions", model: model_name, api_key: config[:api_key]}
       end
 
+    # Merge user-provided options (max_tokens, temperature, stream, etc.)
+    llm_config = Map.merge(base_config, opts)
+
+    # Create LLM struct with merged configuration
     llm =
       case provider do
         "google" -> ChatGoogleAI.new!(llm_config)

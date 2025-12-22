@@ -26,6 +26,11 @@ llms_config = %{
     api_key: gitee_api_key,
     model: "openai/qwen3-next-80b-a3b-instruct"
   },
+  "openai/qwen3-next-80b-a3b-thinking" => %{
+    api_base: gitee_api_base,
+    api_key: gitee_api_key,
+    model: "openai/qwen3-next-80b-a3b-thinking"
+  },
   "openai/qwen3-235b-a22b-instruct-2507" => %{
     api_base: gitee_api_base,
     api_key: gitee_api_key,
@@ -40,16 +45,6 @@ llms_config = %{
     api_base: gitee_api_base,
     api_key: gitee_api_key,
     model: "openai/kimi-k2-instruct"
-  },
-  "openai/cursor/gpt-4o-mini" => %{
-    api_base: "http://127.0.0.1:9069/openai/v1",
-    api_key: "your token",
-    model: "openai/cursor/gpt-4o-mini"
-  },
-  "openai/gpt-4o-mini" => %{
-    api_base: "http://localhost:4444/v1",
-    api_key: "edmondfrank",
-    model: "openai/gpt-4o-mini"
   },
   "openai/deepseek-v3_1-terminus" => %{
     api_base: gitee_api_base,

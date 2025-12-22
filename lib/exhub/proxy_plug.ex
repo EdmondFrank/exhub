@@ -43,7 +43,12 @@ defmodule Exhub.ProxyPlug do
 
         case conn.body_params do
           %{"model" => "deepseek-v3.2"} ->
-            Jason.encode!(Map.put(conn.body_params, "max_tokens", 8192))
+            Jason.encode!(
+              conn.body_params
+              |> Map.put("think", true)
+              |> Map.put("max_tokens", 8192)
+              |> Map.put("thinking_budget", 4096)
+            )
           _ ->
             Jason.encode!(conn.body_params)
         end
