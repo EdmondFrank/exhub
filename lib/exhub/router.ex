@@ -4,9 +4,7 @@ defmodule Exhub.Router do
   use Plug.Router
   use PlugSocket
   alias UUID
-  alias LangChain.Message
   alias LangChain.MessageDelta
-  alias LangChain.Message.ContentPart
 
   @proxy Application.compile_env(:exhub, :proxy, "")
   @default_timeout Application.compile_env(:exhub, :default_timeout, 1_800_000)
@@ -56,8 +54,9 @@ defmodule Exhub.Router do
     model_target_map = %{
       "step3" => "https://ai.gitee.com/v1",
       "glm-4_5" => "https://ai.gitee.com/v1",
-      "glm-4.6" => "https://ai.gitee.com/v1",
       "glm-4_5v" => "https://ai.gitee.com/v1",
+      "glm-4.6" => "https://ai.gitee.com/v1",
+      "glm-4.7" => "https://ai.gitee.com/v1",
       "deepseek-v3" => "https://ai.gitee.com/v1",
       "deepseek-r1" => "https://ai.gitee.com/v1",
       "deepseek-v3_1" => "https://ai.gitee.com/v1",
@@ -77,6 +76,7 @@ defmodule Exhub.Router do
       "tngtech/deepseek-r1t2-chimera:free" => "https://openrouter.ai/api/v1",
       "minimax/minimax-m2:free" => "https://openrouter.ai/api/v1",
       "minimax-m2" => "https://ai.gitee.com/v1",
+      "minimax-m2.1" => "https://api.minimaxi.com/v1",
       "minimax-m2-preview" => "https://api.minimaxi.com/v1",
       "gemini-2.5-pro" => "http://localhost:8765/v1",
       "gemini-2.5-flash" => "http://localhost:8765/v1",
@@ -87,8 +87,9 @@ defmodule Exhub.Router do
     model_token_map = %{
       "step3" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "glm-4_5" => Application.get_env(:exhub, :giteeai_api_key, ""),
-      "glm-4.6" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "glm-4_5v" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "glm-4.6" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "glm-4.7" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-r1" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3_1" => Application.get_env(:exhub, :giteeai_api_key, ""),
@@ -108,6 +109,7 @@ defmodule Exhub.Router do
       "tngtech/deepseek-r1t2-chimera:free" => Application.get_env(:exhub, :openrouter_api_key, ""),
       "minimax/minimax-m2:free" => Application.get_env(:exhub, :openrouter_api_key, ""),
       "minimax-m2" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "minimax-m2.1" => Application.get_env(:exhub, :minimax_api_key, ""),
       "minimax-m2-preview" => Application.get_env(:exhub, :minimax_api_key, ""),
       "openrouter/polaris-alpha" => Application.get_env(:exhub, :openrouter_api_key, "")
     }
@@ -127,6 +129,249 @@ defmodule Exhub.Router do
 
   post "/anthropic/v1/*path" do
     ProxyPlug.forward_upstream(conn, "https://api.anthropic.com/v1", client_options: [proxy: @proxy])
+  end
+
+  defp convert_anthropic_to_langchain(anthropic_request) do
+    # Extract messages and system from the request
+    messages = Map.get(anthropic_request, "messages", [])
+    system = Map.get(anthropic_request, "system")
+    tools = Map.get(anthropic_request, "tools", [])
+    tool_choice = Map.get(anthropic_request, "tool_choice")
+
+    # Convert system message if present
+    langchain_system = if system do
+      case system do
+        str when is_binary(str) ->
+          [LangChain.Message.ContentPart.text!(str)]
+        list when is_list(list) ->
+          Enum.map(list, fn block ->
+            case block do
+              %{"type" => "text", "text" => text} ->
+                LangChain.Message.ContentPart.text!(text)
+              _ ->
+                LangChain.Message.ContentPart.text!(inspect(block))
+            end
+          end)
+        _ ->
+          nil
+      end
+    else
+      nil
+    end
+
+    # Convert each Anthropic message to LangChain format
+    converted_messages = Enum.flat_map(messages, fn msg ->
+      role = Map.get(msg, "role", "user")
+      content = Map.get(msg, "content", "")
+
+      # Handle content that is a list of content blocks
+      blocks = if is_list(content) do
+        content
+      else
+        [%{"type" => "text", "text" => content}]
+      end
+
+      # First pass: collect all tool_result blocks
+      tool_result_blocks = Enum.filter(blocks, fn block ->
+        Map.get(block, "type") == "tool_result"
+      end)
+
+      # Convert content blocks to LangChain format using proper struct creation
+      converted_content = Enum.map(blocks, fn block ->
+        block_type = Map.get(block, "type")
+        case block_type do
+          "text" ->
+            text = Map.get(block, "text", "")
+            LangChain.Message.ContentPart.text!(text)
+
+          "image" ->
+            # Handle image content blocks
+            source = Map.get(block, "source", %{})
+            media_type = case source do
+              %{"type" => "base64", "media_type" => media_type} -> media_type
+              %{"media_type" => media_type} -> media_type
+              _ -> "image/png"  # Default to PNG if not specified
+            end
+            # For images, we need to handle them properly based on source type
+            if Map.get(source, "type") == "base64" do
+              data = Map.get(source, "data", "")
+              LangChain.Message.ContentPart.image!(data, media: media_type)
+            else
+              # For URL-based images, create a text representation
+              text = "Image (url: #{inspect(source)})"
+              LangChain.Message.ContentPart.text!(text)
+            end
+
+          "tool_use" ->
+            # For tool_use, create a ToolCall struct using proper constructor
+            id = Map.get(block, "id", "")
+            name = Map.get(block, "name", "")
+            input = Map.get(block, "input", %{})
+            LangChain.Message.ToolCall.new!(%{
+              call_id: id,
+              name: name,
+              arguments: input
+            })
+
+          "tool_result" ->
+            # Tool results are handled separately as dedicated messages
+            nil
+
+          _ ->
+            # Unknown block type, convert to text
+            text = inspect(block)
+            LangChain.Message.ContentPart.text!(text)
+        end
+      end) |> Enum.filter(&(&1 != nil))
+
+      # Build the message based on role using documented API patterns
+      base_msg = case role do
+        "system" ->
+          {:ok, msg} = LangChain.Message.new(%{
+            role: :system,
+            content: converted_content,
+            status: :complete
+          })
+          msg
+
+        "assistant" ->
+          # Check for tool calls in the blocks
+          tool_calls = Enum.filter(converted_content, fn item ->
+            match?(%LangChain.Message.ToolCall{}, item)
+          end)
+
+          # Filter out tool_calls from content, keep only ContentParts
+          content_parts = Enum.filter(converted_content, fn item ->
+            not match?(%LangChain.Message.ToolCall{}, item)
+          end)
+
+          {:ok, msg} = LangChain.Message.new(%{
+            role: :assistant,
+            content: content_parts,
+            tool_calls: tool_calls,
+            status: :complete
+          })
+          msg
+
+        "user" ->
+          {:ok, msg} = LangChain.Message.new(%{
+            role: :user,
+            content: converted_content,
+            status: :complete
+          })
+          msg
+
+        "tool" ->
+          # Handle tool result messages using ToolResult.new!/1
+          tool_results = Enum.map(tool_result_blocks, fn block ->
+            tool_use_id = Map.get(block, "tool_use_id", "")
+            result_content = Map.get(block, "content", "")
+
+            # Determine if it's an error by checking content
+            is_error = case result_content do
+              str when is_binary(str) ->
+                String.downcase(str) =~ ~r/error|fail|exception/i
+              list when is_list(list) ->
+                Enum.any?(list, fn item ->
+                  case item do
+                    %{"type" => "text", "text" => text} ->
+                      String.downcase(text) =~ ~r/error|fail|exception/i
+                    _ -> false
+                  end
+                end)
+              _ -> false
+            end
+
+            # Create ToolResult using proper constructor
+            LangChain.Message.ToolResult.new!(%{
+              call_id: tool_use_id,
+              content: result_content,
+              is_error: is_error
+            })
+          end)
+
+          {:ok, msg} = LangChain.Message.new_tool_result(%{
+            tool_results: tool_results,
+            content: nil
+          })
+          msg
+
+        _ ->
+          # Default to user role for unknown roles
+          {:ok, msg} = LangChain.Message.new(%{
+            role: :user,
+            content: converted_content,
+            status: :complete
+          })
+          msg
+      end
+
+      # If there are tool_result blocks in user messages, create a tool message after this one
+      # This handles the case where tool results are embedded in user messages
+      tool_messages = if tool_result_blocks != [] and role == "user" do
+        tool_results = Enum.map(tool_result_blocks, fn block ->
+          tool_use_id = Map.get(block, "tool_use_id", "")
+          result_content = Map.get(block, "content", "")
+
+          # Determine if it's an error
+          is_error = case result_content do
+            str when is_binary(str) ->
+              String.downcase(str) =~ ~r/error|fail|exception/i
+            list when is_list(list) ->
+              Enum.any?(list, fn item ->
+                case item do
+                  %{"type" => "text", "text" => text} ->
+                    String.downcase(text) =~ ~r/error|fail|exception/i
+                  _ -> false
+                end
+              end)
+            _ -> false
+          end
+
+          # Create ToolResult using proper constructor
+          LangChain.Message.ToolResult.new!(%{
+            call_id: tool_use_id,
+            content: result_content,
+            is_error: is_error
+          })
+        end)
+
+        {:ok, tool_msg} = LangChain.Message.new_tool_result(%{
+          tool_results: tool_results,
+          content: nil
+        })
+        [tool_msg]
+      else
+        []
+      end
+
+      [base_msg | tool_messages]
+    end)
+
+    # Reverse since we built the list backwards
+    converted_messages = Enum.reverse(converted_messages)
+
+    # Convert tools from Anthropic format to LangChain Function format
+    # See LangChain.Function documentation for the proper structure
+    converted_tools = Enum.map(tools, fn tool ->
+      name = Map.get(tool, "name", "")
+      description = Map.get(tool, "description", "")
+      input_schema = Map.get(tool, "input_schema", %{})
+
+      # Return as a map that can be used with Function.new!/1
+      %{
+        name: name,
+        description: description,
+        parameters_schema: input_schema
+      }
+    end)
+
+    %{
+      messages: converted_messages,
+      system: langchain_system,
+      tools: converted_tools,
+      tool_choice: tool_choice
+    }
   end
 
   # Anthropic API compatible endpoints
