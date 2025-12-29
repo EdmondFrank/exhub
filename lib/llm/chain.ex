@@ -25,6 +25,7 @@ defmodule Exhub.Llm.Chain do
          |> LLMChain.run(mode: :while_needs_response) do
       {:ok, updated_chain} ->
         updated_chain |> ChainResult.to_string()
+
       {:error, _, %LangChainError{message: message} = error} ->
         Logger.error("LLMChain.run failed: #{inspect(error)}")
         message
@@ -38,13 +39,14 @@ defmodule Exhub.Llm.Chain do
          |> LLMChain.run(mode: :while_needs_response) do
       {:ok, updated_chain} ->
         updated_chain |> ChainResult.to_string()
+
       {:error, _, %LangChainError{message: message} = error} ->
         Logger.error("LLMChain.run failed: #{inspect(error)}")
         message
     end
   end
 
-  def run(llm_chain, initial_messages, functions, custom_context, callbacks \\ %{}) do
+  def run(llm_chain, initial_messages, _functions, custom_context, callbacks \\ %{}) do
     chain = LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
     # chain = if functions != [], do: LLMChain.add_tools(chain, functions), else: chain
     chain = LLMChain.add_messages(chain, initial_messages)
@@ -58,9 +60,22 @@ defmodule Exhub.Llm.Chain do
     # Base configuration
     base_config =
       case provider do
-        "google" -> %{endpoint: config[:api_base], model: model_name, api_key: config[:api_key]}
-        "anthropic" -> %{endpoint: "#{config[:api_base]}/messages", model: model_name, api_key: config[:api_key]}
-        _ -> %{endpoint: "#{config[:api_base]}/chat/completions", model: model_name, api_key: config[:api_key]}
+        "google" ->
+          %{endpoint: config[:api_base], model: model_name, api_key: config[:api_key]}
+
+        "anthropic" ->
+          %{
+            endpoint: "#{config[:api_base]}/messages",
+            model: model_name,
+            api_key: config[:api_key]
+          }
+
+        _ ->
+          %{
+            endpoint: "#{config[:api_base]}/chat/completions",
+            model: model_name,
+            api_key: config[:api_key]
+          }
       end
 
     # Merge user-provided options (max_tokens, temperature, stream, etc.)

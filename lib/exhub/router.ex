@@ -4,7 +4,7 @@ defmodule Exhub.Router do
   use Plug.Router
   use PlugSocket
   alias UUID
-  alias LangChain.MessageDelta
+  alias Exhub.Llm.LlmConfigServer
 
   @proxy Application.compile_env(:exhub, :proxy, "")
   @default_timeout Application.compile_env(:exhub, :default_timeout, 1_800_000)
@@ -148,293 +148,188 @@ defmodule Exhub.Router do
   end
 
   defp convert_anthropic_to_langchain(anthropic_request) do
-    # Extract messages and system from the request
     messages = Map.get(anthropic_request, "messages", [])
     system = Map.get(anthropic_request, "system")
     tools = Map.get(anthropic_request, "tools", [])
-    tool_choice = Map.get(anthropic_request, "tool_choice")
+    max_tokens = Map.get(anthropic_request, "max_tokens", 4096)
 
-    # Convert system message if present
-    langchain_system =
+    langchain_messages = convert_messages_to_langchain(messages)
+
+    result = %{
+      messages: langchain_messages,
+      max_tokens: max_tokens
+    }
+
+    result =
       if system do
-        case system do
-          str when is_binary(str) ->
-            [LangChain.Message.ContentPart.text!(str)]
-
-          list when is_list(list) ->
-            Enum.map(list, fn block ->
-              case block do
-                %{"type" => "text", "text" => text} ->
-                  LangChain.Message.ContentPart.text!(text)
-
-                _ ->
-                  LangChain.Message.ContentPart.text!(inspect(block))
-              end
-            end)
-
-          _ ->
-            nil
-        end
+        system_message = convert_system_to_langchain(system)
+        if system_message, do: Map.put(result, :system, system_message), else: result
       else
-        nil
+        result
       end
 
-    # Convert each Anthropic message to LangChain format
-    converted_messages =
-      Enum.flat_map(messages, fn msg ->
-        role = Map.get(msg, "role", "user")
-        content = Map.get(msg, "content", "")
+    if tools != [] do
+      langchain_tools = convert_tools_to_langchain(tools)
+      Map.put(result, :tools, langchain_tools)
+    else
+      result
+    end
+  end
 
-        # Handle content that is a list of content blocks
-        blocks =
-          if is_list(content) do
-            content
-          else
-            [%{"type" => "text", "text" => content}]
-          end
+  defp convert_system_to_langchain(system) when is_binary(system) and system != "" do
+    LangChain.Message.new_system!(system)
+  end
 
-        # First pass: collect all tool_result blocks
-        tool_result_blocks =
-          Enum.filter(blocks, fn block ->
-            Map.get(block, "type") == "tool_result"
-          end)
+  defp convert_system_to_langchain(list) when is_list(list) and list != [] do
+    content = convert_content_blocks_to_string(list)
+    LangChain.Message.new_system!(content)
+  end
 
-        # Convert content blocks to LangChain format using proper struct creation
-        converted_content =
-          Enum.map(blocks, fn block ->
-            block_type = Map.get(block, "type")
+  defp convert_system_to_langchain(_), do: nil
 
-            case block_type do
-              "text" ->
-                text = Map.get(block, "text", "")
-                LangChain.Message.ContentPart.text!(text)
+  defp convert_messages_to_langchain(messages) when is_list(messages) do
+    Enum.map(messages, fn msg ->
+      role = Map.get(msg, "role")
+      content = Map.get(msg, "content")
 
-              "image" ->
-                # Handle image content blocks
-                source = Map.get(block, "source", %{})
+      case role do
+        "user" ->
+          case content do
+            str when is_binary(str) ->
+              LangChain.Message.new_user!(str)
 
-                media_type =
-                  case source do
-                    %{"type" => "base64", "media_type" => media_type} -> media_type
-                    %{"media_type" => media_type} -> media_type
-                    # Default to PNG if not specified
-                    _ -> "image/png"
-                  end
-
-                # For images, we need to handle them properly based on source type
-                if Map.get(source, "type") == "base64" do
-                  data = Map.get(source, "data", "")
-                  LangChain.Message.ContentPart.image!(data, media: media_type)
-                else
-                  # For URL-based images, create a text representation
-                  text = "Image (url: #{inspect(source)})"
-                  LangChain.Message.ContentPart.text!(text)
-                end
-
-              "tool_use" ->
-                # For tool_use, create a ToolCall struct using proper constructor
-                id = Map.get(block, "id", "")
-                name = Map.get(block, "name", "")
-                input = Map.get(block, "input", %{})
-
-                LangChain.Message.ToolCall.new!(%{
-                  call_id: id,
-                  name: name,
-                  arguments: input
-                })
-
-              "tool_result" ->
-                # Tool results are handled separately as dedicated messages
-                nil
-
-              _ ->
-                # Unknown block type, convert to text
-                text = inspect(block)
-                LangChain.Message.ContentPart.text!(text)
-            end
-          end)
-          |> Enum.filter(&(&1 != nil))
-
-        # Build the message based on role using documented API patterns
-        base_msg =
-          case role do
-            "system" ->
-              {:ok, msg} =
-                LangChain.Message.new(%{
-                  role: :system,
-                  content: converted_content,
-                  status: :complete
-                })
-
-              msg
-
-            "assistant" ->
-              # Check for tool calls in the blocks
-              tool_calls =
-                Enum.filter(converted_content, fn item ->
-                  match?(%LangChain.Message.ToolCall{}, item)
-                end)
-
-              # Filter out tool_calls from content, keep only ContentParts
-              content_parts =
-                Enum.filter(converted_content, fn item ->
-                  not match?(%LangChain.Message.ToolCall{}, item)
-                end)
-
-              {:ok, msg} =
-                LangChain.Message.new(%{
-                  role: :assistant,
-                  content: content_parts,
-                  tool_calls: tool_calls,
-                  status: :complete
-                })
-
-              msg
-
-            "user" ->
-              {:ok, msg} =
-                LangChain.Message.new(%{
-                  role: :user,
-                  content: converted_content,
-                  status: :complete
-                })
-
-              msg
-
-            "tool" ->
-              # Handle tool result messages using ToolResult.new!/1
-              tool_results =
-                Enum.map(tool_result_blocks, fn block ->
-                  tool_use_id = Map.get(block, "tool_use_id", "")
-                  result_content = Map.get(block, "content", "")
-
-                  # Determine if it's an error by checking content
-                  is_error =
-                    case result_content do
-                      str when is_binary(str) ->
-                        String.downcase(str) =~ ~r/error|fail|exception/i
-
-                      list when is_list(list) ->
-                        Enum.any?(list, fn item ->
-                          case item do
-                            %{"type" => "text", "text" => text} ->
-                              String.downcase(text) =~ ~r/error|fail|exception/i
-
-                            _ ->
-                              false
-                          end
-                        end)
-
-                      _ ->
-                        false
-                    end
-
-                  # Create ToolResult using proper constructor
-                  LangChain.Message.ToolResult.new!(%{
-                    call_id: tool_use_id,
-                    content: result_content,
-                    is_error: is_error
-                  })
-                end)
-
-              {:ok, msg} =
-                LangChain.Message.new_tool_result(%{
-                  tool_results: tool_results,
-                  content: nil
-                })
-
-              msg
+            list when is_list(list) ->
+              parts = convert_content_blocks_to_parts(list)
+              LangChain.Message.new_user!(parts)
 
             _ ->
-              # Default to user role for unknown roles
-              {:ok, msg} =
-                LangChain.Message.new(%{
-                  role: :user,
-                  content: converted_content,
-                  status: :complete
-                })
-
-              msg
+              nil
           end
 
-        # If there are tool_result blocks in user messages, create a tool message after this one
-        # This handles the case where tool results are embedded in user messages
-        tool_messages =
-          if tool_result_blocks != [] and role == "user" do
-            tool_results =
-              Enum.map(tool_result_blocks, fn block ->
-                tool_use_id = Map.get(block, "tool_use_id", "")
-                result_content = Map.get(block, "content", "")
+        "assistant" ->
+          case content do
+            str when is_binary(str) ->
+              LangChain.Message.new_assistant!(str)
 
-                # Determine if it's an error
-                is_error =
-                  case result_content do
-                    str when is_binary(str) ->
-                      String.downcase(str) =~ ~r/error|fail|exception/i
+            list when is_list(list) ->
+              parts = convert_content_blocks_to_parts(list)
+              LangChain.Message.new_assistant!(parts)
 
-                    list when is_list(list) ->
-                      Enum.any?(list, fn item ->
-                        case item do
-                          %{"type" => "text", "text" => text} ->
-                            String.downcase(text) =~ ~r/error|fail|exception/i
-
-                          _ ->
-                            false
-                        end
-                      end)
-
-                    _ ->
-                      false
-                  end
-
-                # Create ToolResult using proper constructor
-                LangChain.Message.ToolResult.new!(%{
-                  call_id: tool_use_id,
-                  content: result_content,
-                  is_error: is_error
-                })
-              end)
-
-            {:ok, tool_msg} =
-              LangChain.Message.new_tool_result(%{
-                tool_results: tool_results,
-                content: nil
-              })
-
-            [tool_msg]
-          else
-            []
+            _ ->
+              nil
           end
 
-        [base_msg | tool_messages]
-      end)
-
-    # Reverse since we built the list backwards
-    converted_messages = Enum.reverse(converted_messages)
-
-    # Convert tools from Anthropic format to LangChain Function format
-    # See LangChain.Function documentation for the proper structure
-    converted_tools =
-      Enum.map(tools, fn tool ->
-        name = Map.get(tool, "name", "")
-        description = Map.get(tool, "description", "")
-        input_schema = Map.get(tool, "input_schema", %{})
-
-        # Return as a map that can be used with Function.new!/1
-        %{
-          name: name,
-          description: description,
-          parameters_schema: input_schema
-        }
-      end)
-
-    %{
-      messages: converted_messages,
-      system: langchain_system,
-      tools: converted_tools,
-      tool_choice: tool_choice
-    }
+        _ ->
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
   end
+
+  defp convert_messages_to_langchain(_), do: []
+
+  defp convert_content_blocks_to_parts(blocks) when is_list(blocks) do
+    Enum.map(blocks, fn block ->
+      case block do
+        %{"type" => "text", "text" => text} when is_binary(text) ->
+          LangChain.Message.ContentPart.text!(text)
+
+        %{"type" => "text", "text" => text, "citations" => _citations} when is_binary(text) ->
+          LangChain.Message.ContentPart.text!(text)
+
+        %{"type" => "image", "source" => source} ->
+          convert_image_source(source)
+
+        %{"type" => "tool_use", "id" => id, "name" => name, "input" => input} ->
+          %{
+            type: :tool_use,
+            id: id,
+            name: name,
+            input: input
+          }
+
+        %{"type" => "tool_result", "tool_use_id" => tool_use_id, "content" => content} ->
+          %{
+            type: :tool_result,
+            tool_use_id: tool_use_id,
+            content: convert_tool_result_content(content)
+          }
+
+        %{"type" => "thinking", "thinking" => thinking, "signature" => signature} ->
+          %{
+            type: :thinking,
+            thinking: thinking,
+            signature: signature
+          }
+
+        _ ->
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp convert_content_blocks_to_string(blocks) when is_list(blocks) do
+    Enum.map_join(blocks, fn block ->
+      case block do
+        %{"type" => "text", "text" => text} when is_binary(text) ->
+          text
+
+        %{"type" => "thinking", "thinking" => thinking} when is_binary(thinking) ->
+          "[Thinking]\n#{thinking}\n[/Thinking]"
+
+        _ ->
+          ""
+      end
+    end)
+  end
+
+  defp convert_image_source(source) do
+    case source do
+      %{"type" => "base64", "data" => data, "media_type" => media_type}
+      when is_binary(data) and is_binary(media_type) ->
+        media = convert_media_type(media_type)
+        LangChain.Message.ContentPart.image!(data, media: media)
+
+      %{"type" => "url", "url" => _url} ->
+        raise "Anthropic doesn't support image_url directly"
+
+      _ ->
+        nil
+    end
+  end
+
+  defp convert_media_type("image/jpeg"), do: :jpeg
+  defp convert_media_type("image/png"), do: :png
+  defp convert_media_type("image/gif"), do: :gif
+  defp convert_media_type("image/webp"), do: :webp
+  defp convert_media_type(media_type) when is_binary(media_type), do: media_type
+  defp convert_media_type(_), do: :png
+
+  defp convert_tool_result_content(content) do
+    case content do
+      str when is_binary(str) -> str
+      list when is_list(list) -> convert_content_blocks_to_string(list)
+      _ -> to_string(content)
+    end
+  end
+
+  defp convert_tools_to_langchain(tools) when is_list(tools) do
+    # Enum.map(tools, fn tool ->
+    #   name = Map.get(tool, "name")
+    #   description = Map.get(tool, "description", "")
+    #   input_schema = Map.get(tool, "input_schema", %{})
+
+    #   LangChain.Function.new!(%{
+    #     name: name,
+    #     description: description,
+    #     schema: input_schema
+    #   })
+    # end)
+    []
+  end
+
+  defp convert_tools_to_langchain(_), do: []
 
   # Anthropic API compatible endpoints
   post "/v1/messages" do
@@ -466,31 +361,25 @@ defmodule Exhub.Router do
     # Convert to LangChain format using existing function
     langchain_request = convert_anthropic_to_langchain(anthropic_request)
     langchain_messages = Map.get(langchain_request, :messages, []) || []
-    langchain_system = Map.get(langchain_request, :system)
     langchain_tools = Map.get(langchain_request, :tools, []) || []
+    langchain_system = Map.get(langchain_request, :system)
 
-    # Convert tools to LangChain Function format
-    converted_tools =
-      Enum.map(langchain_tools || [], fn tool ->
-        name = Map.get(tool, :name, "") || Map.get(tool, "name", "")
-        description = Map.get(tool, :description, "") || Map.get(tool, "description", "")
-
-        parameters_schema =
-          Map.get(tool, :parameters_schema, %{}) || Map.get(tool, "parameters_schema", %{})
-
-        # Return as a map that can be used with Function.new!/1
-        %{
-          name: name,
-          description: description,
-          parameters_schema: parameters_schema
-        }
-      end)
+    # Prepend system message if present
+    all_messages =
+      if langchain_system do
+        [langchain_system | langchain_messages]
+      else
+        langchain_messages
+      end
 
     # Prepare custom context for tools
     custom_context = %{}
 
     # Get LLM chain - need to convert model name to LLM name format
-    llm_name = get_llm_name_from_model(model)
+    {:ok, config} = LlmConfigServer.get_default_llm_config()
+
+    llm_name = config[:model]
+
     api_key = get_api_key_for_model(model)
 
     # Create chain with API key if available
@@ -500,7 +389,7 @@ defmodule Exhub.Router do
       if api_key != "", do: Map.put(chain_options, :api_key, api_key), else: chain_options
 
     case Exhub.Llm.Chain.create_llm_chain(llm_name, chain_options) do
-      llm_chain ->
+      llm_chain when is_map(llm_chain) ->
         if stream do
           # Streaming mode
           response_id = "msg_#{UUID.uuid4()}"
@@ -539,20 +428,6 @@ defmodule Exhub.Router do
           }
 
           conn = send_sse_event(conn, "message_start", message_start)
-
-          # Log the input message for this response
-          last_user_msg =
-            Enum.find_value(Enum.reverse(messages), fn
-              %{"role" => "user", "content" => content} -> content
-              _ -> nil
-            end)
-
-          input_preview =
-            if is_binary(last_user_msg),
-              do: String.slice(last_user_msg, 0, 200),
-              else: inspect(last_user_msg)
-
-          Logger.info("[#{response_id}] Input: #{input_preview}")
 
           # Send content_block_start event for first text block
           # Note: content block type depends on whether thinking is enabled
@@ -626,8 +501,8 @@ defmodule Exhub.Router do
               result =
                 Exhub.Llm.Chain.run(
                   llm_chain,
-                  langchain_messages,
-                  converted_tools,
+                  all_messages,
+                  langchain_tools,
                   custom_context,
                   callbacks
                 )
@@ -645,8 +520,8 @@ defmodule Exhub.Router do
 
           case Exhub.Llm.Chain.execute(
                  llm_chain,
-                 langchain_messages,
-                 converted_tools,
+                 all_messages,
+                 langchain_tools,
                  custom_context
                ) do
             response when is_binary(response) ->
@@ -726,71 +601,11 @@ defmodule Exhub.Router do
               )
           end
         end
-
-      {:error, reason} ->
-        Logger.error(
-          "Failed to create LLM chain for model '#{model}' (llm_name: #{llm_name}): #{inspect(reason)}"
-        )
-
-        # Provide more helpful error messages based on common issues
-        error_message =
-          cond do
-            String.contains?(to_string(reason), "not found") or
-              String.contains?(to_string(reason), "unknown") or
-                String.contains?(to_string(reason), "not supported") ->
-              "Model '#{model}' is not supported or unknown. Please check the model name and try again."
-
-            String.contains?(to_string(reason), "timeout") ->
-              "Request timed out. Please try again with a shorter request or reduce max_tokens."
-
-            String.contains?(to_string(reason), "rate_limit") ->
-              "Rate limit exceeded. Please wait and try again."
-
-            String.contains?(to_string(reason), "authentication") or
-              String.contains?(to_string(reason), "api_key") or
-                String.contains?(to_string(reason), "unauthorized") ->
-              "Authentication failed. Please check your API key configuration for #{model}."
-
-            String.contains?(to_string(reason), "connection") or
-                String.contains?(to_string(reason), "network") ->
-              "Unable to connect to the model provider. Please check your network connection."
-
-            true ->
-              "Failed to process request for model '#{model}': #{inspect(reason)}"
-          end
-
-        # Determine appropriate HTTP status code
-        status_code =
-          cond do
-            String.contains?(to_string(reason), "not found") -> 404
-            String.contains?(to_string(reason), "authentication") -> 401
-            String.contains?(to_string(reason), "rate_limit") -> 429
-            String.contains?(to_string(reason), "timeout") -> 408
-            true -> 400
-          end
-
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(
-          status_code,
-          Jason.encode!(%{
-            "type" => "error",
-            "error" => %{
-              "type" => determine_error_type(reason),
-              "message" => error_message
-            }
-          })
-        )
     end
   end
 
-  # Add helper function to map model to LLM name with proper provider prefix handling
-  defp get_llm_name_from_model(model) do
-    "openai/kimi-k2-instruct"
-  end
-
   # Add helper function to get API key based on model/provider
-  defp get_api_key_for_model(model) do
+  defp get_api_key_for_model(_model) do
     Application.get_env(:exhub, :giteeai_api_key, "")
   end
 
@@ -1036,7 +851,7 @@ defmodule Exhub.Router do
     body = conn.body_params
 
     # Extract required fields
-    model = Map.get(body, "model")
+    _model = Map.get(body, "model")
     messages = Map.get(body, "messages", [])
     tools = Map.get(body, "tools", [])
 
