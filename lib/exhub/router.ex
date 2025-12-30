@@ -142,8 +142,53 @@ defmodule Exhub.Router do
   end
 
   post "/anthropic/v1/*path" do
-    ProxyPlug.forward_upstream(conn, "https://api.anthropic.com/v1",
-      client_options: [proxy: @proxy]
+    model_name =
+      case Plug.Conn.get_req_header(conn, "content-type") do
+        ["application/json" <> _] ->
+          case conn.body_params do
+            %{"model" => model} -> model
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+
+    model_target_map = %{
+      "minimax-m2.1" => "https://api.minimaxi.com/anthropic/v1",
+      "minimax-m2-preview" => "https://api.minimaxi.com/anthropic/v1"
+    }
+
+    model_token_map = %{
+      "minimax-m2.1" => Application.get_env(:exhub, :minimax_api_key, ""),
+      "minimax-m2-preview" => Application.get_env(:exhub, :minimax_api_key, "")
+    }
+
+    model_proxy_map = %{
+      "minimax-m2.1" => false,
+      "minimax-m2-preview" => false
+    }
+
+    target_url = Map.get(model_target_map, model_name, "https://api.anthropic.com/v1")
+
+    token =
+      Map.get(model_token_map, model_name, Application.get_env(:exhub, :anthropic_api_key, ""))
+
+    use_proxy = Map.get(model_proxy_map, model_name, true)
+
+    proxy = if use_proxy, do: @proxy, else: ""
+
+    options = [
+      custom_headers: [{"x-api-key", token}],
+      client_options: [timeout: @default_timeout, recv_timeout: @default_timeout, proxy: proxy]
+    ]
+
+    Logger.info("Forwarding request to #{target_url} and proxy: #{proxy}")
+
+    ProxyPlug.forward_upstream(
+      conn,
+      target_url,
+      options
     )
   end
 
