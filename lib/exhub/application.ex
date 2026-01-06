@@ -13,6 +13,7 @@ defmodule Exhub.Application do
       {Exhub.Llm.LlmConfigServer, name: Exhub.Llm.LlmConfigServer},
       {Exhub.Llm.Mcp.ServerManager, name: Exhub.Llm.Mcp.ServerManager},
       {Exhub.Llm.Mcp.ClientManager, name: Exhub.Llm.Mcp.ClientManager},
+      Exhub.MacKeepAlive,
       cowboy_spec()
     ]
 
@@ -26,9 +27,9 @@ defmodule Exhub.Application do
     Plug.Cowboy.child_spec(
       scheme: :http,
       plug: Exhub.Router,
-      options: [port: port(), dispatch: dispatch(), protocol_options: [idle_timeout: 1_800_000]])
+      options: [port: port(), dispatch: dispatch(), protocol_options: [idle_timeout: 1_800_000]]
+    )
   end
-
 
   defp dispatch, do: PlugSocket.plug_cowboy_dispatch(Exhub.Router)
   defp port, do: Application.get_env(:bifrost, :port, 9069)

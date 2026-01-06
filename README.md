@@ -10,6 +10,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Emacs Integration**: Provides Emacs Lisp functions to interact seamlessly with the Elixir server.
 - **Agent Integration**: Allows integration with agents for enhanced functionality.
 - **MCP Tools Integration**: Provides integration with MCP Tools for extended functionality.
+- **Mac Keep Alive**: Maintains Bluetooth connections on macOS using scheduled health checks.
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
 
@@ -26,6 +27,11 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 2. **Install Dependencies**:
    ```bash
    mix deps.get
+   ```
+
+   **Note**: For Mac Keep Alive feature, ensure `blueutil` is installed:
+   ```bash
+   brew install blueutil
    ```
 
 3. **Configuration**:
@@ -168,11 +174,18 @@ The configuration for Exhub is managed in `config/config.exs`. Here are the rele
     openai_api_key: "your token",
     llms: llms_config,
     proxy: "http://127.0.0.1:7890",
-    gitee_cat: %{
-      endpoint: "https://api.gitee.com/",
-      auth: %{cookie: "your cookie"} # or %{access_token: "your acccess token"}
-    }
-  ```
+     gitee_cat: %{
+       endpoint: "https://api.gitee.com/",
+       auth: %{cookie: "your cookie"} # or %{access_token: "your acccess token"}
+     }
+
+   # Mac Keep Alive Configuration (optional)
+   config :exhub, Exhub.MacKeepAlive,
+     device_name: "Your Device Name",  # Must be a paired Bluetooth device
+     jobs: [
+       {"*/5 * * * *", {Exhub.MacKeepAlive, :run_keep_alive_check, []}}
+     ]
+   ```
 
 4. **Build**:
    ```bash
@@ -453,7 +466,63 @@ Ensure the environment variable `GEMINI_API_KEY` is exported in the shell that l
 export GEMINI_API_KEY="your-gemini-key"
 ```
 
+## exhub-keep-alive
+
+The `exhub-keep-alive` module provides automatic Bluetooth connection maintenance for macOS using the Quantum scheduler.
+
+### Setup
+
+The keep-alive feature is built into the Exhub application. No additional Emacs configuration is required.
+
+### Configuration
+
+Configure the keep-alive feature in `config/config.exs`:
+
+```elixir
+config :exhub, Exhub.MacKeepAlive,
+  device_name: "Your Bluetooth Device Name",
+  jobs: [
+    {"*/5 * * * *", {Exhub.MacKeepAlive, :run_keep_alive_check, []}}
+  ]
+```
+
+#### Configuration Options
+
+- `device_name`: The name of your Bluetooth device to connect to (must be paired first)
+- `jobs`: Quantum scheduler jobs (cron syntax). Default runs every 5 minutes.
+
+### Prerequisites
+
+- **macOS**: This feature uses macOS-specific Bluetooth commands
+- **blueutil**: Install via Homebrew: `brew install blueutil`
+- **Paired Device**: The Bluetooth device must be already paired with your Mac
+
+### Usage
+
+The keep-alive feature runs automatically based on the configured schedule. To manually trigger a connection check:
+
+```bash
+# The server will automatically run health checks based on the configured schedule
+```
+
+### Troubleshooting
+
+- If Bluetooth is off, the connection will fail with `{:error, :bluetooth_off}`
+- If the device is not paired, the connection will fail with `{:error, :not_paired}`
+- Check server logs for detailed connection status information
+
 ## Recent Enhancements
+
+### Mac Keep Alive Feature
+- **Bluetooth Connection Maintenance**: New `Exhub.MacKeepAlive` module automatically maintains Bluetooth connections using Quantum scheduler
+- **Scheduled Health Checks**: Runs periodic connection checks every 5 minutes (configurable via cron syntax)
+- **Device Management**: Connects to configured Bluetooth devices by name to prevent disconnection
+- **macOS Integration**: Uses `blueutil` for Bluetooth operations on macOS
+- **Configuration**: Set `device_name` in config to enable automatic reconnection
+
+### Dependencies Update
+- **Quantum Scheduler**: Added `{:quantum, "~> 3.0"}` for job scheduling capabilities
+- **Supporting Dependencies**: Added `crontab`, `gen_stage`, and `telemetry_registry` for quantum requirements
 
 ### Configuration Improvements
 - **DRY Configuration Approach**: Common API base and key values are now stored in variables for easier maintenance

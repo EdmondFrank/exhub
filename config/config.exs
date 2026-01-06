@@ -143,3 +143,9 @@ config :exhub,
     endpoint: "https://api.gitee.com/",
     auth: %{cookie: "your cookies"}
   }
+
+config :exhub, Exhub.MacKeepAlive,
+  device_name: "B.O.W",
+  jobs: [
+    {"*/5 * * * *", {Exhub.MacKeepAlive, :run_keep_alive_check, []}}
+  ]

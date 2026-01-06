@@ -36,11 +36,16 @@ defmodule Exhub.MixProject do
       {:httpoison, "~> 2.0"},
       {:floki, "~> 0.37.0"},
       {:reverse_proxy_plug, "~> 3.0"},
-      {:hermes_mcp, git: "https://github.com/zoedsoupe/hermes-mcp", ref: "6a3134ae3288d23b333aea7e7467e6ea93a0ba11"},
+      {:hermes_mcp,
+       git: "https://github.com/zoedsoupe/hermes-mcp",
+       ref: "6a3134ae3288d23b333aea7e7467e6ea93a0ba11"},
       {:swarm_ex, git: "https://github.com/edmondfrank/swarm_ex", branch: "master"},
-      {:instructor, git: "https://github.com/thmsmlr/instructor_ex", ref: "2c89b1cd52e0125562c8c5cb2eb99d2324261cfa"},
+      {:instructor,
+       git: "https://github.com/thmsmlr/instructor_ex",
+       ref: "2c89b1cd52e0125562c8c5cb2eb99d2324261cfa"},
       {:langchain, "~> 0.4.1"},
-      {:req, "~> 0.5.8", override: true}
+      {:req, "~> 0.5.8", override: true},
+      {:quantum, "~> 3.0"}
     ]
   end
 end
