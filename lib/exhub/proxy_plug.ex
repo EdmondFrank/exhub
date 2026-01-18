@@ -45,10 +45,21 @@ defmodule Exhub.ProxyPlug do
           %{"model" => "deepseek-v3.2"} ->
             Jason.encode!(
               conn.body_params
-              |> Map.put("think", true)
+              |> Map.put("think", false)
               |> Map.put("max_tokens", 8192)
               |> Map.put("thinking_budget", 4096)
             )
+          %{"model" => "minimax-m2.1", "messages" => messages} ->
+            transformed_messages =
+              Enum.map(messages, fn message ->
+                if message["role"] == "system" do
+                  Map.put(message, "role", "user")
+                else
+                  message
+                end
+              end)
+
+            Jason.encode!(Map.put(conn.body_params, "messages", transformed_messages))
           _ ->
             Jason.encode!(conn.body_params)
         end

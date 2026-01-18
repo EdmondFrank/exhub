@@ -86,7 +86,7 @@ defmodule Exhub.Router do
       "tngtech/deepseek-r1t2-chimera:free" => "https://openrouter.ai/api/v1",
       "minimax/minimax-m2:free" => "https://openrouter.ai/api/v1",
       "minimax-m2" => "https://ai.gitee.com/v1",
-      "minimax-m2.1" => "https://api.minimaxi.com/v1",
+      "minimax-m2.1" => "https://ai.gitee.com/v1",
       "minimax-m2-preview" => "https://api.minimaxi.com/v1",
       "gemini-2.5-pro" => "http://localhost:8765/v1",
       "gemini-2.5-flash" => "http://localhost:8765/v1",
@@ -120,7 +120,7 @@ defmodule Exhub.Router do
         Application.get_env(:exhub, :openrouter_api_key, ""),
       "minimax/minimax-m2:free" => Application.get_env(:exhub, :openrouter_api_key, ""),
       "minimax-m2" => Application.get_env(:exhub, :giteeai_api_key, ""),
-      "minimax-m2.1" => Application.get_env(:exhub, :minimax_api_key, ""),
+      "minimax-m2.1" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "minimax-m2-preview" => Application.get_env(:exhub, :minimax_api_key, ""),
       "openrouter/polaris-alpha" => Application.get_env(:exhub, :openrouter_api_key, "")
     }
