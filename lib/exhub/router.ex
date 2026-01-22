@@ -125,7 +125,7 @@ defmodule Exhub.Router do
       "openrouter/polaris-alpha" => Application.get_env(:exhub, :openrouter_api_key, "")
     }
 
-    target_url = Map.get(model_target_map, model_name, "http://localhost:4444/v1")
+    target_url = Map.get(model_target_map, model_name, "http://20.246.88.31:8080/v1")
 
     token = Map.get(model_token_map, model_name, Application.get_env(:exhub, :openai_api_key, ""))
 
@@ -133,6 +133,10 @@ defmodule Exhub.Router do
       custom_headers: [{"Authorization", "Bearer #{token}"}],
       client_options: [timeout: @default_timeout, recv_timeout: @default_timeout]
     ]
+
+    Logger.info(
+      "[OpenAI Proxy] Forwarding request - model: #{inspect(model_name)}, target: #{target_url}, has_token: #{token != ""}"
+    )
 
     ProxyPlug.forward_upstream(
       conn,
@@ -169,12 +173,12 @@ defmodule Exhub.Router do
       "minimax-m2-preview" => false
     }
 
-    target_url = Map.get(model_target_map, model_name, "https://api.anthropic.com/v1")
+    target_url = Map.get(model_target_map, model_name, "http://20.246.88.31:8080/v1")
 
     token =
       Map.get(model_token_map, model_name, Application.get_env(:exhub, :anthropic_api_key, ""))
 
-    use_proxy = Map.get(model_proxy_map, model_name, true)
+    use_proxy = Map.get(model_proxy_map, model_name, false)
 
     proxy = if use_proxy, do: @proxy, else: ""
 
@@ -183,7 +187,9 @@ defmodule Exhub.Router do
       client_options: [timeout: @default_timeout, recv_timeout: @default_timeout, proxy: proxy]
     ]
 
-    Logger.info("Forwarding request to #{target_url} and proxy: #{proxy}")
+    Logger.info(
+      "[Anthropic Proxy] Forwarding request - model: #{inspect(model_name)}, target: #{target_url}, proxy: #{proxy}, use_proxy: #{use_proxy}"
+    )
 
     ProxyPlug.forward_upstream(
       conn,
