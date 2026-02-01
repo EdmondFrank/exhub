@@ -41,6 +41,11 @@ llms_config = %{
     api_key: gitee_api_key,
     model: "openai/qwen3-coder-480b-a35b-instruct"
   },
+  "openai/kimi-k2.5" => %{
+    api_base: gitee_api_base,
+    api_key: gitee_api_key,
+    model: "openai/kimi-k2.5"
+  },
   "openai/kimi-k2-instruct" => %{
     api_base: gitee_api_base,
     api_key: gitee_api_key,

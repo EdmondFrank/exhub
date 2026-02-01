@@ -60,6 +60,11 @@ defmodule Exhub.ProxyPlug do
               end)
 
             Jason.encode!(Map.put(conn.body_params, "messages", transformed_messages))
+          %{"model" => "kimi-k2.5"} ->
+            conn.body_params
+            |> Map.put("temperature", 1)
+            |> Jason.encode!
+
           _ ->
             Jason.encode!(conn.body_params)
         end
