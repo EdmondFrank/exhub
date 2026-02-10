@@ -11,6 +11,8 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Agent Integration**: Allows integration with agents for enhanced functionality.
 - **MCP Tools Integration**: Provides integration with MCP Tools for extended functionality.
 - **Mac Keep Alive**: Maintains Bluetooth connections on macOS using scheduled health checks.
+- **Health Check**: Monitors target URLs with scheduled checks and sends webhook notifications (supports Feishu/Lark and generic webhooks).
+- **Habit Management**: MCP-based user habit and environment configuration storage with protected keys and persistent storage.
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
 
@@ -185,6 +187,22 @@ The configuration for Exhub is managed in `config/config.exs`. Here are the rele
      jobs: [
        {"*/5 * * * *", {Exhub.MacKeepAlive, :run_keep_alive_check, []}}
      ]
+
+   # Health Check Configuration (optional)
+   config :exhub, Exhub.HealthCheck,
+     targets: [
+       [name: "Example API", url: "https://api.example.com/health"],
+       [name: "Main Site", url: "https://example.com", expected_status: 200]
+     ],
+     webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-token",
+     webhook_provider: :feishu,  # or :default for generic webhooks
+     jobs: [
+       {"*/5 * * * *", {Exhub.HealthCheck, :run_health_checks, []}}
+     ]
+
+   # MCP Habit Server Configuration (optional)
+   # The habit server provides an MCP endpoint at /mcp for managing user preferences
+   # Habits are stored in ~/.config/exhub/habits.json with metadata tracking
    ```
 
 4. **Build**:
@@ -511,7 +529,129 @@ The keep-alive feature runs automatically based on the configured schedule. To m
 - If the device is not paired, the connection will fail with `{:error, :not_paired}`
 - Check server logs for detailed connection status information
 
+## exhub-health-check
+
+The `exhub-health-check` module provides URL monitoring with scheduled health checks and webhook notifications.
+
+### Setup
+
+The health check feature is built into the Exhub application. No additional Emacs configuration is required.
+
+### Configuration
+
+Configure health checks in `config/config.exs`:
+
+```elixir
+config :exhub, Exhub.HealthCheck,
+  targets: [
+    [name: "Example API", url: "https://api.example.com/health"],
+    [name: "Main Site", url: "https://example.com", expected_status: 200, timeout: 30_000]
+  ],
+  webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-token",
+  webhook_provider: :feishu,  # or :default for generic webhooks
+  jobs: [
+    {"*/5 * * * *", {Exhub.HealthCheck, :run_health_checks, []}}
+  ]
+```
+
+#### Configuration Options
+
+- `targets`: List of targets to monitor, each with:
+  - `name`: Display name for the target
+  - `url`: URL to check
+  - `expected_status`: Expected HTTP status code (default: 200)
+  - `timeout`: Request timeout in milliseconds (default: 30_000)
+  - `method`: HTTP method (`:get` or `:head`, default: `:get`)
+- `webhook_url`: URL to send notifications on failures
+- `webhook_provider`: `:feishu` for Feishu/Lark or `:default` for generic JSON webhooks
+- `jobs`: Quantum scheduler jobs (cron syntax)
+
+### Webhook Providers
+
+#### Feishu/Lark
+
+For Feishu bot webhooks, use `webhook_provider: :feishu`. The message format follows Feishu's text message specification.
+
+#### Generic Webhooks
+
+For generic webhooks, use `webhook_provider: :default`. The payload includes:
+
+```json
+{
+  "event": "health_check_failure",
+  "timestamp": "2026-02-10T10:00:00Z",
+  "failures": [
+    {"name": "Example API", "url": "https://api.example.com/health", "reason": "timeout"}
+  ]
+}
+```
+
+## exhub-habit
+
+The `exhub-habit` module provides MCP-based user habit and environment configuration storage with protected keys.
+
+### Setup
+
+The habit server is built into the Exhub application and exposes an MCP endpoint at `/mcp`.
+
+### Features
+
+- **Persistent Storage**: Habits are stored in `~/.config/exhub/habits.json`
+- **Protected Keys**: Sensitive keys (user_id, email, api_key, password, secret, token) are protected by default
+- **Metadata Tracking**: Each habit includes modifiable status, description, category, and timestamps
+- **MCP Tools**: Two MCP tools are available:
+  - `read_habits`: Query habits by key, category, or retrieve all
+  - `update_habits`: Create, update, or delete modifiable habits
+
+### Configuration
+
+The habit server starts automatically with the Exhub application. No additional configuration is required.
+
+### MCP Endpoint
+
+The habit server is accessible at:
+
+```
+POST /mcp
+```
+
+This endpoint accepts MCP protocol messages for tool invocations.
+
+### Default Habits
+
+On first startup, the following default habit is initialized:
+
+```json
+{
+  "environment.timezone": {
+    "value": "CST",
+    "description": "User's preferred timezone",
+    "category": "environment",
+    "modifiable": true
+  }
+}
+```
+
 ## Recent Enhancements
+
+### Health Check Feature
+- **URL Monitoring**: New `Exhub.HealthCheck` module monitors target URLs with scheduled checks
+- **Webhook Notifications**: Supports Feishu/Lark and generic webhook providers for failure alerts
+- **Flexible Configuration**: Configure multiple targets with custom expected status codes, timeouts, and HTTP methods
+- **Quantum Scheduler Integration**: Uses cron syntax for scheduling health check intervals
+- **Provider Support**: Built-in support for Feishu bot webhooks and generic JSON webhooks
+
+### Habit Management Feature
+- **MCP-Based Storage**: New `Exhub.MCP.HabitServer` and `Exhub.MCP.HabitStore` modules provide MCP-compliant habit management
+- **Persistent Storage**: Habits stored in `~/.config/exhub/habits.json` with atomic writes
+- **Protected Keys**: Automatically protects sensitive keys (user_id, email, api_key, password, secret, token)
+- **MCP Tools**: Two tools available - `read_habits` for querying and `update_habits` for modifications
+- **Metadata Support**: Each habit includes modifiable status, description, category, and timestamps
+- **HTTP Endpoint**: Exposed at `/mcp` for MCP protocol communication
+
+### Dependency Updates
+- **Hermes MCP**: Updated from git dependency to hex package `~> 0.14.1`
+- **Hermes Client API**: Updated to use `Hermes.Client.Base` module for tool operations
 
 ### Mac Keep Alive Feature
 - **Bluetooth Connection Maintenance**: New `Exhub.MacKeepAlive` module automatically maintains Bluetooth connections using Quantum scheduler
