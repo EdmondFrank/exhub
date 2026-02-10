@@ -962,6 +962,10 @@ defmodule Exhub.Router do
     |> send_resp(200, Jason.encode!(token_count_response))
   end
 
+  # MCP endpoint for habit configuration
+  forward "/mcp", to: Hermes.Server.Transport.StreamableHTTP.Plug,
+    init_opts: [server: Exhub.MCP.HabitServer]
+
   match _ do
     send_resp(
       conn,

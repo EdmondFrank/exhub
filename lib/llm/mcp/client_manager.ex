@@ -1,6 +1,6 @@
 defmodule Exhub.Llm.Mcp.ClientManager do
   use GenServer
-  alias Hermes.Client
+  alias Hermes.Client.Base
   require Logger
 
   @impl true
@@ -33,7 +33,7 @@ defmodule Exhub.Llm.Mcp.ClientManager do
     case Map.get(state.registry, client_name) do
       nil ->
         {:ok, client} =
-          Client.start_link(
+          Base.start_link(
             name: client_name,
             transport: server_name,
             client_info: %{

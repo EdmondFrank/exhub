@@ -14,6 +14,11 @@ defmodule Exhub.Application do
       {Exhub.Llm.Mcp.ServerManager, name: Exhub.Llm.Mcp.ServerManager},
       {Exhub.Llm.Mcp.ClientManager, name: Exhub.Llm.Mcp.ClientManager},
       Exhub.MacKeepAlive,
+      Exhub.HealthCheck,
+      Hermes.Server.Registry,
+      # MCP Habit Configuration Server
+      {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
+      {Exhub.MCP.HabitServer, transport: :streamable_http},
       cowboy_spec()
     ]
 

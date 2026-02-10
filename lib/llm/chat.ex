@@ -3,7 +3,7 @@ defmodule Exhub.Llm.Chat do
   alias LangChain.Function
 
   alias Exhub.Llm.Chain
-  alias Hermes.Client
+  alias Hermes.Client.Base, as: ClientBase
   alias Exhub.Llm.Mcp.ClientManager
   require Logger
 
@@ -29,7 +29,7 @@ defmodule Exhub.Llm.Chat do
 
   def execute(system_message, user_message, tool_server, context) do
     %{client: client} = ClientManager.get_info(tool_server)
-    {:ok, %{"tools" => tools}} = Client.list_tools(client)
+    {:ok, %{"tools" => tools}} = ClientBase.list_tools(client)
     custom_fns = handle_tools(tools, client)
     execute_chain(system_message, user_message, custom_fns, context)
   end
@@ -45,7 +45,7 @@ defmodule Exhub.Llm.Chat do
 
   defp handle_all_tools(all_info) do
     Enum.flat_map(all_info, fn {_client_name, %{client: client}} ->
-      {:ok, %{"tools" => tools}} = Client.list_tools(client)
+      {:ok, %{"tools" => tools}} = ClientBase.list_tools(client)
       handle_tools(tools, client)
     end)
   end
@@ -63,7 +63,7 @@ defmodule Exhub.Llm.Chat do
         function: fn arguments, context ->
           real_args = Map.merge(arguments, context)
           Logger.debug("Executing tool #{tool["name"]} with arguments: #{inspect real_args}")
-          with {:ok, %{"content" => content}} <- Client.call_tool(client, tool["name"], real_args) do
+          with {:ok, %{"content" => content}} <- ClientBase.call_tool(client, tool["name"], real_args) do
             {:ok, Jason.encode!(content)}
           end || {:error, "failed to execute tool #{tool["name"]} with arguments: #{inspect real_args}"}
         end
