@@ -92,10 +92,11 @@ defmodule Exhub.MCP.HabitStore do
   @impl true
   def init(_opts) do
     table = :ets.new(@table, [:set, :protected, :named_table, read_concurrency: true])
-    state = %{table: table, data_path: data_file_path()}
 
-    # Load persisted habits if file exists
-    case load_from_file(state.data_path) do
+    data_path = data_file_path()
+    state = %{table: table, data_path: data_path, dirty: false, timer: nil}
+
+    case load_from_file(data_path) do
       {:ok, habits} ->
         Enum.each(habits, fn %{"key" => key, "value" => value} = habit ->
           metadata = %{
@@ -105,6 +106,7 @@ defmodule Exhub.MCP.HabitStore do
             description: Map.get(habit, "description", ""),
             category: Map.get(habit, "category", "general")
           }
+
           :ets.insert(table, {key, value, metadata})
         end)
 
@@ -112,7 +114,8 @@ defmodule Exhub.MCP.HabitStore do
         :ok
     end
 
-    {:ok, state}
+    timer = schedule_persist(0)
+    {:ok, %{state | timer: timer}}
   end
 
   @impl true
@@ -143,6 +146,7 @@ defmodule Exhub.MCP.HabitStore do
           "description" => Map.get(metadata, :description, ""),
           "category" => Map.get(metadata, :category, "general")
         }
+
         {:reply, {:ok, result}, state}
 
       [] ->
@@ -172,16 +176,18 @@ defmodule Exhub.MCP.HabitStore do
             description: "",
             category: "general"
           }
+
           :ets.insert(state.table, {key, value, metadata})
           :ok
       end
 
     # Persist to file on successful change
     if result == :ok do
-      persist_to_file(state.table, state.data_path)
+      persist_to_file_async(state.table, state.data_path)
+      {:reply, result, %{state | dirty: true}}
+    else
+      {:reply, result, state}
     end
-
-    {:reply, result, state}
   end
 
   @impl true
@@ -197,8 +203,8 @@ defmodule Exhub.MCP.HabitStore do
 
     final_metadata = Map.merge(default_metadata, metadata)
     :ets.insert(state.table, {key, value, final_metadata})
-    persist_to_file(state.table, state.data_path)
-    {:reply, :ok, state}
+    persist_to_file_async(state.table, state.data_path)
+    {:reply, :ok, %{state | dirty: true}}
   end
 
   @impl true
@@ -231,10 +237,11 @@ defmodule Exhub.MCP.HabitStore do
 
     # Persist to file on successful delete
     if result == :ok do
-      persist_to_file(state.table, state.data_path)
+      persist_to_file_async(state.table, state.data_path)
+      {:reply, result, %{state | dirty: true}}
+    else
+      {:reply, result, state}
     end
-
-    {:reply, result, state}
   end
 
   @impl true
@@ -270,7 +277,32 @@ defmodule Exhub.MCP.HabitStore do
     {:reply, :ok, state}
   end
 
-  # Private functions
+  @impl true
+  def handle_info(:persist, %{dirty: false} = state) do
+    timer = schedule_persist()
+    {:noreply, %{state | timer: timer}}
+  end
+
+  @impl true
+  def handle_info(:persist, state) do
+    persist_to_file_async(state.table, state.data_path)
+    timer = schedule_persist()
+    {:noreply, %{state | dirty: false, timer: timer}}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.dirty do
+      persist_to_file(state.table, state.data_path)
+    end
+
+    if state.timer, do: Process.cancel_timer(state.timer)
+    :ok
+  end
+
+  defp schedule_persist(delay \\ 60000) do
+    Process.send_after(self(), :persist, delay)
+  end
 
   defp data_file_path do
     Path.join(@data_dir, @data_file)
@@ -279,7 +311,7 @@ defmodule Exhub.MCP.HabitStore do
   defp load_from_file(path) do
     case File.read(path) do
       {:ok, content} ->
-        case JSON.decode(content) do
+        case Jason.decode(content) do
           {:ok, habits} when is_list(habits) -> {:ok, habits}
           _ -> {:error, :invalid_format}
         end
@@ -312,7 +344,7 @@ defmodule Exhub.MCP.HabitStore do
 
     # Write atomically using temp file then rename
     tmp_path = path <> ".tmp"
-    File.write!(tmp_path, JSON.encode!(entries))
+    File.write!(tmp_path, Jason.encode!(entries))
     File.rename!(tmp_path, path)
 
     :ok
@@ -323,20 +355,29 @@ defmodule Exhub.MCP.HabitStore do
       {:error, :persist_failed}
   end
 
+  defp persist_to_file_async(table, path) do
+    Task.start(fn ->
+      persist_to_file(table, path)
+    end)
+  end
+
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_datetime(_), do: nil
 
   defp parse_datetime(nil), do: DateTime.utc_now()
+
   defp parse_datetime(iso_string) when is_binary(iso_string) do
     case DateTime.from_iso8601(iso_string) do
       {:ok, dt, _} -> dt
       _ -> DateTime.utc_now()
     end
   end
+
   defp parse_datetime(_), do: DateTime.utc_now()
 
   defp protected_key?(key) do
     key_lower = String.downcase(key)
+
     Enum.any?(@default_protected_keys, fn protected ->
       String.contains?(key_lower, protected)
     end)

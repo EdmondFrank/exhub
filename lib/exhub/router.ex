@@ -67,6 +67,7 @@ defmodule Exhub.Router do
       "glm-4_5v" => "https://ai.gitee.com/v1",
       "glm-4.6" => "https://ai.gitee.com/v1",
       "glm-4.7" => "https://ai.gitee.com/v1",
+      "glm-5" => "https://ai.gitee.com/v1",
       "deepseek-v3" => "https://ai.gitee.com/v1",
       "deepseek-r1" => "https://ai.gitee.com/v1",
       "deepseek-v3_1" => "https://ai.gitee.com/v1",
@@ -88,6 +89,7 @@ defmodule Exhub.Router do
       "minimax/minimax-m2:free" => "https://openrouter.ai/api/v1",
       "minimax-m2" => "https://ai.gitee.com/v1",
       "minimax-m2.1" => "https://ai.gitee.com/v1",
+      "minimax-m2.5" => "https://ai.gitee.com/v1",
       "minimax-m2-preview" => "https://api.minimaxi.com/v1",
       "gemini-2.5-pro" => "http://localhost:8765/v1",
       "gemini-2.5-flash" => "http://localhost:8765/v1",
@@ -101,6 +103,7 @@ defmodule Exhub.Router do
       "glm-4_5v" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "glm-4.6" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "glm-4.7" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "glm-5" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-r1" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "deepseek-v3_1" => Application.get_env(:exhub, :giteeai_api_key, ""),
@@ -123,6 +126,7 @@ defmodule Exhub.Router do
       "minimax/minimax-m2:free" => Application.get_env(:exhub, :openrouter_api_key, ""),
       "minimax-m2" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "minimax-m2.1" => Application.get_env(:exhub, :giteeai_api_key, ""),
+      "minimax-m2.5" => Application.get_env(:exhub, :giteeai_api_key, ""),
       "minimax-m2-preview" => Application.get_env(:exhub, :minimax_api_key, ""),
       "openrouter/polaris-alpha" => Application.get_env(:exhub, :openrouter_api_key, "")
     }
