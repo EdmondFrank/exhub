@@ -87,6 +87,14 @@ defmodule Exhub.MCP.HabitStore do
     GenServer.call(server, {:init_defaults, defaults})
   end
 
+  @doc """
+  Wait for the habit store to finish loading from disk.
+  Returns :ok when loaded, {:error, :timeout} if it takes too long.
+  """
+  def await_loaded(server \\ __MODULE__, timeout_ms \\ 5000) do
+    GenServer.call(server, :await_loaded, timeout_ms)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -94,27 +102,49 @@ defmodule Exhub.MCP.HabitStore do
     table = :ets.new(@table, [:set, :protected, :named_table, read_concurrency: true])
 
     data_path = data_file_path()
-    state = %{table: table, data_path: data_path, dirty: false, timer: nil}
+    
+    state = %{
+      table: table,
+      data_path: data_path,
+      dirty: false,
+      timer: nil,
+      loaded: false,
+      last_persist_at: nil,
+      waiting_calls: []
+    }
 
-    case load_from_file(data_path) do
-      {:ok, habits} ->
-        Enum.each(habits, fn %{"key" => key, "value" => value} = habit ->
-          metadata = %{
-            modifiable: Map.get(habit, "modifiable", true),
-            created_at: parse_datetime(Map.get(habit, "created_at")),
-            updated_at: parse_datetime(Map.get(habit, "updated_at")),
-            description: Map.get(habit, "description", ""),
-            category: Map.get(habit, "category", "general")
-          }
+    state =
+      case load_from_file(state.data_path) do
+        {:ok, habits} ->
+          Enum.each(habits, fn %{"key" => key, "value" => value} = habit ->
+            metadata = %{
+              modifiable: Map.get(habit, "modifiable", true),
+              created_at: parse_datetime(Map.get(habit, "created_at")),
+              updated_at: parse_datetime(Map.get(habit, "updated_at")),
+              description: Map.get(habit, "description", ""),
+              category: Map.get(habit, "category", "general")
+            }
 
-          :ets.insert(table, {key, value, metadata})
-        end)
+            :ets.insert(table, {key, value, metadata})
+          end)
 
-      {:error, _} ->
-        :ok
-    end
+          require Logger
+          Logger.debug("HabitStore: Loaded #{length(habits)} habits from #{data_path}")
+          %{state | loaded: true}
 
-    timer = schedule_persist(0)
+        {:error, :file_not_found} ->
+          require Logger
+          Logger.debug("HabitStore: No existing habits file found at #{data_path}")
+          %{state | loaded: true}
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("HabitStore: Failed to load habits: #{inspect(reason)}")
+          %{state | loaded: true}
+      end
+
+    timer = schedule_persist(5000)
+
     {:ok, %{state | timer: timer}}
   end
 
@@ -168,7 +198,6 @@ defmodule Exhub.MCP.HabitStore do
           end
 
         [] ->
-          # New key - allow creation with default metadata (modifiable: true)
           metadata = %{
             modifiable: true,
             created_at: DateTime.utc_now(),
@@ -181,7 +210,6 @@ defmodule Exhub.MCP.HabitStore do
           :ok
       end
 
-    # Persist to file on successful change
     if result == :ok do
       persist_to_file_async(state.table, state.data_path)
       {:reply, result, %{state | dirty: true}}
@@ -192,7 +220,6 @@ defmodule Exhub.MCP.HabitStore do
 
   @impl true
   def handle_call({:set_with_metadata, key, value, metadata}, _from, state) do
-    # Merge with default metadata
     default_metadata = %{
       modifiable: true,
       created_at: DateTime.utc_now(),
@@ -214,7 +241,6 @@ defmodule Exhub.MCP.HabitStore do
         {:reply, Map.get(metadata, :modifiable, false), state}
 
       [] ->
-        # New keys are considered modifiable by default
         {:reply, true, state}
     end
   end
@@ -235,7 +261,6 @@ defmodule Exhub.MCP.HabitStore do
           {:error, :not_found}
       end
 
-    # Persist to file on successful delete
     if result == :ok do
       persist_to_file_async(state.table, state.data_path)
       {:reply, result, %{state | dirty: true}}
@@ -278,6 +303,56 @@ defmodule Exhub.MCP.HabitStore do
   end
 
   @impl true
+  def handle_call(:await_loaded, from, state) do
+    if state.loaded do
+      {:reply, :ok, state}
+    else
+      {:noreply, %{state | waiting_calls: [from | state.waiting_calls]}}
+    end
+  end
+
+  @impl true
+  def handle_info(:load_from_file, state) do
+    new_state =
+      case load_from_file(state.data_path) do
+        {:ok, habits} ->
+          Enum.each(habits, fn %{"key" => key, "value" => value} = habit ->
+            metadata = %{
+              modifiable: Map.get(habit, "modifiable", true),
+              created_at: parse_datetime(Map.get(habit, "created_at")),
+              updated_at: parse_datetime(Map.get(habit, "updated_at")),
+              description: Map.get(habit, "description", ""),
+              category: Map.get(habit, "category", "general")
+            }
+
+            :ets.insert(state.table, {key, value, metadata})
+          end)
+
+          require Logger
+          Logger.debug("HabitStore: Loaded #{length(habits)} habits from #{state.data_path}")
+          state
+
+        {:error, :file_not_found} ->
+          require Logger
+          Logger.debug("HabitStore: No existing habits file found at #{state.data_path}")
+          state
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("HabitStore: Failed to load habits: #{inspect(reason)}")
+          state
+      end
+
+    loaded_state = %{new_state | loaded: true}
+
+    Enum.each(loaded_state.waiting_calls, fn from ->
+      GenServer.reply(from, :ok)
+    end)
+
+    {:noreply, %{loaded_state | waiting_calls: []}}
+  end
+
+  @impl true
   def handle_info(:persist, %{dirty: false} = state) do
     timer = schedule_persist()
     {:noreply, %{state | timer: timer}}
@@ -287,7 +362,7 @@ defmodule Exhub.MCP.HabitStore do
   def handle_info(:persist, state) do
     persist_to_file_async(state.table, state.data_path)
     timer = schedule_persist()
-    {:noreply, %{state | dirty: false, timer: timer}}
+    {:noreply, %{state | dirty: false, timer: timer, last_persist_at: DateTime.utc_now()}}
   end
 
   @impl true
@@ -339,10 +414,8 @@ defmodule Exhub.MCP.HabitStore do
         }
       end)
 
-    # Ensure directory exists
     File.mkdir_p!(Path.dirname(path))
 
-    # Write atomically using temp file then rename
     tmp_path = path <> ".tmp"
     File.write!(tmp_path, Jason.encode!(entries))
     File.rename!(tmp_path, path)
