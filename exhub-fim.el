@@ -81,7 +81,7 @@ auto-suggestions will not be shown."
 
 (defvar exhub-fim-buffer-name "*exhub-fim*" "The basename for exhub-fim buffers.")
 
-(defcustom exhub-fim-provider 'openai-fim-compatible
+(defcustom exhub-fim-provider 'codestral
   "The provider to use for code completion.
 Must be one of the supported providers: codestral, openai, claude, etc."
   :type '(choice (const :tag "Codestral" codestral)
