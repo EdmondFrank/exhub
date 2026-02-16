@@ -46,6 +46,16 @@ defmodule Exhub.Router do
     )
   end
 
+  get "/openai/v1/*path" do
+    token = Application.get_env(:exhub, :openai_api_key, "")
+    options = [
+      custom_headers: [{"Authorization", "Bearer #{token}"}],
+      client_options: [timeout: @default_timeout, recv_timeout: @default_timeout]
+    ]
+    Logger.info("[OpenAI Proxy] Forwarding request - models")
+    ProxyPlug.forward_upstream(conn, "http://20.246.88.31:8080/v1", options)
+  end
+
   post "/openai/v1/*path" do
     # Extract model name from JSON body (if present)
     model_name =
