@@ -1,6 +1,13 @@
 defmodule Exhub.ProxyPlug do
+  @moduledoc """
+  Reverse proxy plug for forwarding requests to upstream servers.
+  Handles request/response transformation and error handling.
+  """
+
+  require Logger
+
   @doc """
-  reverse conn proxy to upstream
+  Forward connection to upstream server with proper error handling.
   """
   def forward_upstream(conn, upstream, opts \\ []) do
     params =
@@ -70,18 +77,30 @@ defmodule Exhub.ProxyPlug do
         end
 
         pre_body == "" &&
-          Plug.Conn.get_req_header(conn, "content-type") == [
-          "application/x-www-form-urlencoded"
-        ] ->
-        Plug.Conn.Query.encode(conn.body_params)
+            Plug.Conn.get_req_header(conn, "content-type") == ["application/x-www-form-urlencoded"] ->
+          Plug.Conn.Query.encode(conn.body_params)
 
-      true ->
-        pre_body
-    end
+        true ->
+          pre_body
+      end
 
     conn
     |> Map.put(:path_info, conn.path_params["path"])
     |> ReverseProxyPlug.request(body, params)
+    |> tap(fn resp ->
+      case resp do
+        {:ok, %{status: status, body: resp_body}} when status < 200 or status >= 300 ->
+          Logger.warning(
+            "Upstream request failed: status=#{status}, path=#{conn.request_path}, body=#{inspect(resp_body)}"
+          )
+
+        {:error, reason} ->
+          Logger.error("Upstream request error: path=#{conn.request_path}, reason=#{inspect(reason)}")
+
+        _ ->
+          :ok
+      end
+    end)
     |> ReverseProxyPlug.response(conn, params)
   end
 end
