@@ -27,3 +27,4 @@ exhub-*.tar
 .aider*
 .env
 .cecli*
+.agent-shell/

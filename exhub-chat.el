@@ -332,16 +332,17 @@ If nil, it uses the current buffer."
   (interactive)
   (let* ((document (if (region-active-p)
                        (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
-                     (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
+                     (string-trim (buffer-substring-no-properties (point-min) (point-max)))))
+         (system-prompt "You are an expert in English writing grammar checking and strengthening. Your main task is to help users improve their English writing by checking for grammatical errors and correcting them directly. Please improve the following documents and fix any grammar or spelling errors. Return your response as a JSON object with a single key 'improved_text' containing only the improved document text. Do not include any explanations, markdown formatting, or other extraneous content.\n--- Here are document: \n"))
     (exhub-call "exhub-chat"
-                "You are an expert in English writing grammar checking and strengthening. Your main task is to help users improve their English writing by checking for grammatical errors and correcting them directly. Please improve the following documents and fix any grammar or spelling errors. Only return the improved documents, not other extraneous text!\n--- Here are document: \n"
+                "improve-document"
+                system-prompt
                 (buffer-name)
                 document
                 "Adjusting..."
                 "Adjust document done."
                 (region-beginning)
-                (region-end)
-                "exhub-chat-return-text")))
+                (region-end))))
 
 (defun exhub-chat-format-code ()
   (interactive)

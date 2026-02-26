@@ -54,6 +54,31 @@ defmodule Exhub.Llm.Chain do
     LLMChain.run(chain)
   end
 
+  def execute_with_schema(llm_chain, initial_messages, json_schema) do
+    # Add response_format to the LLM configuration for structured output
+    updated_llm = Map.put(llm_chain.llm, :response_format, %{
+      type: "json_schema",
+      json_schema: %{
+        name: "improved_document",
+        schema: json_schema,
+        strict: true
+      }
+    })
+
+    updated_chain = %{llm_chain | llm: updated_llm}
+
+    case LLMChain.new!(updated_chain)
+         |> LLMChain.add_messages(initial_messages)
+         |> LLMChain.run(mode: :while_needs_response) do
+      {:ok, updated_chain} ->
+        updated_chain |> ChainResult.to_string()
+
+      {:error, _, %LangChainError{message: message} = error} ->
+        Logger.error("LLMChain.run with schema failed: #{inspect(error)}")
+        {:error, message}
+    end
+  end
+
   defp create_llm_chain_from_config(config, opts \\ %{}) do
     [provider, model_name] = String.split(config[:model], "/", parts: 2)
 

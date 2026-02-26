@@ -425,7 +425,7 @@ defmodule Exhub.Router do
       "max_tokens" => max_tokens || 4096
     }
 
-    # Convert to LangChain format using existing function
+    # Convert to LangChain format using the existing function.
     langchain_request = convert_anthropic_to_langchain(anthropic_request)
     langchain_messages = Map.get(langchain_request, :messages, []) || []
     langchain_tools = Map.get(langchain_request, :tools, []) || []

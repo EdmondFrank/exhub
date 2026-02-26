@@ -34,6 +34,15 @@ defmodule Exhub.Llm.Chat do
     execute_chain(system_message, user_message, custom_fns, context)
   end
 
+  def execute_with_schema(system_message, user_message, json_schema) do
+    llm_chain = Chain.create_llm_chain()
+    initial_messages = [
+      Message.new_system!(system_message),
+      Message.new_user!(user_message)
+    ]
+    Chain.execute_with_schema(llm_chain, initial_messages, json_schema)
+  end
+
   defp execute_chain(system_message, user_message, custom_fns, context) do
     llm_chain = Chain.create_llm_chain()
     initial_messages = [
