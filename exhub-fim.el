@@ -289,7 +289,7 @@ fib(5)")
 (defvar exhub-fim-openai-compatible-options
   `(:end-point "http://127.0.0.1:9069/openai/v1/chat/completions"
                :api-key "OPENAI_API_KEY"
-               :model "gpt-4o-mini"
+               :model "qwen3-coder-next"
                :system
                (:template exhub-fim-default-system-template
                           :prompt exhub-fim-default-prompt
