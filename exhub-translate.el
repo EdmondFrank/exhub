@@ -169,6 +169,17 @@
       (kill-region (beginning-of-thing 'symbol) (end-of-thing 'symbol)))
     (exhub-translate-query-translation region "origin" "zh")))
 
+(defun exhub-translate-replace-zh-tw ()
+  "Translate and replace the selected region to Traditional Chinese."
+  (interactive)
+  (let ((region (if (use-region-p)
+                    (buffer-substring-no-properties (region-beginning) (region-end))
+                  (thing-at-point 'symbol))))
+    (if (use-region-p)
+        (kill-region (region-beginning) (region-end))
+      (kill-region (beginning-of-thing 'symbol) (end-of-thing 'symbol)))
+    (exhub-translate-query-translation region "origin" "zh-tw")))
+
 ;;;;;;;;;;;;;;;;;;;;; Helper functions ;;;;;;;;;;;;;;;;;;;;;
 (defun exhub-translate-replace-symbol (style)
   (let ((word (if (use-region-p)
