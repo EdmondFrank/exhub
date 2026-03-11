@@ -19,6 +19,8 @@ defmodule Exhub.Application do
       # MCP Habit Configuration Server
       {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
       {Exhub.MCP.HabitServer, transport: :streamable_http},
+      # Token Usage Tracking
+      {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()
     ]
 

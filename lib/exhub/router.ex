@@ -48,10 +48,12 @@ defmodule Exhub.Router do
 
   get "/openai/v1/*path" do
     token = Application.get_env(:exhub, :openai_api_key, "")
+
     options = [
       custom_headers: [{"Authorization", "Bearer #{token}"}],
       client_options: [timeout: @default_timeout, recv_timeout: @default_timeout]
     ]
+
     Logger.info("[OpenAI Proxy] Forwarding request - models")
     ProxyPlug.forward_upstream(conn, "http://20.246.88.31:8080/v1", options)
   end
@@ -584,7 +586,14 @@ defmodule Exhub.Router do
             end)
 
           # Stream results back to client using main process receive loop
-          stream_response_loop(conn, task, response_id)
+          # Pass tracking context for token usage recording
+          tracking_ctx = %{
+            model: model || llm_name || "unknown",
+            provider: "exhub",
+            input_tokens: input_tokens
+          }
+
+          stream_response_loop(conn, task, response_id, tracking_ctx, "")
 
           conn
         else
@@ -615,6 +624,17 @@ defmodule Exhub.Router do
 
               input_tokens = estimate_input_tokens(messages, system, tools)
               output_tokens = estimate_output_tokens(safe_response)
+
+              # Track token usage
+              spawn(fn ->
+                Exhub.TokenUsage.TokenUsageStore.record_usage(
+                  model || llm_name || "unknown",
+                  "exhub",
+                  input_tokens,
+                  output_tokens,
+                  %{request_id: response_id, timestamp: DateTime.utc_now()}
+                )
+              end)
 
               anthropic_response = %{
                 "id" => response_id,
@@ -726,45 +746,23 @@ defmodule Exhub.Router do
 
   defp estimate_output_tokens(_), do: 0
 
-  # Helper function to determine error type for Anthropic format
-  defp determine_error_type(error) do
-    error_str = to_string(error)
-
-    cond do
-      String.contains?(error_str, "timeout") ->
-        "request_timeout"
-
-      String.contains?(error_str, "rate_limit") ->
-        "rate_limit_error"
-
-      String.contains?(error_str, "authentication") or String.contains?(error_str, "api_key") or
-          String.contains?(error_str, "unauthorized") ->
-        "authentication_error"
-
-      String.contains?(error_str, "not found") or String.contains?(error_str, "unknown model") or
-          String.contains?(error_str, "model not found") ->
-        "model_not_found_error"
-
-      String.contains?(error_str, "invalid request") or String.contains?(error_str, "validation") ->
-        "invalid_request_error"
-
-      String.contains?(error_str, "permission") or String.contains?(error_str, "forbidden") ->
-        "permission_error"
-
-      String.contains?(error_str, "overloaded") ->
-        "overloaded_error"
-
-      true ->
-        "invalid_request_error"
-    end
-  end
-
   # Streaming response loop - processes events in main process
-  defp stream_response_loop(conn, task, response_id) do
+  defp stream_response_loop(conn, task, response_id, tracking_ctx, acc_text) do
     receive do
       {:stream_chunk, ^response_id, event} ->
         delta_data = Map.get(event, "delta", %{})
         delta_type = Map.get(delta_data, "type", "text_delta")
+
+        # Accumulate text for token estimation
+        new_acc_text =
+          case delta_type do
+            "text_delta" ->
+              text = Map.get(delta_data, "text", "")
+              acc_text <> text
+
+            _ ->
+              acc_text
+          end
 
         conn =
           case delta_type do
@@ -840,9 +838,24 @@ defmodule Exhub.Router do
               send_sse_event(conn, "content_block_delta", event)
           end
 
-        stream_response_loop(conn, task, response_id)
+        stream_response_loop(conn, task, response_id, tracking_ctx, new_acc_text)
 
       {:message_complete, ^response_id, _message} ->
+        # Track token usage for streaming response
+        if map_size(tracking_ctx) > 0 do
+          output_tokens = estimate_output_tokens(acc_text)
+
+          spawn(fn ->
+            Exhub.TokenUsage.TokenUsageStore.record_usage(
+              tracking_ctx[:model] || "unknown",
+              tracking_ctx[:provider] || "exhub",
+              tracking_ctx[:input_tokens] || 0,
+              output_tokens,
+              %{request_id: response_id, timestamp: DateTime.utc_now()}
+            )
+          end)
+        end
+
         conn =
           send_sse_event(conn, "content_block_stop", %{
             "type" => "content_block_stop",
@@ -856,7 +869,7 @@ defmodule Exhub.Router do
             "stop_sequence" => nil
           },
           "usage" => %{
-            "output_tokens" => 0
+            "output_tokens" => estimate_output_tokens(acc_text)
           }
         }
 
@@ -874,13 +887,12 @@ defmodule Exhub.Router do
           "stream_response_loop: Received error for #{response_id} - #{inspect(error)}"
         )
 
-        error_type = determine_error_type(error)
         error_message = inspect(error)
 
         error_event = %{
           "type" => "error",
           "error" => %{
-            "type" => error_type,
+            "type" => "internal_server_error",
             "message" => error_message
           }
         }
@@ -983,8 +995,473 @@ defmodule Exhub.Router do
   end
 
   # MCP endpoint for habit configuration
-  forward "/mcp", to: Hermes.Server.Transport.StreamableHTTP.Plug,
+  forward("/mcp",
+    to: Hermes.Server.Transport.StreamableHTTP.Plug,
     init_opts: [server: Exhub.MCP.HabitServer]
+  )
+
+  # Token Usage Dashboard API
+  get "/dashboard/token_usage" do
+    # Parse query parameters
+    filters =
+      %{
+        start_date: conn.params["start_date"],
+        end_date: conn.params["end_date"],
+        model: conn.params["model"],
+        provider: conn.params["provider"],
+        limit: parse_int(conn.params["limit"], 100),
+        offset: parse_int(conn.params["offset"], 0)
+      }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new()
+
+    case Exhub.TokenUsage.TokenUsageStore.get_usage(filters) do
+      {:ok, records} ->
+        response = %{
+          success: true,
+          data: records,
+          pagination: %{
+            limit: filters[:limit] || 100,
+            offset: filters[:offset] || 0,
+            total: length(records)
+          }
+        }
+
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(response))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/dashboard/stats" do
+    # Parse query parameters
+    start_date = conn.params["start_date"]
+    end_date = conn.params["end_date"]
+    group_by = conn.params["group_by"] || "model"
+
+    filters =
+      %{}
+      |> maybe_put(:start_date, start_date)
+      |> maybe_put(:end_date, end_date)
+
+    group_by_atom =
+      case group_by do
+        "provider" -> :provider
+        "day" -> :day
+        _ -> :model
+      end
+
+    with {:ok, grouped_stats} <-
+           Exhub.TokenUsage.TokenUsageStore.get_stats(group_by_atom, filters),
+         {:ok, summary} <- Exhub.TokenUsage.TokenUsageStore.get_summary(filters) do
+      response = %{
+        success: true,
+        data: %{
+          summary: summary,
+          grouped: grouped_stats,
+          group_by: group_by
+        }
+      }
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(200, Jason.encode!(response))
+    else
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/dashboard/data" do
+    days = parse_int(conn.params["days"], 30)
+
+    case Exhub.TokenUsage.TokenUsageStats.get_dashboard_data(days) do
+      {:ok, data} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(%{success: true, data: data}))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/dashboard" do
+    dashboard_html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Exhub Token Usage Dashboard</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+          background: #0d1117;
+          color: #c9d1d9;
+          line-height: 1.6;
+        }
+        .container {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        header {
+          background: #161b22;
+          border-bottom: 1px solid #30363d;
+          padding: 20px 0;
+          margin-bottom: 30px;
+        }
+        h1 {
+          color: #58a6ff;
+          font-size: 28px;
+        }
+        .subtitle {
+          color: #8b949e;
+          font-size: 14px;
+        }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 20px;
+          margin-bottom: 30px;
+        }
+        .stat-card {
+          background: #161b22;
+          border: 1px solid #30363d;
+          border-radius: 12px;
+          padding: 24px;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        }
+        .stat-label {
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #8b949e;
+          margin-bottom: 8px;
+        }
+        .stat-value {
+          font-size: 32px;
+          font-weight: 700;
+          color: #58a6ff;
+        }
+        .stat-value.cost {
+          color: #238636;
+        }
+        .section {
+          background: #161b22;
+          border: 1px solid #30363d;
+          border-radius: 12px;
+          padding: 24px;
+          margin-bottom: 24px;
+        }
+        .section h2 {
+          font-size: 18px;
+          margin-bottom: 20px;
+          color: #f0f6fc;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        th, td {
+          text-align: left;
+          padding: 12px;
+          border-bottom: 1px solid #30363d;
+        }
+        th {
+          font-weight: 600;
+          color: #8b949e;
+          font-size: 12px;
+          text-transform: uppercase;
+        }
+        tr:hover {
+          background: #21262d;
+        }
+        .loading {
+          text-align: center;
+          padding: 40px;
+          color: #8b949e;
+        }
+        .error {
+          background: #da3633;
+          color: white;
+          padding: 16px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+        .refresh-btn {
+          background: #238636;
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          margin-bottom: 20px;
+        }
+        .refresh-btn:hover {
+          background: #2ea043;
+        }
+        .chart-container {
+          height: 300px;
+          position: relative;
+        }
+        .bar-chart {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-around;
+          height: 250px;
+          padding: 20px 0;
+          border-bottom: 2px solid #30363d;
+        }
+        .bar {
+          background: linear-gradient(to top, #58a6ff, #79c0ff);
+          border-radius: 4px 4px 0 0;
+          min-width: 30px;
+          position: relative;
+          transition: opacity 0.2s;
+        }
+        .bar:hover {
+          opacity: 0.8;
+        }
+        .bar-label {
+          position: absolute;
+          bottom: -25px;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 11px;
+          color: #8b949e;
+          white-space: nowrap;
+        }
+        .bar-value {
+          position: absolute;
+          top: -20px;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 11px;
+          color: #c9d1d9;
+        }
+      </style>
+    </head>
+    <body>
+      <header>
+        <div class="container">
+          <h1>Token Usage Dashboard</h1>
+          <p class="subtitle">Monitor your LLM API usage and costs</p>
+        </div>
+      </header>
+
+      <div class="container">
+        <button class="refresh-btn" onclick="loadDashboard()">Refresh Data</button>
+        <div id="error"></div>
+
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Requests</div>
+            <div class="stat-value" id="total-requests">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Tokens</div>
+            <div class="stat-value" id="total-tokens">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Input Tokens</div>
+            <div class="stat-value" id="input-tokens">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Output Tokens</div>
+            <div class="stat-value" id="output-tokens">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Estimated Cost</div>
+            <div class="stat-value cost" id="total-cost">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Unique Models</div>
+            <div class="stat-value" id="unique-models">-</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Usage Trends (Last 30 Days)</h2>
+          <div class="chart-container">
+            <div class="bar-chart" id="trends-chart">
+              <div class="loading">Loading...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Top Models</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Requests</th>
+                <th>Input Tokens</th>
+                <th>Output Tokens</th>
+                <th>Total Tokens</th>
+                <th>Cost (USD)</th>
+                <th>Percentage</th>
+              </tr>
+            </thead>
+            <tbody id="top-models">
+              <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <h2>Recent Usage</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Input Tokens</th>
+                <th>Output Tokens</th>
+                <th>Total</th>
+                <th>Cost (USD)</th>
+              </tr>
+            </thead>
+            <tbody id="recent-usage">
+              <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <script>
+        function formatNumber(num) {
+          if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+          if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+          return num.toString();
+        }
+
+        function formatCurrency(num) {
+          return '$' + num.toFixed(4);
+        }
+
+        function formatDate(isoString) {
+          const date = new Date(isoString);
+          return date.toLocaleString();
+        }
+
+        async function loadDashboard() {
+          try {
+            document.getElementById('error').innerHTML = '';
+
+            const response = await fetch('/dashboard/data?days=30');
+            const result = await response.json();
+
+            if (!result.success) {
+              throw new Error(result.error || 'Failed to load data');
+            }
+
+            const data = result.data;
+
+            // Update summary stats
+            const summary = data.summary;
+            document.getElementById('total-requests').textContent = formatNumber(summary.total_requests);
+            document.getElementById('total-tokens').textContent = formatNumber(summary.total_tokens);
+            document.getElementById('input-tokens').textContent = formatNumber(summary.total_input_tokens);
+            document.getElementById('output-tokens').textContent = formatNumber(summary.total_output_tokens);
+            document.getElementById('total-cost').textContent = formatCurrency(summary.total_cost);
+            document.getElementById('unique-models').textContent = summary.unique_models_count;
+
+            // Update trends chart
+            const trendsHtml = data.trends.map(day => {
+              const maxTokens = Math.max(...data.trends.map(d => d.total_tokens), 1);
+              const height = (day.total_tokens / maxTokens * 200);
+              return `
+                <div class="bar" style="height: ${height}px">
+                  <div class="bar-value">${formatNumber(day.total_tokens)}</div>
+                  <div class="bar-label">${day.date.slice(5)}</div>
+                </div>
+              `;
+            }).join('');
+            document.getElementById('trends-chart').innerHTML = trendsHtml || '<div class="loading">No data</div>';
+
+            // Update top models table
+            const modelsHtml = data.top_models.map(model => `
+              <tr>
+                <td>${model.model}</td>
+                <td>${formatNumber(model.request_count)}</td>
+                <td>${formatNumber(model.total_input)}</td>
+                <td>${formatNumber(model.total_output)}</td>
+                <td>${formatNumber(model.total_tokens)}</td>
+                <td>${formatCurrency(model.total_cost)}</td>
+                <td>${model.percentage}%</td>
+              </tr>
+            `).join('');
+            document.getElementById('top-models').innerHTML = modelsHtml || '<tr><td colspan="7" class="loading">No data</td></tr>';
+
+            // Update recent usage table
+            const recentHtml = data.recent_usage.map(usage => `
+              <tr>
+                <td>${formatDate(usage.timestamp)}</td>
+                <td>${usage.model}</td>
+                <td>${usage.provider}</td>
+                <td>${formatNumber(usage.input_tokens)}</td>
+                <td>${formatNumber(usage.output_tokens)}</td>
+                <td>${formatNumber(usage.total_tokens)}</td>
+                <td>${formatCurrency(usage.estimated_cost)}</td>
+              </tr>
+            `).join('');
+            document.getElementById('recent-usage').innerHTML = recentHtml || '<tr><td colspan="7" class="loading">No data</td></tr>';
+
+          } catch (err) {
+            document.getElementById('error').innerHTML = `<div class="error">Error: ${err.message}</div>`;
+            console.error('Dashboard error:', err);
+          }
+        }
+
+        // Load dashboard on page load
+        loadDashboard();
+
+        // Auto-refresh every 60 seconds
+        setInterval(loadDashboard, 60000);
+      </script>
+    </body>
+    </html>
+    """
+
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(200, dashboard_html)
+  end
+
+  # Helper functions
+  defp parse_int(nil, default), do: default
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> default
+    end
+  end
+
+  defp parse_int(value, _default) when is_integer(value), do: value
+  defp parse_int(_, default), do: default
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   match _ do
     send_resp(
