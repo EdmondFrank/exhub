@@ -170,11 +170,15 @@ defmodule Exhub.Router.Config do
 
   @doc """
   Returns the authorization header for a given model and provider type.
+  Includes model-specific custom headers (e.g., X-Package for kimi-k2.5).
 
   ## Examples
 
       iex> Exhub.Router.Config.get_auth_headers("deepseek-v3", :openai)
       [{"authorization", "Bearer <giteeai_api_key>"}]
+
+      iex> Exhub.Router.Config.get_auth_headers("kimi-k2.5", :openai)
+      [{"authorization", "Bearer <giteeai_api_key>"}, {"x-package", "6609"}]
 
       iex> Exhub.Router.Config.get_auth_headers("minimax-m2.1", :anthropic)
       [{"x-api-key", "<minimax_api_key>"}]
@@ -182,7 +186,13 @@ defmodule Exhub.Router.Config do
   @spec get_auth_headers(model(), :openai | :anthropic) :: [{String.t(), String.t()}]
   def get_auth_headers(model, :openai) do
     token = get_model_api_key(model)
-    [{"authorization", "Bearer #{token}"}]
+    headers = [{"authorization", "Bearer #{token}"}]
+
+    if model == "kimi-k2.5" do
+      headers ++ [{"x-package", "6609"}]
+    else
+      headers
+    end
   end
 
   def get_auth_headers(model, :anthropic) do
