@@ -197,6 +197,7 @@ defmodule Exhub.ProxyPlug do
       %{"model" => "kimi-k2.5"} ->
         body_params
         |> Map.put("temperature", 1)
+        |> Exhub.Router.Config.transform_request_body("kimi-k2.5")
         |> Jason.encode!()
 
       _ ->

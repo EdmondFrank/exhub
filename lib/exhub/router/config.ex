@@ -248,4 +248,47 @@ defmodule Exhub.Router.Config do
   def get_timeout do
     Application.get_env(:exhub, :default_timeout, 1_800_000)
   end
+
+  @doc """
+  Transforms request body for model-specific requirements.
+  For kimi-k2.5, adds reasoning_content to assistant messages with tool_calls.
+
+  ## Examples
+
+      iex> Exhub.Router.Config.transform_request_body(%{"messages" => [%{"role" => "assistant", "tool_calls" => [%{}]}]}, "kimi-k2.5")
+      %{"messages" => [%{"role" => "assistant", "tool_calls" => [%{}], "reasoning_content" => "."}]}
+
+      iex> Exhub.Router.Config.transform_request_body(%{"model" => "test"}, "deepseek-v3")
+      %{"model" => "test"}
+  """
+  @spec transform_request_body(map(), model()) :: map()
+  def transform_request_body(body, model) when is_map(body) and is_binary(model) do
+    case model do
+      "kimi-k2.5" -> transform_kimi_k2_5_body(body)
+      _ -> body
+    end
+  end
+
+  defp transform_kimi_k2_5_body(body) do
+    messages = Map.get(body, "messages")
+
+    if is_list(messages) do
+      transformed_messages =
+        Enum.map(messages, fn msg ->
+          if is_map(msg) and
+               Map.get(msg, "role") == "assistant" and
+               is_list(Map.get(msg, "tool_calls")) and
+               length(Map.get(msg, "tool_calls")) > 0 and
+               is_nil(Map.get(msg, "reasoning_content")) do
+            Map.put(msg, "reasoning_content", ".")
+          else
+            msg
+          end
+        end)
+
+      Map.put(body, "messages", transformed_messages)
+    else
+      body
+    end
+  end
 end
