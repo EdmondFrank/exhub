@@ -178,11 +178,44 @@ defmodule Exhub.TokenUsage.Tracker do
   end
 
   def estimate_tokens_from_text(text) when is_binary(text) do
-    # Rough estimation: ~4 characters per token
-    div(String.length(text), 4)
+    # CJK characters (Chinese/Japanese/Korean) are typically 1 token each.
+    # Other text averages ~4 characters per token.
+    # This gives significantly better estimates for mixed-language content.
+    {cjk_count, other_chars} =
+      text
+      |> String.graphemes()
+      |> Enum.reduce({0, 0}, fn grapheme, {cjk, other} ->
+        if cjk_codepoint?(grapheme),
+          do: {cjk + 1, other},
+          else: {cjk, other + String.length(grapheme)}
+      end)
+
+    cjk_count + div(other_chars, 4)
   end
 
   def estimate_tokens_from_text(_), do: 0
+
+  # Returns true when the first codepoint of a grapheme falls in a CJK block.
+  defp cjk_codepoint?(grapheme) do
+    case String.to_charlist(grapheme) do
+      [cp | _] ->
+        # CJK Unified Ideographs (4E00–9FFF)
+        (cp >= 0x4E00 and cp <= 0x9FFF) or
+          # CJK Extension A (3400–4DBF)
+          (cp >= 0x3400 and cp <= 0x4DBF) or
+          # CJK Extension B (20000–2A6DF)
+          (cp >= 0x20000 and cp <= 0x2A6DF) or
+          # CJK Compatibility Ideographs (F900–FAFF)
+          (cp >= 0xF900 and cp <= 0xFAFF) or
+          # CJK Symbols and Punctuation (3000–303F)
+          (cp >= 0x3000 and cp <= 0x303F) or
+          # Halfwidth and Fullwidth Forms (FF00–FFEF)
+          (cp >= 0xFF00 and cp <= 0xFFEF)
+
+      _ ->
+        false
+    end
+  end
 
   defp deep_get(map, keys) when is_map(map) do
     deep_get_nested(map, keys)

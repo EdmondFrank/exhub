@@ -19,18 +19,84 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
   @data_dir Path.join([System.user_home(), ".config", "exhub"])
   @data_file "token_usage.json"
 
-  # Default pricing per 1M tokens (in USD)
+  # Default pricing per 1M tokens (in USD).
+  # Keys are lowercase, without provider prefix, date suffix, or "-latest" suffix.
   @default_pricing %{
+    # OpenAI GPT-4 family
     "gpt-4" => %{input: 30.0, output: 60.0},
+    "gpt-4-32k" => %{input: 60.0, output: 120.0},
     "gpt-4-turbo" => %{input: 10.0, output: 30.0},
     "gpt-4o" => %{input: 2.5, output: 10.0},
     "gpt-4o-mini" => %{input: 0.15, output: 0.6},
+    "gpt-4.1" => %{input: 2.0, output: 8.0},
+    "gpt-4.1-mini" => %{input: 0.4, output: 1.6},
+    "gpt-4.1-nano" => %{input: 0.1, output: 0.4},
+    "gpt-4.5-preview" => %{input: 75.0, output: 150.0},
+    # OpenAI reasoning models
+    "o1" => %{input: 15.0, output: 60.0},
+    "o1-mini" => %{input: 3.0, output: 12.0},
+    "o3-mini" => %{input: 1.1, output: 4.4},
+    "o3" => %{input: 10.0, output: 40.0},
+    # Legacy
     "gpt-3.5-turbo" => %{input: 0.5, output: 1.5},
+    # Anthropic Claude 3
     "claude-3-opus" => %{input: 15.0, output: 75.0},
     "claude-3-sonnet" => %{input: 3.0, output: 15.0},
     "claude-3-haiku" => %{input: 0.25, output: 1.25},
+    # Anthropic Claude 3.5
     "claude-3-5-sonnet" => %{input: 3.0, output: 15.0},
+    "claude-3-5-haiku" => %{input: 0.8, output: 4.0},
+    # Anthropic Claude 3.7
+    "claude-3-7-sonnet" => %{input: 3.0, output: 15.0},
+    # Anthropic Claude 4
+    "claude-opus-4" => %{input: 15.0, output: 75.0},
+    "claude-sonnet-4" => %{input: 3.0, output: 15.0},
+    "claude-haiku-4" => %{input: 0.8, output: 4.0},
+    # Google Gemini
+    "gemini-2.5-pro" => %{input: 1.25, output: 10.0},
+    "gemini-2.5-flash" => %{input: 0.15, output: 0.6},
+    "gemini-2.0-flash" => %{input: 0.1, output: 0.4},
+    "gemini-1.5-pro" => %{input: 1.25, output: 5.0},
+    "gemini-1.5-flash" => %{input: 0.075, output: 0.3},
+    # DeepSeek
+    "deepseek-chat" => %{input: 0.27, output: 1.1},
+    "deepseek-v3" => %{input: 0.27, output: 1.1},
+    "deepseek-v3.2" => %{input: 0.27, output: 1.1},
+    "deepseek-reasoner" => %{input: 0.55, output: 2.19},
+    "deepseek-r1" => %{input: 0.55, output: 2.19},
+    # Qwen
+    "qwen2.5-72b-instruct" => %{input: 0.4, output: 1.2},
+    "qwen3-235b-a22b" => %{input: 0.6, output: 2.4},
+    "qwen3-coder-480b-a35b-instruct" => %{input: 0.6, output: 2.4},
+    # Kimi / Moonshot
+    "kimi-k2.5" => %{input: 0.6, output: 2.5},
+    "kimi-k2-instruct" => %{input: 0.6, output: 2.5},
+    # Mistral
+    "mistral-small" => %{input: 0.2, output: 0.6},
+    "mistral-large" => %{input: 2.0, output: 6.0},
+    "codestral" => %{input: 0.3, output: 0.9},
+    # Cohere
+    "command-r-plus" => %{input: 2.5, output: 10.0},
+    "command-a-03-2025" => %{input: 2.5, output: 10.0},
+    # Default fallback
     "default" => %{input: 1.0, output: 2.0}
+  }
+
+  # Provider-level fallback pricing (keyed by provider name pattern).
+  @provider_pricing %{
+    "openai" => %{input: 2.0, output: 8.0},
+    "anthropic" => %{input: 3.0, output: 15.0},
+    "google" => %{input: 0.15, output: 0.6},
+    "gemini" => %{input: 0.15, output: 0.6},
+    "groq" => %{input: 0.1, output: 0.1},
+    "mistral" => %{input: 0.2, output: 0.6},
+    "cohere" => %{input: 2.5, output: 10.0},
+    "deepseek" => %{input: 0.27, output: 1.1},
+    "qwen" => %{input: 0.4, output: 1.2},
+    "kimi" => %{input: 0.6, output: 2.5},
+    "moonshot" => %{input: 0.6, output: 2.5},
+    "siliconflow" => %{input: 0.4, output: 1.2},
+    "gitee" => %{input: 0.4, output: 1.2}
   }
 
   # Client API
@@ -403,7 +469,13 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
   end
 
   defp calculate_cost(model, input_tokens, output_tokens, pricing) do
-    model_pricing = Map.get(pricing, model, pricing["default"])
+    normalized = normalize_model_name(model)
+
+    model_pricing =
+      Map.get(pricing, normalized) ||
+        Map.get(pricing, model) ||
+        infer_pricing_from_pattern(normalized, pricing) ||
+        pricing["default"]
 
     input_cost = input_tokens * model_pricing.input / 1_000_000
     output_cost = output_tokens * model_pricing.output / 1_000_000
@@ -414,6 +486,80 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
   defp load_pricing do
     # Could be extended to load from config
     @default_pricing
+  end
+
+  # Normalize a model name for pricing lookup:
+  #   1. Strip provider prefix  (e.g. "openai/gpt-4.1"  → "gpt-4.1")
+  #   2. Strip 8-digit date suffix (e.g. "claude-sonnet-4.6-20260219" → "claude-sonnet-4.6")
+  #   3. Strip "-latest" suffix
+  #   4. Lowercase
+  defp normalize_model_name(model) do
+    model
+    |> strip_provider_prefix()
+    |> strip_date_suffix()
+    |> strip_latest_suffix()
+    |> String.downcase()
+  end
+
+  defp strip_provider_prefix(model) do
+    case String.split(model, "/", parts: 2) do
+      [_provider, rest] -> rest
+      _ -> model
+    end
+  end
+
+  defp strip_date_suffix(model) do
+    case Regex.run(~r/^(.+)-(\d{8})$/, model) do
+      [_, base, _date] -> base
+      _ -> model
+    end
+  end
+
+  defp strip_latest_suffix(model) do
+    if String.ends_with?(model, "-latest"),
+      do: String.slice(model, 0, String.length(model) - 7),
+      else: model
+  end
+
+  # Pattern-based provider fallback when no exact model match is found.
+  defp infer_pricing_from_pattern(normalized, pricing) do
+    cond do
+      String.starts_with?(normalized, "claude-") ->
+        Map.get(pricing, "claude-3-5-sonnet")
+
+      String.starts_with?(normalized, "gpt-") or
+          String.starts_with?(normalized, "o1") or
+          String.starts_with?(normalized, "o3") ->
+        Map.get(pricing, "gpt-4o")
+
+      String.starts_with?(normalized, "gemini-") ->
+        Map.get(pricing, "gemini-2.0-flash")
+
+      String.starts_with?(normalized, "deepseek-") ->
+        Map.get(pricing, "deepseek-chat")
+
+      String.starts_with?(normalized, "qwen") ->
+        Map.get(pricing, "qwen2.5-72b-instruct")
+
+      String.starts_with?(normalized, "kimi-") or
+          String.starts_with?(normalized, "moonshot-") ->
+        Map.get(pricing, "kimi-k2.5")
+
+      String.starts_with?(normalized, "mistral-") or
+          String.starts_with?(normalized, "codestral") ->
+        Map.get(pricing, "mistral-small")
+
+      true ->
+        provider_pricing_for(normalized)
+    end
+  end
+
+  # Look up provider-level pricing by matching the start of the model name
+  # against known provider keys.
+  defp provider_pricing_for(normalized) do
+    Enum.find_value(@provider_pricing, nil, fn {provider, pricing} ->
+      if String.starts_with?(normalized, provider), do: pricing
+    end)
   end
 
   defp normalize_date(%Date{} = date), do: Date.to_iso8601(date)

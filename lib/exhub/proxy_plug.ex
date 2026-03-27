@@ -135,6 +135,9 @@ defmodule Exhub.ProxyPlug do
   end
 
   defp build_request_body(conn, pre_body) do
+    # Validate temperature for requests
+    conn = validate_temperature(conn)
+
     cond do
       pre_body == "" && Plug.Conn.get_req_header(conn, "content-type") == ["application/json"] ->
         encode_json_body(conn)
@@ -145,6 +148,19 @@ defmodule Exhub.ProxyPlug do
 
       true ->
         pre_body
+    end
+  end
+
+  defp validate_temperature(conn) do
+    case conn.body_params do
+      %{"temperature" => temp} when is_number(temp) and temp >= 0 and temp <= 1 ->
+        conn
+
+      %{"temperature" => _} ->
+        %{conn | body_params: Map.put(conn.body_params, "temperature", 0.7)}
+
+      _ ->
+        %{conn | body_params: Map.put(conn.body_params, "temperature", 0.7)}
     end
   end
 
