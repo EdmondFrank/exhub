@@ -95,7 +95,7 @@ defmodule Exhub.Router do
     ]
 
     Logger.info("[OpenAI Proxy] Forwarding request - models")
-    ProxyPlug.forward_upstream(conn, "http://20.246.88.31:8080/v1", options)
+    ProxyPlug.forward_upstream(conn, "https://pinova.ai/v1", options)
   end
 
   post "/openai/v1/*path" do

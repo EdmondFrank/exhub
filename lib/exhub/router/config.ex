@@ -23,7 +23,7 @@ defmodule Exhub.Router.Config do
   @type proxy_config :: String.t() | false
 
   # Default upstream URL when no specific mapping exists
-  @default_upstream "http://20.246.88.31:8080/v1"
+  @default_upstream "https://pinova.ai/v1"
 
   # Provider base URLs
   @provider_urls %{
@@ -82,7 +82,7 @@ defmodule Exhub.Router.Config do
       "https://ai.gitee.com/v1"
 
       iex> Exhub.Router.Config.get_model_target("unknown-model")
-      "http://20.246.88.31:8080/v1"
+      "https://pinova.ai/v1"
   """
   @spec get_model_target(model() | nil) :: provider_url()
   def get_model_target(nil), do: @default_upstream
