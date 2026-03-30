@@ -173,6 +173,8 @@ defmodule Exhub.ProxyPlug do
   end
 
   defp encode_body_with_model_transforms(body_params) do
+    body_params = fill_tool_calls_content(body_params)
+
     case body_params do
       %{"model" => "deepseek-v3.2"} ->
         Jason.encode!(
@@ -204,6 +206,22 @@ defmodule Exhub.ProxyPlug do
         Jason.encode!(body_params)
     end
   end
+
+  defp fill_tool_calls_content(%{"messages" => messages} = body_params) when is_list(messages) do
+    transformed_messages =
+      Enum.map(messages, fn message ->
+        if Map.has_key?(message, "tool_calls") and
+             (is_nil(message["content"]) or message["content"] == "") do
+          Map.put(message, "content", "exploring")
+        else
+          message
+        end
+      end)
+
+    Map.put(body_params, "messages", transformed_messages)
+  end
+
+  defp fill_tool_calls_content(body_params), do: body_params
 
   defp extract_model_name(conn) do
     case conn.body_params do
