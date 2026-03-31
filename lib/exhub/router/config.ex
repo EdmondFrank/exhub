@@ -222,6 +222,14 @@ defmodule Exhub.Router.Config do
   end
 
   @doc """
+  Returns the target URL for BurnCloud API requests.
+  """
+  @spec get_burncloud_target() :: provider_url()
+  def get_burncloud_target do
+    Application.get_env(:exhub, :burncloud_endpoint, "https://csp.burncloud.com/v1")
+  end
+
+  @doc """
   Returns the default upstream URL.
   """
   @spec default_upstream() :: provider_url()

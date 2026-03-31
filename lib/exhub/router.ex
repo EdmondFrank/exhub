@@ -18,6 +18,7 @@ defmodule Exhub.Router do
   - `POST /samba/v1/*path` - Proxies to SambaNova API
   - `GET|POST /openai/v1/*path` - Proxies to OpenAI-compatible endpoints with model routing
   - `POST /anthropic/v1/*path` - Proxies to Anthropic API with model routing
+  - `GET|POST /burncloud/v1/*path` - Proxies to BurnCloud API with Bearer token auth
 
   ### API Endpoints
   - `POST /v1/messages` - Anthropic-compatible messages endpoint
@@ -116,6 +117,40 @@ defmodule Exhub.Router do
     )
 
     ProxyPlug.forward_upstream(conn, target_url, options)
+  end
+
+  # ============================================================================
+  # BurnCloud Proxy Routes
+  # ============================================================================
+
+  get "/burncloud/v1/*path" do
+    token = Application.get_env(:exhub, :burncloud_api_key, "")
+
+    options = [
+      custom_headers: [{"Authorization", "Bearer #{token}"}],
+      client_options: [
+        timeout: RouterConfig.get_timeout(),
+        recv_timeout: RouterConfig.get_timeout()
+      ]
+    ]
+
+    Logger.info("[BurnCloud Proxy] Forwarding request - #{inspect(path)}")
+    ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
+  end
+
+  post "/burncloud/v1/*path" do
+    token = Application.get_env(:exhub, :burncloud_api_key, "")
+
+    options = [
+      custom_headers: [{"Authorization", "Bearer #{token}"}],
+      client_options: [
+        timeout: RouterConfig.get_timeout(),
+        recv_timeout: RouterConfig.get_timeout()
+      ]
+    ]
+
+    Logger.info("[BurnCloud Proxy] Forwarding request - #{inspect(path)}")
+    ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
   end
 
   # ============================================================================
