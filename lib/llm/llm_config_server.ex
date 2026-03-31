@@ -6,7 +6,6 @@ defmodule Exhub.Llm.LlmConfigServer do
 
   # Configuration state keys
   @current_llm_key :current_llm
-  @config Application.compile_env(:exhub, :llms)
 
   @type llm_name :: String.t()
   @type llm_config :: %{api_base: String.t(), api_key: String.t(), model: String.t()}
@@ -14,7 +13,7 @@ defmodule Exhub.Llm.LlmConfigServer do
 
   @doc "Start the GenServer with the configuration"
   def start_link(_) do
-    GenServer.start_link(__MODULE__, @config, name: __MODULE__)
+    GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
   @doc "Retrieve the default LLM configuration"
@@ -55,23 +54,26 @@ defmodule Exhub.Llm.LlmConfigServer do
 
   # Initialize the GenServer with configuration validation
   @impl true
-  def init(config) when is_map(config) do
-    initial_state = config
+  def init(_) do
+    config = Application.get_env(:exhub, :llms, %{})
+    initial_state =
+      config
       |> validate_config()
       |> Map.put(@current_llm_key, @default_llm_name)
       |> ensure_default_llm_exists()
-    
+
     {:ok, initial_state}
   end
 
   # Handle listing LLM names
   @impl true
   def handle_call(:list_llm_names, _from, config) do
-    llm_names = config
+    llm_names =
+      config
       |> Map.keys()
       |> Enum.reject(&is_config_key/1)
       |> Enum.sort()
-    
+
     {:reply, llm_names, config}
   end
 
@@ -84,11 +86,12 @@ defmodule Exhub.Llm.LlmConfigServer do
   # Handle getting LLM configuration with validation
   @impl true
   def handle_call({:get_llm_config, llm_name}, _from, config) do
-    response = case Map.get(config, llm_name) do
-      nil -> {:error, "LLM '#{llm_name}' not found"}
-      config -> {:ok, config}
-    end
-    
+    response =
+      case Map.get(config, llm_name) do
+        nil -> {:error, "LLM '#{llm_name}' not found"}
+        config -> {:ok, config}
+      end
+
     {:reply, response, config}
   end
 
@@ -96,11 +99,13 @@ defmodule Exhub.Llm.LlmConfigServer do
   @impl true
   def handle_call(:get_default_llm_config, _from, config) do
     default_name = config[@current_llm_key]
-    response = case Map.get(config, default_name) do
-      nil -> {:error, "Default LLM '#{default_name}' not found in configuration"}
-      config -> {:ok, config}
-    end
-    
+
+    response =
+      case Map.get(config, default_name) do
+        nil -> {:error, "Default LLM '#{default_name}' not found in configuration"}
+        config -> {:ok, config}
+      end
+
     {:reply, response, config}
   end
 
@@ -137,17 +142,20 @@ defmodule Exhub.Llm.LlmConfigServer do
 
   defp ensure_default_llm_exists(config) do
     default_name = config[@current_llm_key]
+
     if Map.has_key?(config, default_name) do
       config
     else
       # If default LLM doesn't exist, find first available LLM
-      first_llm = config
+      first_llm =
+        config
         |> Map.keys()
         |> Enum.reject(&is_config_key/1)
         |> List.first()
-      
+
       case first_llm do
-        nil -> config  # No LLMs available
+        # No LLMs available
+        nil -> config
         name -> Map.put(config, @current_llm_key, name)
       end
     end

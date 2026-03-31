@@ -43,7 +43,8 @@ defmodule Exhub.MixProject do
        ref: "2c89b1cd52e0125562c8c5cb2eb99d2324261cfa"},
       {:langchain, "~> 0.4.1"},
       {:req, "~> 0.5.8", override: true},
-      {:quantum, "~> 3.0"}
+      {:quantum, "~> 3.0"},
+      {:secret_vault, "~> 1.0"}
     ]
   end
 end

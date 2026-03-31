@@ -10,7 +10,6 @@ defmodule Exhub.Llm.World.SearchAgent do
   require Logger
 
   @default_llm_name "openai/Qwen2.5-72B-Instruct"
-  @proxy Application.compile_env(:exhub, :proxy, "")
 
   @impl true
   @spec init(keyword()) :: {:ok, map()} | {:error, term()}
@@ -53,7 +52,7 @@ defmodule Exhub.Llm.World.SearchAgent do
           },
           function: fn args, _context ->
             Logger.debug("Executing search with arguments: #{inspect args}")
-            with {result, 0} <- System.cmd("python", ["-m", "webscout", "text", "-k", args["keywords"]], env: [{"HTTPS_PROXY", @proxy}]) do
+            with {result, 0} <- System.cmd("python", ["-m", "webscout", "text", "-k", args["keywords"]], env: [{"HTTPS_PROXY", Application.get_env(:exhub, :proxy, "")}]) do
               Logger.debug("After search with result: #{result}")
               {:ok, result}
             end || {:ok, "failed to execute search tool with arguments: #{inspect args}"}
@@ -76,7 +75,7 @@ defmodule Exhub.Llm.World.SearchAgent do
           },
           function: fn args, _context ->
             Logger.debug("Executing fetch with arguments: #{inspect args}")
-            case HTTPoison.get(args["href"], [], proxy: @proxy) do
+            case HTTPoison.get(args["href"], [], proxy: Application.get_env(:exhub, :proxy, "")) do
               {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
                 {:ok, html} = Floki.parse_document(body)
                 text = Floki.find(html, "body") |> Floki.text

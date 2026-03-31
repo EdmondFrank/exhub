@@ -38,149 +38,61 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 
 3. **Configuration**:
 
-The configuration for Exhub is managed in `config/config.exs`. Here are the relevant settings:
+   Secrets (API keys, cookies, etc.) are managed via **SecretVault** and loaded at runtime from encrypted vault files. No secrets are hardcoded in `config/config.exs`.
 
-- **LLM Configuration with DRY Approach**:
-  ```elixir
-  # Store common values in variables instead of module attributes
-  gitee_api_base = "https://ai.gitee.com/v1"
-  gitee_api_key = "your api key"
+   #### SecretVault Setup
 
-  # Define LLM configurations using the DRY approach
-  llms_config = %{
-    "openai/Qwen2.5-72B-Instruct" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/Qwen2.5-72B-Instruct"
-    },
-    "openai/Qwen3-235B-A22B" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/Qwen3-235B-A22B"
-    },
-    "openai/qwen3-next-80b-a3b-instruct" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/qwen3-next-80b-a3b-instruct"
-    },
-    "openai/qwen3-235b-a22b-instruct-2507" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/qwen3-235b-a22b-instruct-2507"
-    },
-    "openai/qwen3-coder-480b-a35b-instruct" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/qwen3-coder-480b-a35b-instruct"
-    },
-    "openai/kimi-k2-instruct" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/kimi-k2-instruct"
-    },
-    "openai/cursor/gpt-4o-mini" => %{
-      api_base: "http://127.0.0.1:9069/openai/v1",
-      api_key: "your token",
-      model: "openai/cursor/gpt-4o-mini"
-    },
-    "openai/gpt-4o-mini" => %{
-      api_base: "http://localhost:4444/v1",
-      api_key: "edmondfrank",
-      model: "openai/gpt-4o-mini"
-    },
-    "openai/deepseek-v3_1-terminus" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/deepseek-v3_1-terminus"
-    },
-    "openai/deepseek-v3.2-exp" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/deepseek-v3.2-exp"
-    },
-    "openai/glm-4.6" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/glm-4.6"
-    },
-    "openai/DeepSeek-V3" => %{
-      api_base: gitee_api_base,
-      api_key: gitee_api_key,
-      model: "openai/DeepSeek-V3"
-    },
-    "openai/QwQ-32B" => %{
-      api_base: "http://localhost:9069/samba/v1",
-      api_key: "your token",
-      model: "openai/QwQ-32B"
-    },
-    "openai/gemini-2.5-pro" => %{
-      api_base: "http://127.0.0.1:9069/openai/v1",
-      api_key: "your token",
-      model: "openai/gemini-2.5-pro"
-    },
-    "openai/Qwen/Qwen2.5-Coder-32B-Instruct" => %{
-      api_base: "https://api.siliconflow.cn/v1",
-      api_key: "your token",
-      model: "openai/Qwen/Qwen2.5-Coder-32B-Instruct"
-    },
-    "openai/Qwen/Qwen2.5-32B-Instruct" => %{
-      api_base: "https://api.siliconflow.cn/v1",
-      api_key: "your token",
-      model: "openai/Qwen/Qwen2.5-32B-Instruct"
-    },
-    "codestral/codestral-latest" => %{
-      api_base: "https://codestral.mistral.ai/v1",
-      api_key: "your token",
-      model: "mistral/codestral-latest"
-    },
-    "anthropic/claude-3-5-sonnet-latest" => %{
-      api_base: "http://127.0.0.1:9069/anthropic/v1",
-      api_key: "your token",
-      model: "anthropic/claude-3-5-sonnet-latest"
-    },
-    "mistral/mistral-small-latest" => %{
-      api_base: "https://api.mistral.ai/v1",
-      api_key: "your token",
-      model: "mistral/mistral-small-latest"
-    },
-    "mistral/mistral-large-latest" => %{
-      api_base: "https://api.mistral.ai/v1",
-      api_key: "your token",
-      model: "mistral/mistral-large-latest"
-    },
-    "groq/llama-3.3-70b-versatile" => %{
-      api_base: "http://127.0.0.1:9069/groq/v1",
-      api_key: "your token",
-      model: "openai/llama-3.3-70b-versatile"
-    },
-    "gemini/gemini-2.0-flash" => %{
-      api_base: "http://127.0.0.1:9069/google/v1",
-      api_key: "your token",
-      model: "google/gemini-2.0-flash"
-    },
-    "command-r-plus" => %{
-      api_base: "http://127.0.0.1:9069/cohere/v1",
-      api_key: "your token",
-      model: "openai/command-r-plus"
-    },
-    "command-a-03-2025" => %{
-      api_base: "http://127.0.0.1:9069/cohere/v1",
-      api_key: "your token",
-      model: "openai/command-a-03-2025"
-    }
-  }
+   **a. Set the master password:**
+   ```bash
+   export SECRET_VAULT_PASSWORD="your-secure-master-password"
+   ```
 
-  config :exhub,
-    gemini_api_base: "http://localhost:8765/v1",
-    giteeai_api_key: gitee_api_key,
-    openai_api_key: "your token",
-    llms: llms_config,
-    proxy: "http://127.0.0.1:7890",
-     gitee_cat: %{
-       endpoint: "https://api.gitee.com/",
-       auth: %{cookie: "your cookie"} # or %{access_token: "your acccess token"}
-     }
+   **b. Create secrets** using the provided setup script (recommended):
+   ```bash
+   chmod +x scripts/setup_secrets.sh
+   ./scripts/setup_secrets.sh
+   ```
 
+   Or insert secrets individually with `mix scr.insert`:
+   ```bash
+   mix scr.insert dev gitee_api_key        "your-gitee-ai-api-key"
+   mix scr.insert dev openai_api_key       "your-openai-api-key"
+   mix scr.insert dev gitee_cookie         "your-gitee-cookie-string"
+   mix scr.insert dev siliconflow_api_key  "your-siliconflow-key"
+   mix scr.insert dev mistral_api_key      "your-mistral-key"
+   mix scr.insert dev codestral_api_key    "your-codestral-key"
+   mix scr.insert dev anthropic_api_key    "your-anthropic-key"
+   mix scr.insert dev groq_api_key         "your-groq-key"
+   mix scr.insert dev gemini_api_key       "your-gemini-key"
+   mix scr.insert dev cohere_api_key       "your-cohere-key"
+   mix scr.insert dev samba_api_key        "your-samba-key"
+   ```
+
+   All LLM configurations and the Gitee Cat cookie are automatically assembled from these secrets at runtime via `config/runtime.exs`. Secrets are encrypted at rest using AES-256-GCM — only the encrypted `.vault_secret` files are committed to Git.
+
+   > 📖 See [docs/SECRETS.md](docs/SECRETS.md) for full documentation on creating, editing, listing, and auditing secrets.
+   > 🔄 Migrating from a previous hardcoded config? See [docs/MIGRATION.md](docs/MIGRATION.md).
+
+   #### Customizing API Base URLs
+
+   The default API base URLs for LLM providers are configured in `config/runtime.exs`. If you need to change the API endpoint for a specific provider (e.g., to use a proxy or different region), you can modify `config/runtime.exs`:
+
+   ```elixir
+   # Example: Change the API base for a specific model
+   "openai/Qwen2.5-72B-Instruct" => %{
+     api_base: "https://your-custom-endpoint.com/v1",  # Change this
+     api_key: giteeai_api_key,
+     model: "openai/Qwen2.5-72B-Instruct"
+   }
+   ```
+
+   The `api_base` field can be customized per model while still using SecretVault-managed API keys.
+
+   #### Other Optional Configuration
+
+   The following optional settings can be placed in `config/config.exs`:
+
+   ```elixir
    # Mac Keep Alive Configuration (optional)
    config :exhub, Exhub.MacKeepAlive,
      device_name: "Your Device Name",  # Must be a paired Bluetooth device

@@ -26,5 +26,18 @@ exhub-*.tar
 /tmp/
 .aider*
 .env
+.env.local
+.env.*.local
+
+# Plain text secrets (never commit these)
+*.key
+*.secret
+secrets.txt
+keys.txt
+
+# SecretVault - only commit encrypted .vault_secret files
+# The priv/secrets directory IS committed, but unencrypted files are not
+!/priv/secrets/**/*.vault_secret
+
 .cecli*
 .agent-shell/

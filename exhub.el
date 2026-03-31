@@ -50,6 +50,15 @@
   "The Exhub backend used to run exhub."
   :type 'string)
 
+(defcustom exhub-mix-env "prod"
+  "The MIX_ENV environment variable for the Elixir application."
+  :type 'string)
+
+(defcustom exhub-secret-vault-password nil
+  "The SECRET_VAULT_PASSWORD environment variable for SecretVault.
+If nil or empty, the environment variable will not be set."
+  :type '(choice (const :tag "Not set" nil) string))
+
 (defun exhub-start ()
   "Start webserver connection to Exhub (Elixir WS server)."
   (interactive)
@@ -166,10 +175,17 @@
   (interactive)
   ;; Check if the Elixir process is already running
   (unless (and exhub--elixir-process (process-live-p exhub--elixir-process))
-    ;; Start the Elixir application process in the specified directory
-    (message exhub-backend-path)
-    (setq exhub--elixir-process
-          (start-process "exhub" "*exhub*" exhub-backend-path "start"))))
+    (message "Starting Exhub backend with MIX_ENV=%s" exhub-mix-env)
+    ;; Bind process-environment locally so env vars only affect this process
+    (let ((process-environment
+           (append
+            (list (format "MIX_ENV=%s" exhub-mix-env))
+            (when (and exhub-secret-vault-password
+                       (not (string-empty-p exhub-secret-vault-password)))
+              (list (format "SECRET_VAULT_PASSWORD=%s" exhub-secret-vault-password)))
+            process-environment)))
+      (setq exhub--elixir-process
+            (start-process "exhub" "*exhub*" exhub-backend-path "start")))))
 
 (defun exhub-restart-elixir ()
   "Restart the Elixir application."

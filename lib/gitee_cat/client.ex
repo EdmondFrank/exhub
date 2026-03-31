@@ -1,15 +1,14 @@
 defmodule GiteeCat.Client do
   defstruct auth: nil, endpoint: "https://api.gitee.com/"
 
-  @config Application.compile_env(:exhub, :gitee_cat, %{})
-
   @type auth :: %{user: binary, password: binary} | %{access_token: binary} | %{cookies: binary}
   @type t :: %__MODULE__{auth: auth | nil, endpoint: binary}
 
   @spec new() :: t
   def new() do
-    auth = @config[:auth]
-    endpoint = @config[:endpoint] || "https://api.gitee.com/"
+    config = Application.get_env(:exhub, :gitee_cat, %{})
+    auth = config[:auth]
+    endpoint = config[:endpoint] || "https://api.gitee.com/"
     %__MODULE__{auth: auth, endpoint: endpoint}
   end
 

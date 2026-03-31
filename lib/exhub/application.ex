@@ -7,6 +7,8 @@ defmodule Exhub.Application do
 
   @impl true
   def start(_type, _args) do
+    load_secrets()
+
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
       {Exhub.Llm.World, name: Exhub.Llm.World},
@@ -28,6 +30,18 @@ defmodule Exhub.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Exhub.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp load_secrets do
+    case SecretVault.Config.fetch_from_current_env(:exhub) do
+      {:ok, config} ->
+        SecretVault.Storage.to_persistent_term(config)
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("SecretVault config not loaded: #{inspect(reason)}")
+        :ok
+    end
   end
 
   defp cowboy_spec do
