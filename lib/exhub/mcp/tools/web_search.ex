@@ -1,31 +1,43 @@
 defmodule Exhub.MCP.Tools.WebSearch do
   @moduledoc """
-  MCP Tool for searching the web for information.
+  MCP Tool for searching the web for information using Gitee AI API.
 
-  This tool uses webscout to perform web searches and returns results
-  with titles, URLs, and snippets.
+  This tool uses Gitee AI's web search API to perform searches and returns results
+  with titles, URLs, snippets, images, and videos.
   """
 
   alias Hermes.Server.Response
 
   use Hermes.Server.Component, type: :tool
 
+  @giteeai_web_search_url "https://ai.gitee.com/v1/web-search"
+
   def name, do: "web_search"
 
   def description do
     """
-    Search the web for information. Returns search results with titles, URLs, and snippets.
+    Search the web for information using AI-powered search.
+
+    This tool performs a web search and returns relevant results including:
+    - Web pages with titles, URLs, and summaries
+    - Related images
+    - Related videos
+
+    Use this tool when you need to find current information from the internet.
     """
   end
 
   schema do
-    field(:query, {:required, :string}, description: "The search query")
+    field(:query, {:required, :string}, description: "The search query string")
     field(:count, :number, description: "Number of results to return (1-50, default 10)")
-    field(:summary, :boolean, description: "Enable AI summary of results")
+
+    field(:summary, :boolean,
+      description: "Enable AI-generated summary of results (default false)"
+    )
 
     field(:freshness, :string,
       description:
-        "Filter by freshness - \"noLimit\", \"oneDay\", \"oneWeek\", \"oneMonth\", \"oneYear\""
+        "Filter results by freshness: noLimit (default), oneDay, oneWeek, oneMonth, oneYear"
     )
   end
 
@@ -50,65 +62,145 @@ defmodule Exhub.MCP.Tools.WebSearch do
   # Private functions
 
   defp perform_search(query, count, summary, freshness, frame) do
-    proxy = Application.get_env(:exhub, :proxy, "")
-    env = if proxy != "", do: [{"HTTPS_PROXY", proxy}], else: []
+    api_key = Application.get_env(:exhub, :giteeai_api_key, "")
 
-    args =
-      ["-m", "webscout", "text", "-k", query] ++
-        ["-n", to_string(count)] ++
-        maybe_add_flag(summary, "--summary") ++
-        maybe_add_freshness(freshness)
-
-    case System.cmd("python", args, env: env) do
-      {output, 0} ->
-        results = parse_results(output)
-        resp = Response.tool() |> Response.structured(results)
-        {:reply, resp, frame}
-
-      {error, exit_code} ->
-        resp = Response.tool() |> Response.error("Search failed (exit #{exit_code}): #{error}")
-        {:reply, resp, frame}
+    if api_key == "" do
+      resp = Response.tool() |> Response.error("GiteeAI API key not configured")
+      {:reply, resp, frame}
+    else
+      do_api_search(query, count, summary, freshness, api_key, frame)
     end
   end
 
-  defp maybe_add_flag(true, flag), do: [flag]
-  defp maybe_add_flag(false, _flag), do: []
-  defp maybe_add_flag(nil, _flag), do: []
-
-  defp maybe_add_freshness("noLimit"), do: []
-  defp maybe_add_freshness(freshness), do: ["--freshness", freshness]
-
-  defp parse_results(output) do
-    case Jason.decode(output) do
-      {:ok, results} when is_list(results) ->
-        %{
-          "success" => true,
-          "results" => Enum.map(results, &format_result/1),
-          "count" => length(results)
-        }
-
-      {:ok, result} when is_map(result) ->
-        %{
-          "success" => true,
-          "results" => [format_result(result)],
-          "count" => 1
-        }
-
-      {:error, _} ->
-        # If not valid JSON, return raw output
-        %{
-          "success" => true,
-          "results" => [%{"raw" => output}],
-          "count" => 1
-        }
-    end
-  end
-
-  defp format_result(result) do
-    %{
-      "title" => Map.get(result, "title", ""),
-      "url" => Map.get(result, "url", Map.get(result, "link", "")),
-      "snippet" => Map.get(result, "snippet", Map.get(result, "description", ""))
+  defp do_api_search(query, count, summary, freshness, api_key, frame) do
+    body = %{
+      query: query,
+      count: count,
+      summary: summary,
+      freshness: freshness
     }
+
+    headers = [
+      {"Content-Type", "application/json"},
+      {"Authorization", "Bearer #{api_key}"}
+    ]
+
+    case HTTPoison.post(@giteeai_web_search_url, Jason.encode!(body), headers,
+           recv_timeout: 30_000
+         ) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+        case Jason.decode(response_body) do
+          {:ok, response_data} ->
+            formatted = format_search_response(query, response_data)
+            resp = Response.tool() |> Response.text(formatted)
+            {:reply, resp, frame}
+
+          {:error, decode_error} ->
+            resp =
+              Response.tool()
+              |> Response.error("Failed to decode response: #{inspect(decode_error)}")
+
+            {:reply, resp, frame}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: status_code, body: response_body}} ->
+        resp =
+          Response.tool()
+          |> Response.error("API returned status #{status_code}: #{response_body}")
+
+        {:reply, resp, frame}
+
+      {:error, %HTTPoison.Error{reason: reason}} ->
+        resp = Response.tool() |> Response.error("Web search request failed: #{inspect(reason)}")
+        {:reply, resp, frame}
+    end
+  end
+
+  defp format_search_response(query, response_data) do
+    data = Map.get(response_data, "data", %{})
+
+    result_builder = ["Search results for: #{query}\n"]
+
+    # Format web pages
+    result_builder =
+      case get_in(data, ["webPages", "value"]) do
+        pages when is_list(pages) and length(pages) > 0 ->
+          pages_section =
+            pages
+            |> Enum.with_index(1)
+            |> Enum.map(fn {page, idx} ->
+              name = Map.get(page, "name", "")
+              url = Map.get(page, "url", "")
+              snippet = Map.get(page, "snippet", "")
+              summary = Map.get(page, "summary", "")
+
+              lines = ["#{idx}. **#{name}**", "   URL: #{url}"]
+              lines = if snippet != "", do: lines ++ ["   Snippet: #{snippet}"], else: lines
+              lines = if summary != "", do: lines ++ ["   Summary: #{summary}"], else: lines
+              lines ++ [""]
+            end)
+            |> Enum.concat()
+
+          result_builder ++ ["\n## Web Pages\n\n"] ++ pages_section
+
+        _ ->
+          result_builder
+      end
+
+    # Format images
+    result_builder =
+      case get_in(data, ["images", "value"]) do
+        images when is_list(images) and length(images) > 0 ->
+          images_section =
+            images
+            |> Enum.with_index(1)
+            |> Enum.map(fn {img, idx} ->
+              name = Map.get(img, "name", "")
+              host_url = Map.get(img, "hostPageUrl", "")
+              thumbnail = Map.get(img, "thumbnailUrl", "")
+
+              lines = ["#{idx}. #{name}", "   URL: #{host_url}"]
+              lines = if thumbnail != "", do: lines ++ ["   Thumbnail: #{thumbnail}"], else: lines
+              lines ++ [""]
+            end)
+            |> Enum.concat()
+
+          result_builder ++ ["\n## Images\n\n"] ++ images_section
+
+        _ ->
+          result_builder
+      end
+
+    # Format videos
+    result_builder =
+      case get_in(data, ["videos", "value"]) do
+        videos when is_list(videos) and length(videos) > 0 ->
+          videos_section =
+            videos
+            |> Enum.with_index(1)
+            |> Enum.map(fn {video, idx} ->
+              name = Map.get(video, "name", "")
+              host_url = Map.get(video, "hostPageUrl", "")
+              thumbnail = Map.get(video, "thumbnailUrl", "")
+
+              lines = ["#{idx}. #{name}", "   URL: #{host_url}"]
+              lines = if thumbnail != "", do: lines ++ ["   Thumbnail: #{thumbnail}"], else: lines
+              lines ++ [""]
+            end)
+            |> Enum.concat()
+
+          result_builder ++ ["\n## Videos\n\n"] ++ videos_section
+
+        _ ->
+          result_builder
+      end
+
+    result_text = Enum.join(result_builder, "\n")
+
+    if result_text == "Search results for: #{query}\n" do
+      ~s[{"status": "no_results", "query": "#{query}", "message": "No results found for the search query"}]
+    else
+      result_text
+    end
   end
 end
