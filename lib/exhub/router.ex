@@ -277,6 +277,11 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.HabitServer]
   )
 
+  forward("/web-tools/mcp",
+    to: Hermes.Server.Transport.StreamableHTTP.Plug,
+    init_opts: [server: Exhub.MCP.WebToolsServer]
+  )
+
   # ============================================================================
   # Dashboard Routes
   # ============================================================================
