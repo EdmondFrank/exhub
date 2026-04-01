@@ -29,7 +29,7 @@ defmodule Exhub.MCP.Tools.WebSearch do
 
   schema do
     field(:query, {:required, :string}, description: "The search query string")
-    field(:count, :number, description: "Number of results to return (1-50, default 10)")
+    field(:count, :integer, description: "Number of results to return (1-50, default 10)")
 
     field(:summary, :boolean,
       description: "Enable AI-generated summary of results (default false)"
@@ -86,7 +86,7 @@ defmodule Exhub.MCP.Tools.WebSearch do
     ]
 
     case HTTPoison.post(@giteeai_web_search_url, Jason.encode!(body), headers,
-           recv_timeout: 30_000
+           recv_timeout: 25_000
          ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
         case Jason.decode(response_body) do

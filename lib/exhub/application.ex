@@ -20,9 +20,9 @@ defmodule Exhub.Application do
       Hermes.Server.Registry,
       # MCP Habit Configuration Server
       {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
-      {Exhub.MCP.HabitServer, transport: :streamable_http},
+      {Exhub.MCP.HabitServer, transport: :streamable_http, timeout: 120_000},
       # MCP Web Tools Server
-      {Exhub.MCP.WebToolsServer, transport: :streamable_http},
+      {Exhub.MCP.WebToolsServer, transport: :streamable_http, timeout: 120_000},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()
