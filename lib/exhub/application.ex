@@ -18,7 +18,10 @@ defmodule Exhub.Application do
       Exhub.MacKeepAlive,
       Exhub.HealthCheck,
       {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
+      # MCP Habit Server
       {Exhub.MCP.HabitServer, transport: :streamable_http, request_timeout: 120_000},
+      # MCP Think Server
+      {Exhub.MCP.ThinkServer, transport: :streamable_http, request_timeout: 120_000},
       # MCP Web Tools Server
       {Exhub.MCP.WebToolsServer, transport: :streamable_http, request_timeout: 120_000},
       # Token Usage Tracking
