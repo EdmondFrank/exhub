@@ -18,12 +18,12 @@ defmodule Exhub.Application do
       Exhub.MacKeepAlive,
       Exhub.HealthCheck,
       {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
-      # MCP Habit Server
-      {Exhub.MCP.HabitServer, transport: :streamable_http, request_timeout: 120_000},
+      # MCP Habit Server — 24h session idle timeout to survive mcpproxy inactivity
+      {Exhub.MCP.HabitServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Think Server
-      {Exhub.MCP.ThinkServer, transport: :streamable_http, request_timeout: 120_000},
+      {Exhub.MCP.ThinkServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Web Tools Server
-      {Exhub.MCP.WebToolsServer, transport: :streamable_http, request_timeout: 120_000},
+      {Exhub.MCP.WebToolsServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()
