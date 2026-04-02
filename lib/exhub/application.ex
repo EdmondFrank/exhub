@@ -20,6 +20,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
       # MCP Habit Server — 24h session idle timeout to survive mcpproxy inactivity
       {Exhub.MCP.HabitServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Time Server
+      {Exhub.MCP.TimeServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Think Server
       {Exhub.MCP.ThinkServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Web Tools Server

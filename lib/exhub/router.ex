@@ -33,6 +33,7 @@ defmodule Exhub.Router do
   ### MCP
   - `POST /mcp` - MCP habit server endpoint
   - `POST /think/mcp` - MCP think/plan server endpoint
+  - `POST /time/mcp` - MCP time server endpoint
   - `POST /web-tools/mcp` - MCP web tools server endpoint
   """
 
@@ -287,6 +288,11 @@ defmodule Exhub.Router do
   forward("/think/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.ThinkServer, request_timeout: 120_000]
+  )
+
+  forward("/time/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.TimeServer, request_timeout: 120_000]
   )
 
   # ============================================================================

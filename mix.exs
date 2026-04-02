@@ -20,7 +20,7 @@ defmodule Exhub.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :tzdata],
       mod: {Exhub.Application, []}
     ]
   end
@@ -42,6 +42,7 @@ defmodule Exhub.MixProject do
        git: "https://github.com/thmsmlr/instructor_ex",
        ref: "2c89b1cd52e0125562c8c5cb2eb99d2324261cfa"},
       {:langchain, "~> 0.4.1"},
+      {:tzdata, "~> 1.1"},
       {:req, "~> 0.5.8", override: true},
       {:quantum, "~> 3.0"},
       {:secret_vault, "~> 1.0"}
