@@ -1,5 +1,23 @@
 # Recent Enhancements
 
+## Archery SQL Audit Integration
+- **New MCP Server**: New `Exhub.MCP.ArcheryServer` module providing MCP-compliant integration with the [Archery](https://github.com/hhyo/Archery) SQL audit platform
+- **Active Tools**:
+  - `get_instances` — retrieve the list of database instances
+  - `get_databases` — list databases for a given instance
+  - `query_execute` — execute read-only SQL queries (SELECT and safe operations only)
+  - `get_query_history` — retrieve past query execution history
+  - `get_resource_groups` — list available resource groups
+  - `get_group_instances` — list instances belonging to a resource group
+- **Temporarily Disabled Tools**: `sql_check`, `sql_review`, `get_workflow_list`, `get_workflow_detail`, `check_sql`, and `submit_workflow` are commented out pending further testing
+- **HTTP Endpoint**: Exposed at `/archery/mcp` for MCP protocol communication
+- **Configuration**: Configure via SecretVault:
+  ```bash
+  mix scr.insert dev archery_url "https://your-archery-instance.com"
+  mix scr.insert dev archery_username "your-username"
+  mix scr.insert dev archery_password "your-password"
+  ```
+
 ## MCP Think/Plan Server
 - **Think & Plan Tools**: New `Exhub.MCP.ThinkServer` module providing MCP-compliant reasoning scratchpad tools
 - **Zero Side Effects**: Both tools simply echo their input back — no database writes, no external calls

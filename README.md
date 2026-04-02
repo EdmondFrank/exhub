@@ -14,6 +14,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Health Check**: Monitors target URLs with scheduled checks and sends webhook notifications (supports Feishu/Lark and generic webhooks).
 - **Habit Management**: MCP-based user habit and environment configuration storage with protected keys and persistent storage.
 - **Think/Plan Tools**: MCP-based reasoning scratchpad tools (`think` and `plan`) for LLM chain-of-thought and step planning without side effects.
+- **Archery SQL Audit**: MCP-based integration with the Archery SQL audit platform, exposing tools for querying instances, databases, executing read-only SQL, and retrieving query history and resource groups.
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
 
@@ -163,6 +164,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-habit        | MCP-based habit/environment config storage                  | [docs/modules/habit.md](docs/modules/habit.md)               |
 | exhub-web-tools    | MCP web search and URL fetch tools                          | [docs/modules/web-tools.md](docs/modules/web-tools.md)       |
 | exhub-think        | MCP reasoning scratchpad (think & plan tools)               | [docs/modules/think.md](docs/modules/think.md)               |
+| exhub-archery      | MCP Archery SQL audit platform integration                  | [docs/modules/archery.md](docs/modules/archery.md)           |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

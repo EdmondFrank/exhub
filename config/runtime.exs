@@ -120,7 +120,11 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       gitee_cat: %{
         endpoint: "https://api.gitee.com/",
         auth: %{cookie: gitee_cookie}
-      }
+      },
+      # Archery SQL audit platform configuration
+      archery_url: fetch_secret.("archery_url"),
+      archery_username: fetch_secret.("archery_username"),
+      archery_password: fetch_secret.("archery_password")
 
   {:error, reason} ->
     # Secrets not yet configured (e.g. during `mix scr.create` / `mix scr.insert`).

@@ -26,6 +26,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.ThinkServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Web Tools Server
       {Exhub.MCP.WebToolsServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Archery Server (SQL audit platform)
+      {Exhub.MCP.ArcheryServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()

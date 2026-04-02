@@ -24,8 +24,6 @@ defmodule Exhub.MCP.LazyPlug do
     plug_opts = Anubis.Server.Transport.StreamableHTTP.Plug.init(opts)
 
     with {:ok, server} <- Keyword.fetch(opts, :server) do
-      Logger.info("[MCP LazyPlug] #{conn.method} #{conn.request_path} - server: #{server}")
-
       # Auto-create session for any POST request with session ID header
       with {:post, true} <- {:post, conn.method == "POST"},
            {:ok, session_id} <- get_session_id(conn),
