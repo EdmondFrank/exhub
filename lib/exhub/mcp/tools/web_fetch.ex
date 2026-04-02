@@ -6,12 +6,13 @@ defmodule Exhub.MCP.Tools.WebFetch do
   as simplified text after parsing HTML.
   """
 
-  alias Hermes.Server.Response
+  alias Anubis.Server.Response
 
-  use Hermes.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool
 
   def name, do: "web_fetch"
 
+  @impl true
   def description do
     """
     Fetch content from a URL or local file. Returns the content as simplified text.

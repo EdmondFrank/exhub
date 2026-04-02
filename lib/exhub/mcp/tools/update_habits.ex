@@ -8,12 +8,13 @@ defmodule Exhub.MCP.Tools.UpdateHabits do
   """
 
   alias Exhub.MCP.HabitStore
-  alias Hermes.Server.Response
+  alias Anubis.Server.Response
 
-  use Hermes.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool
 
   def name, do: "update_habits"
 
+  @impl true
   def description do
     """
     Update user's configuration and environment information.

@@ -17,12 +17,10 @@ defmodule Exhub.Application do
       {Exhub.Llm.Mcp.ClientManager, name: Exhub.Llm.Mcp.ClientManager},
       Exhub.MacKeepAlive,
       Exhub.HealthCheck,
-      Hermes.Server.Registry,
-      # MCP Habit Configuration Server
       {Exhub.MCP.HabitStore, name: Exhub.MCP.HabitStore},
-      {Exhub.MCP.HabitServer, transport: :streamable_http, timeout: 120_000},
+      {Exhub.MCP.HabitServer, transport: :streamable_http, request_timeout: 120_000},
       # MCP Web Tools Server
-      {Exhub.MCP.WebToolsServer, transport: :streamable_http, timeout: 120_000},
+      {Exhub.MCP.WebToolsServer, transport: :streamable_http, request_timeout: 120_000},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()

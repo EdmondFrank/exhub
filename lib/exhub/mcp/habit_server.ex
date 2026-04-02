@@ -17,7 +17,7 @@ defmodule Exhub.MCP.HabitServer do
   metadata when creating habits.
   """
 
-  use Hermes.Server,
+  use Anubis.Server,
     name: "exhub-habit-server",
     version: "1.0.0",
     capabilities: [:tools]

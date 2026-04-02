@@ -1,7 +1,7 @@
 defmodule Exhub.Llm.Mcp.ServerManager do
   use GenServer
 
-  alias Hermes.Transport.STDIO
+  alias Anubis.Transport.STDIO
 
   # Genserver callbacks
   @impl true

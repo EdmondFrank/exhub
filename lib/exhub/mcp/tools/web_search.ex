@@ -6,14 +6,15 @@ defmodule Exhub.MCP.Tools.WebSearch do
   with titles, URLs, snippets, images, and videos.
   """
 
-  alias Hermes.Server.Response
+  alias Anubis.Server.Response
 
-  use Hermes.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool
 
   @giteeai_web_search_url "https://ai.gitee.com/v1/web-search"
 
   def name, do: "web_search"
 
+  @impl true
   def description do
     """
     Search the web for information using AI-powered search.

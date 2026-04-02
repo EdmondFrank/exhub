@@ -544,7 +544,67 @@ On first startup, the following default habit is initialized:
 }
 ```
 
+## exhub-web-tools
+
+The `exhub-web-tools` module provides MCP-based web search and content fetching capabilities.
+
+### Setup
+
+The web tools server is built into the Exhub application and exposes an MCP endpoint at `/web-tools/mcp`.
+
+### Features
+
+- **Web Search**: Search the web using Gitee AI's web search API
+- **Web Fetch**: Fetch and parse content from URLs or local files
+- **MCP Tools**: Two MCP tools are available:
+  - `web_search`: Search the web with query, count, summary, and freshness options
+  - `web_fetch`: Fetch content from URLs (http/https) or local files (file://)
+
+### Configuration
+
+The web tools server requires a Gitee AI API key:
+
+```bash
+mix scr.insert dev giteeai_api_key "your-gitee-ai-api-key"
+```
+
+The server starts automatically with the Exhub application.
+
+### MCP Endpoint
+
+The web tools server is accessible at:
+
+```
+POST /web-tools/mcp
+```
+
+This endpoint accepts MCP protocol messages for tool invocations.
+
+### Tool Parameters
+
+#### web_search
+
+- `query` (required): The search query string
+- `count` (optional): Number of results to return (1-50, default: 10)
+- `summary` (optional): Enable AI-generated summary (default: false)
+- `freshness` (optional): Filter by freshness - noLimit, oneDay, oneWeek, oneMonth, oneYear
+
+#### web_fetch
+
+- `url` (required): The URL to fetch (http/https) or file path (file://)
+- `method` (optional): HTTP method - GET, POST, HEAD (default: GET)
+- `headers` (optional): HTTP headers as key-value pairs
+- `body` (optional): Request body for POST requests
+
 ## Recent Enhancements
+
+### MCP Web Tools Server
+- **Web Search & Fetch**: New `Exhub.MCP.WebToolsServer` module providing MCP-compliant web search and content fetching
+- **Gitee AI Integration**: Web search powered by Gitee AI's web search API
+- **Dual Tools**: `web_search` for AI-powered web searches and `web_fetch` for URL/file content retrieval
+- **HTTP Endpoint**: Exposed at `/web-tools/mcp` for MCP protocol communication
+- **Timeout Configuration**: Increased MCP transport timeout to 120s for long-running web operations
+- **Schema Fix**: Fixed `count` parameter type from `:number` to `:integer` for proper validation
 
 ### Health Check Feature
 - **URL Monitoring**: New `Exhub.HealthCheck` module monitors target URLs with scheduled checks

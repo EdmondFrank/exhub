@@ -9,7 +9,7 @@ defmodule Exhub.MCP.WebToolsServer do
   The server uses HTTP transport and can be accessed at the /mcp/web endpoint.
   """
 
-  use Hermes.Server,
+  use Anubis.Server,
     name: "exhub-web-tools-server",
     version: "1.0.0",
     capabilities: [:tools]

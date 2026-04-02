@@ -273,13 +273,13 @@ defmodule Exhub.Router do
   # ============================================================================
 
   forward("/mcp",
-    to: Hermes.Server.Transport.StreamableHTTP.Plug,
-    init_opts: [server: Exhub.MCP.HabitServer, timeout: 120_000]
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.HabitServer, request_timeout: 120_000]
   )
 
   forward("/web-tools/mcp",
-    to: Hermes.Server.Transport.StreamableHTTP.Plug,
-    init_opts: [server: Exhub.MCP.WebToolsServer, timeout: 120_000]
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.WebToolsServer, request_timeout: 120_000]
   )
 
   # ============================================================================
