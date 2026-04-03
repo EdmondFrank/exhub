@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## MCP Todo Server (Multi-Tenant Todo List Management)
+- **New MCP Server**: `Exhub.MCP.TodoServer` exposes a multi-tenant todo list service over MCP at `/todo/mcp`
+- **In-Memory ETS Store**: Backed by `Exhub.MCP.TodoStore` — a GenServer using an ETS table (`:todo_store`) for fast, concurrent reads
+- **Automatic TTL Expiry**: Todo lists that have not been updated for more than **2 hours** are automatically purged; a cleanup task runs every **30 minutes**
+- **Four MCP Tools**:
+  - `set_items` — Initialise or overwrite a tenant's todo list (accepts `items` array + `initial_user_prompt`)
+  - `get_items` — Retrieve a tenant's current todo list along with the original prompt and item count
+  - `update_item_completion` — Toggle the `completed` flag of a single item by name; returns the full updated list
+  - `clear_items` — Remove all items from a tenant's list while keeping the tenant entry alive
+- **Multi-Tenant Isolation**: Each tenant is identified by a `tenant_id` string; lists are fully isolated
+- **No External Dependencies**: Pure in-memory implementation — no database, no API keys required
+- **Supervisor Integration**: `Exhub.MCP.TodoStore` and `Exhub.MCP.TodoServer` registered in the application supervisor with streamable HTTP transport
+- **HTTP Endpoint**: Exposed at `/todo/mcp` for MCP protocol communication
+- **Full Docs**: [docs/modules/todo.md](docs/modules/todo.md)
+
 ## AI Image Generation
 - **New MCP Server**: `Exhub.MCP.ImageGenServer` exposes AI image generation over MCP at `/image-gen/mcp`
 - **Gitee AI Backend**: Calls the Gitee AI image generation API (OpenAI-compatible at `https://ai.gitee.com/v1/images/generations`) directly via HTTPoison — no external scripts required

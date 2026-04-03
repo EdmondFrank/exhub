@@ -20,6 +20,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
 - **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing.
 - **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
+- **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion`, and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
 
 ## Installation
 
@@ -192,6 +193,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-time         | MCP time utilities (timezone conversion, current time)      | [docs/modules/time.md](docs/modules/time.md)                 |
 | exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)          | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
 | exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)             | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
+| exhub-todo         | MCP multi-tenant todo list management with TTL expiry       | [docs/modules/todo.md](docs/modules/todo.md)                 |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

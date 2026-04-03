@@ -15,19 +15,25 @@ defmodule Exhub.MCP.Tools.TodoGetItems do
   @impl true
   def description do
     """
-    Retrieve the current todo list for a tenant.
+    Read the current todo list for a task.
 
-    Returns all todo items together with the `initial_user_prompt` that was
-    stored when the list was created.  Returns an empty list when no list
-    exists for the given tenant.
+    Call this to reload your plan and check progress — for example when
+    resuming a task, before deciding what to do next, or to verify the
+    current state of the list.
+
+    Returns all items with their `completed` status, the `initial_user_prompt`
+    that was saved when the list was created, and the time of the last update.
+    If no list exists for the given `tenant_id` (not yet created, or expired
+    after 2 hours of inactivity), an empty list is returned — not an error.
 
     Parameters:
-    - tenant_id: Unique identifier for the tenant / session.
+    - tenant_id: The same stable string used when the list was created with
+      `set_items`. Must match exactly (case-sensitive).
     """
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "Unique identifier for the tenant or session."
+    field :tenant_id, {:required, :string}, description: "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
   end
 
   @impl true

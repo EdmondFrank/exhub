@@ -17,28 +17,38 @@ defmodule Exhub.MCP.Tools.TodoSetItems do
   @impl true
   def description do
     """
-    Initialise or overwrite the todo list for a tenant.
+    Create or replace the todo list for a task.
 
-    Accepts an array of todo items (each with a `name` and optional `completed`
-    flag) and an `initial_user_prompt` that describes the original task.
-    Calling this tool replaces any existing list for the tenant.
+    Call this at the START of a multi-step task to record your full plan and
+    the user's original request. Each item represents one step or sub-task.
+
+    IMPORTANT: This call REPLACES any existing list for the given tenant_id.
+    Do not call it mid-task unless you intend to rewrite the entire plan.
+    To update a single item's status, use `update_item_completion` instead.
+
+    After calling this tool, work through the items in order and mark each
+    one complete with `update_item_completion` as you finish it.
 
     Parameters:
-    - tenant_id: Unique identifier for the tenant / session.
-    - items: Array of todo items [{name, completed?}].
-    - initial_user_prompt: The original user request that triggered the task.
+    - tenant_id: A short, stable string that identifies this task or
+      conversation (e.g. "refactor-auth", a conversation ID, or a username).
+      Use the SAME value for all todo tool calls within the same task.
+    - items: The list of steps/tasks. Each item needs a `name` (required)
+      and an optional `completed` flag (defaults to false).
+    - initial_user_prompt: The user's original request, copied verbatim.
+      This is stored for context and returned by `get_items`.
     """
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "Unique identifier for the tenant or session."
+    field :tenant_id, {:required, :string}, description: "A short, stable string scoping this list to a specific task or conversation (e.g. a conversation ID, username, or task slug like \"refactor-auth\"). Must stay the same across all todo tool calls for the same task."
 
-    embeds_many :items, description: "Array of todo items to set." do
-      field :name, {:required, :string}, description: "The name of the todo item."
-      field :completed, :boolean, description: "Whether the item is completed. Defaults to false.", default: false
+    embeds_many :items, description: "The ordered list of steps or sub-tasks to complete." do
+      field :name, {:required, :string}, description: "A clear, concise description of the step or task."
+      field :completed, :boolean, description: "Whether this item is already done. Defaults to false.", default: false
     end
 
-    field :initial_user_prompt, :string, description: "The original user prompt that initiated the task.", default: ""
+    field :initial_user_prompt, :string, description: "The user's original request, copied verbatim. Stored for context and returned by get_items.", default: ""
   end
 
   @impl true

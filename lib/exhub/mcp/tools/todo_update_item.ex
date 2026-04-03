@@ -16,22 +16,27 @@ defmodule Exhub.MCP.Tools.TodoUpdateItem do
   @impl true
   def description do
     """
-    Update the completion status of a specific todo item for a tenant.
+    Mark a single todo item as completed or not completed.
 
-    Finds the item by its `name` and sets its `completed` flag to the
-    provided value.  Returns the full updated list on success.
+    Call this immediately after finishing a step to keep the list up to date.
+    The item is looked up by its exact `name`, so the value must match what
+    was passed to `set_items` character-for-character.
+
+    Requires an existing list — call `set_items` first if none exists yet.
+    Returns the full updated list so you can see the current state at a glance.
 
     Parameters:
-    - tenant_id: Unique identifier for the tenant / session.
-    - name: The name of the todo item to update.
-    - completed: The new completion status (true or false).
+    - tenant_id: The same stable string used when the list was created with
+      `set_items`. Must match exactly (case-sensitive).
+    - name: The exact name of the item to update, as it appears in the list.
+    - completed: true to mark the item done, false to reopen it.
     """
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "Unique identifier for the tenant or session."
-    field :name, {:required, :string}, description: "The name of the todo item to update."
-    field :completed, {:required, :boolean}, description: "The new completion status for the todo item."
+    field :tenant_id, {:required, :string}, description: "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+    field :name, {:required, :string}, description: "The exact name of the todo item to update, character-for-character as it was given to set_items."
+    field :completed, {:required, :boolean}, description: "true to mark the item done; false to reopen it."
   end
 
   @impl true
