@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## Browser Automation via kuri-agent
+- **New MCP Server**: `Exhub.MCP.BrowserUseServer` exposes Chrome browser automation over MCP at `/browser-use/mcp`
+- **Powered by kuri-agent**: Uses the `kuri-agent` CLI binary (Chrome CDP) via the `Exile` library for safe, back-pressure-aware process I/O
+- **Tool Set** (6 focused tools replacing a single monolithic tool):
+  - `browser_tabs`         — Discover open Chrome tabs, attach a session (`tabs` / `use` / `status`)
+  - `browser_navigate`     — Navigate the browser (`go` / `back` / `forward` / `reload`)
+  - `browser_inspect`      — Inspect page content with a11y snapshots, text extraction, JS eval, screenshots (`snap` / `text` / `eval` / `shot`)
+  - `browser_interact`     — Interact with elements via `@eN` refs from a prior snap (`click` / `type` / `fill` / `select` / `hover` / `focus` / `scroll`)
+  - `browser_security`     — Security testing: cookies, headers, full audit, storage dump, JWT scanning, authenticated fetch, IDOR probing
+  - `browser_auth_headers` — Manage persistent CDP auth headers (`set_header` / `show_headers` / `clear_headers`)
+- **Exile Integration**: Uses `Exile.stream/2` (not `stream!/2`) to tolerate non-zero exit codes from `kuri-agent` without raising
+- **New Dependency**: `{:exile, "~> 0.10"}` added to `mix.exs`
+- **Prerequisites**: `kuri-agent` binary must be on `PATH` and Chrome must be running with `--remote-debugging-port=9222`
+- **Full Docs**: [docs/modules/browser-use.md](docs/modules/browser-use.md)
+
 ## Archery SQL Audit Integration
 - **New MCP Server**: New `Exhub.MCP.ArcheryServer` module providing MCP-compliant integration with the [Archery](https://github.com/hhyo/Archery) SQL audit platform
 - **Active Tools**:

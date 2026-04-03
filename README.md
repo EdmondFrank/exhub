@@ -18,6 +18,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Time Tools**: MCP-based timezone-aware time utilities for getting current time and converting between timezones.
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
+- **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing.
 
 ## Installation
 
@@ -37,6 +38,27 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    **Note**: For Mac Keep Alive feature, ensure `blueutil` is installed:
    ```bash
    brew install blueutil
+   ```
+
+   **Note**: For Browser Automation (`browser_*` MCP tools), `kuri-agent` must be
+   installed and available on your `PATH`, and Chrome must be running with remote
+   debugging enabled. See [docs/modules/browser-use.md](docs/modules/browser-use.md)
+   for full setup instructions.
+
+   **Quick setup for browser automation:**
+   ```bash
+   # 1. Build kuri-agent (requires Zig)
+   git clone https://github.com/justrach/kuri && cd kuri
+   zig build agent -Doptimize=ReleaseFast
+   cp ./zig-out/bin/kuri-agent /usr/local/bin/kuri-agent
+
+   # 2. Launch Chrome with remote debugging
+   # macOS:
+   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+     --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
+
+   # 3. Verify
+   which kuri-agent && curl -s http://localhost:9222/json/version | head -1
    ```
 
 3. **Configuration**:
@@ -167,6 +189,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-think        | MCP reasoning scratchpad (think & plan tools)               | [docs/modules/think.md](docs/modules/think.md)               |
 | exhub-archery      | MCP Archery SQL audit platform integration                  | [docs/modules/archery.md](docs/modules/archery.md)           |
 | exhub-time         | MCP time utilities (timezone conversion, current time)      | [docs/modules/time.md](docs/modules/time.md)                 |
+| exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)          | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).
