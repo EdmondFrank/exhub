@@ -37,6 +37,7 @@ defmodule Exhub.Router do
   - `POST /web-tools/mcp` - MCP web tools server endpoint
   - `POST /archery/mcp` - MCP Archery SQL audit platform endpoint
   - `POST /browser-use/mcp` - MCP browser automation server endpoint
+  - `POST /image-gen/mcp` - MCP image generation server endpoint
   """
 
   use Plug.Router
@@ -305,6 +306,11 @@ defmodule Exhub.Router do
   forward("/browser-use/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.BrowserUseServer, request_timeout: 120_000]
+  )
+
+  forward("/image-gen/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.ImageGenServer, request_timeout: 120_000]
   )
 
   # ============================================================================

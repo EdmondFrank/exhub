@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## AI Image Generation
+- **New MCP Server**: `Exhub.MCP.ImageGenServer` exposes AI image generation over MCP at `/image-gen/mcp`
+- **Gitee AI Backend**: Calls the Gitee AI image generation API (OpenAI-compatible at `https://ai.gitee.com/v1/images/generations`) directly via HTTPoison — no external scripts required
+- **5 Models Supported**:
+  - `Qwen-Image` (default) — negative prompt + inference steps
+  - `Kolors` — inference steps + guidance scale
+  - `GLM-Image` — negative prompt + inference steps + guidance scale
+  - `FLUX.2-dev` — negative prompt + inference steps + guidance scale
+  - `HunyuanDiT-v1.2-Diffusers-Distilled` — negative prompt + inference steps + guidance scale
+- **Per-model defaults**: Each model has sensible default `num_inference_steps` and `guidance_scale` values; unsupported params are silently filtered
+- **10 output sizes**: From `256x256` to `2048x2048`, including landscape, portrait, and widescreen ratios
+- **Shared API key**: Reuses the existing `giteeai_api_key` SecretVault entry — no new secrets needed if already configured
+- **HTTP Endpoint**: Exposed at `/image-gen/mcp`
+- **Full Docs**: [docs/modules/image-gen.md](docs/modules/image-gen.md)
+
 ## Browser Automation via kuri-agent
 - **New MCP Server**: `Exhub.MCP.BrowserUseServer` exposes Chrome browser automation over MCP at `/browser-use/mcp`
 - **Powered by kuri-agent**: Uses the `kuri-agent` CLI binary (Chrome CDP) via the `Exile` library for safe, back-pressure-aware process I/O

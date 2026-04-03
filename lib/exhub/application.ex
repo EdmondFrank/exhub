@@ -30,6 +30,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.ArcheryServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Browser Server
       {Exhub.MCP.BrowserUseServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Image Generation Server
+      {Exhub.MCP.ImageGenServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()

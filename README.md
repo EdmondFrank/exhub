@@ -19,6 +19,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
 - **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing.
+- **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
 
 ## Installation
 
@@ -190,6 +191,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-archery      | MCP Archery SQL audit platform integration                  | [docs/modules/archery.md](docs/modules/archery.md)           |
 | exhub-time         | MCP time utilities (timezone conversion, current time)      | [docs/modules/time.md](docs/modules/time.md)                 |
 | exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)          | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
+| exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)             | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).
