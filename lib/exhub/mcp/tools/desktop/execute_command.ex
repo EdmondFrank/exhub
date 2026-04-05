@@ -8,6 +8,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -40,13 +41,13 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   def execute(params, frame) do
     command = Map.get(params, :command)
     timeout_ms = Map.get(params, :timeout_ms, 30_000)
-    working_dir = Map.get(params, :working_dir)
+    working_dir = Map.get(params, :working_dir) |> Helpers.expand_path()
 
     case run_command(command, timeout_ms, working_dir) do
       {:ok, result} ->
         resp =
           Response.tool()
-          |> Response.structured(result)
+          |> Helpers.toon_response(result)
 
         {:reply, resp, frame}
 

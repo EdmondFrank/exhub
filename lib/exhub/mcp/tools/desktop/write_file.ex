@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -37,7 +38,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
     content = Map.get(params, :content)
     mode = Map.get(params, :mode, "rewrite")
 
@@ -45,7 +46,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
       :ok ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "path" => path,
             "mode" => mode,

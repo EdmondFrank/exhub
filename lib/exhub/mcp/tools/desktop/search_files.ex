@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -48,7 +49,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
     pattern = Map.get(params, :pattern)
     search_type = Map.get(params, :search_type, "files")
     file_pattern = Map.get(params, :file_pattern)
@@ -60,7 +61,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       {:ok, results} ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "path" => path,
             "pattern" => pattern,

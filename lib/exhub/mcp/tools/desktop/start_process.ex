@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
   alias Exhub.MCP.Desktop.ProcessStore
 
   use Anubis.Server.Component, type: :tool
@@ -40,7 +41,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   @impl true
   def execute(params, frame) do
     command = Map.get(params, :command)
-    working_dir = Map.get(params, :working_dir)
+    working_dir = Map.get(params, :working_dir) |> Helpers.expand_path()
 
     process_id = generate_process_id()
 
@@ -48,7 +49,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
       {:ok, entry} ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "process_id" => process_id,
             "command" => command,

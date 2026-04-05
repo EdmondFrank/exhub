@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -51,7 +52,7 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
       if exit_code == 0 do
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "pid" => pid,
             "signal" => if(force, do: "SIGKILL", else: "SIGTERM"),

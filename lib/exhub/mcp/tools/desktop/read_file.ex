@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -35,22 +36,21 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
     offset = Map.get(params, :offset, 0)
     length = Map.get(params, :length, 1000)
 
     case read_file(path, offset, length) do
-      {:ok, content, total_lines} ->
+      {:ok, content, lines_read, total_lines} ->
         resp =
           Response.tool()
-          |> Response.structured(%{
-            "success" => true,
+          |> Helpers.toon_response(%{
             "path" => path,
-            "content" => content,
             "offset" => offset,
-            "lines_read" => length(String.split(content, "\n")),
+            "lines_read" => lines_read,
             "total_lines" => total_lines
           })
+          |> Response.text(content)
 
         {:reply, resp, frame}
 
@@ -66,7 +66,8 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
       lines = String.split(content, "\n")
       total_lines = length(lines)
       sliced = lines |> Enum.drop(offset) |> Enum.take(max_lines)
-      {:ok, Enum.join(sliced, "\n"), total_lines}
+      lines_read = Enum.count(sliced)
+      {:ok, Enum.join(sliced, "\n"), lines_read, total_lines}
     else
       {:error, :enoent} -> {:error, "File not found: #{path}"}
       {:error, :eacces} -> {:error, "Permission denied: #{path}"}

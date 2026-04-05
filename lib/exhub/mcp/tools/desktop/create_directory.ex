@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -30,13 +31,13 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
 
     case File.mkdir_p(path) do
       :ok ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "path" => path,
             "message" => "Directory created successfully."

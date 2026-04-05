@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
   alias Exhub.MCP.Desktop.ProcessStore
 
   use Anubis.Server.Component, type: :tool
@@ -45,7 +46,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
 
     resp =
       Response.tool()
-      |> Response.structured(%{
+      |> Helpers.toon_response(%{
         "success" => true,
         "processes" => processes,
         "count" => length(processes)

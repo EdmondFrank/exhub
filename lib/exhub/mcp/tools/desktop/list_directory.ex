@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -23,28 +24,30 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     Parameters:
     - path: Absolute path to the directory to list
     - depth: How many levels deep to recurse (1 = immediate children only, default 1)
+    - show_modified: Include last modified time in entries (default false)
     """
   end
 
   schema do
     field(:path, {:required, :string}, description: "Absolute path to the directory to list")
     field(:depth, :integer, description: "Recursion depth (1 = immediate children only, default 1)", default: 1)
+    field(:show_modified, :boolean, description: "Include last modified time in entries (default false)", default: false)
   end
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
     depth = Map.get(params, :depth, 1)
+    show_modified = Map.get(params, :show_modified, false)
 
-    case list_directory(path, depth) do
+    case list_directory(path, depth, show_modified) do
       {:ok, entries} ->
         resp =
           Response.tool()
-          |> Response.structured(%{
-            "success" => true,
+          |> Helpers.toon_response(%{
             "path" => path,
-            "entries" => entries,
-            "count" => length(entries)
+            "count" => length(entries),
+            "entries" => entries
           })
 
         {:reply, resp, frame}
@@ -55,10 +58,10 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     end
   end
 
-  defp list_directory(path, depth) do
+  defp list_directory(path, depth, show_modified) do
     case File.stat(path) do
       {:ok, %File.Stat{type: :directory}} ->
-        entries = collect_entries(path, depth, 1)
+        entries = collect_entries(path, depth, 0, show_modified)
         {:ok, entries}
 
       {:ok, _} ->
@@ -75,7 +78,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     end
   end
 
-  defp collect_entries(dir, max_depth, current_depth) do
+  defp collect_entries(dir, max_depth, current_depth, show_modified) do
     case File.ls(dir) do
       {:ok, names} ->
         names
@@ -86,21 +89,23 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
           case File.stat(full_path) do
             {:ok, stat} ->
               entry = %{
+                "depth" => current_depth,
                 "name" => name,
                 "path" => full_path,
                 "type" => stat_type(stat.type),
-                "size" => stat.size,
-                "modified" => format_time(stat.mtime)
+                "size" => humanize_size(stat.size)
               }
+
+              entry = if show_modified, do: Map.put(entry, "modified", format_time(stat.mtime)), else: entry
 
               children =
                 if stat.type == :directory and current_depth < max_depth do
-                  collect_entries(full_path, max_depth, current_depth + 1)
+                  collect_entries(full_path, max_depth, current_depth + 1, show_modified)
                 else
                   []
                 end
 
-              [Map.put(entry, "children", children)]
+              [entry | children]
 
             {:error, _} ->
               []
@@ -123,4 +128,23 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
   end
 
   defp format_time(_), do: "unknown"
+
+  defp humanize_size(bytes) when bytes < 1024 do
+    "#{bytes} B"
+  end
+
+  defp humanize_size(bytes) when bytes < 1024 * 1024 do
+    kb = bytes / 1024
+    "#{:erlang.float_to_binary(kb, decimals: 1)} KB"
+  end
+
+  defp humanize_size(bytes) when bytes < 1024 * 1024 * 1024 do
+    mb = bytes / (1024 * 1024)
+    "#{:erlang.float_to_binary(mb, decimals: 1)} MB"
+  end
+
+  defp humanize_size(bytes) do
+    gb = bytes / (1024 * 1024 * 1024)
+    "#{:erlang.float_to_binary(gb, decimals: 1)} GB"
+  end
 end

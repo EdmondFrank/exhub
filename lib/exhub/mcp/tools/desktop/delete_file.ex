@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -32,14 +33,14 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
     recursive = Map.get(params, :recursive, false)
 
     case delete_path(path, recursive) do
       :ok ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "path" => path,
             "message" => "Deleted successfully."

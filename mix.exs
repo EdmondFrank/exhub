@@ -46,7 +46,8 @@ defmodule Exhub.MixProject do
       {:req, "~> 0.5.8", override: true},
       {:quantum, "~> 3.0"},
       {:secret_vault, "~> 1.0"},
-      {:exile, "~> 0.10"}
+      {:exile, "~> 0.10"},
+      {:toon, "~> 0.3.0"}
     ]
   end
 end

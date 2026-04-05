@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -40,7 +41,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
 
   @impl true
   def execute(params, frame) do
-    file_path = Map.get(params, :file_path)
+    file_path = Map.get(params, :file_path) |> Helpers.expand_path()
     old_string = Map.get(params, :old_string)
     new_string = Map.get(params, :new_string)
     expected = Map.get(params, :expected_replacements, 1)
@@ -49,7 +50,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
       {:ok, replacements} ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "file_path" => file_path,
             "replacements_made" => replacements,

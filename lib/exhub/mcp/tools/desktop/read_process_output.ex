@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
   alias Exhub.MCP.Desktop.ProcessStore
 
   use Anubis.Server.Component, type: :tool
@@ -53,7 +54,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
 
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "process_id" => process_id,
             "output" => sliced,

@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -32,14 +33,14 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
 
   @impl true
   def execute(params, frame) do
-    source = Map.get(params, :source)
-    destination = Map.get(params, :destination)
+    source = Map.get(params, :source) |> Helpers.expand_path()
+    destination = Map.get(params, :destination) |> Helpers.expand_path()
 
     case move_file(source, destination) do
       :ok ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "source" => source,
             "destination" => destination,

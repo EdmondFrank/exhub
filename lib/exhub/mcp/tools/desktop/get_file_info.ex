@@ -6,6 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.Helpers
 
   use Anubis.Server.Component, type: :tool
 
@@ -29,13 +30,13 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path)
+    path = Map.get(params, :path) |> Helpers.expand_path()
 
     case File.stat(path) do
       {:ok, stat} ->
         resp =
           Response.tool()
-          |> Response.structured(%{
+          |> Helpers.toon_response(%{
             "success" => true,
             "path" => path,
             "type" => stat_type(stat.type),
