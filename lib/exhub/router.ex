@@ -39,6 +39,7 @@ defmodule Exhub.Router do
   - `POST /browser-use/mcp` - MCP browser automation server endpoint
   - `POST /image-gen/mcp` - MCP image generation server endpoint
   - `POST /todo/mcp` - MCP multi-tenant todo list server endpoint
+  - `POST /desktop/mcp` - MCP desktop commander server endpoint (filesystem, process, search)
   """
 
   use Plug.Router
@@ -317,6 +318,11 @@ defmodule Exhub.Router do
   forward("/todo/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.TodoServer, request_timeout: 120_000]
+  )
+
+  forward("/desktop/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.DesktopServer, request_timeout: 120_000]
   )
 
   # ============================================================================
