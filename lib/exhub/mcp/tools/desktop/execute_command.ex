@@ -59,36 +59,48 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
   defp run_command(command, timeout_ms, working_dir) do
     argv = ["sh", "-c", command]
-    opts = build_opts(working_dir, timeout_ms)
+    opts = build_opts(working_dir)
 
     try do
-      {stdout, stderr, exit_code} =
-        Exile.stream(argv, opts)
-        |> Enum.reduce({"", "", 0}, fn
-          {:stdout, data}, {out, err, code} -> {out <> data, err, code}
-          {:stderr, data}, {out, err, code} -> {out, err <> data, code}
-          {:exit, {:status, code}}, {out, err, _} -> {out, err, code}
-          {:exit, :epipe}, {out, err, _} -> {out, err, 0}
-          _, acc -> acc
+      task =
+        Task.async(fn ->
+          Exile.stream(argv, opts)
+          |> Enum.reduce({"", "", 0}, fn
+            {:stdout, data}, {out, err, code} -> {out <> data, err, code}
+            {:stderr, data}, {out, err, code} -> {out, err <> data, code}
+            {:exit, {:status, code}}, {out, err, _} -> {out, err, code}
+            {:exit, :epipe}, {out, err, _} -> {out, err, 0}
+            _, acc -> acc
+          end)
         end)
 
-      {:ok,
-       %{
-         "success" => exit_code == 0,
-         "command" => command,
-         "stdout" => stdout,
-         "stderr" => stderr,
-         "exit_code" => exit_code
-       }}
+      case Task.yield(task, timeout_ms) do
+        {:ok, {stdout, stderr, exit_code}} ->
+          {:ok,
+           %{
+             "success" => exit_code == 0,
+             "command" => command,
+             "stdout" => stdout,
+             "stderr" => stderr,
+             "exit_code" => exit_code
+           }}
+
+        nil ->
+          Task.shutdown(task, :brutal_kill)
+          {:error, "Command timed out after #{timeout_ms}ms"}
+
+        {:exit, reason} ->
+          {:error, "Command failed: #{inspect(reason)}"}
+      end
     rescue
       e ->
         {:error, Exception.message(e)}
     end
   end
 
-  defp build_opts(nil, timeout_ms), do: [stderr: :consume, timeout: timeout_ms]
+  defp build_opts(nil), do: [stderr: :consume, exit_timeout: 5000]
 
-  defp build_opts(working_dir, timeout_ms) do
-    [stderr: :consume, timeout: timeout_ms, cd: working_dir]
+  defp build_opts(working_dir) do
+    [stderr: :consume, exit_timeout: 5000, cd: working_dir]
   end
 end
