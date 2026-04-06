@@ -21,6 +21,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing.
 - **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
 - **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion`, and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
+- **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Exposes 16 tools at `/desktop/mcp`.
 
 ## Installation
 
@@ -176,24 +177,25 @@ Use the `exhub-send` function to send messages to the Elixir server:
 
 ## Documentation
 
-| Module             | Description                                                 | Doc                                                          |
-|--------------------|-------------------------------------------------------------|--------------------------------------------------------------|
-| exhub-tool         | MCP tool server integration (Git, File, K8s, Gitee, GitHub) | [docs/modules/tool.md](docs/modules/tool.md)                 |
-| exhub-chat         | Chat, code generation, translation, and document polishing  | [docs/modules/chat.md](docs/modules/chat.md)                 |
-| exhub-agent        | Agent-based interactions and tool orchestration             | [docs/modules/agent.md](docs/modules/agent.md)               |
-| exhub-translate    | Symbol and region translation utilities                     | [docs/modules/translate.md](docs/modules/translate.md)       |
-| exhub-file         | File operations and Markdown preview                        | [docs/modules/file.md](docs/modules/file.md)                 |
-| exhub-fim          | LLM-powered fill-in-the-middle code completion              | [docs/modules/fim.md](docs/modules/fim.md)                   |
-| exhub-keep-alive   | macOS Bluetooth connection maintenance                      | [docs/modules/keep-alive.md](docs/modules/keep-alive.md)     |
-| exhub-health-check | URL monitoring with webhook notifications                   | [docs/modules/health-check.md](docs/modules/health-check.md) |
-| exhub-habit        | MCP-based habit/environment config storage                  | [docs/modules/habit.md](docs/modules/habit.md)               |
-| exhub-web-tools    | MCP web search and URL fetch tools                          | [docs/modules/web-tools.md](docs/modules/web-tools.md)       |
-| exhub-think        | MCP reasoning scratchpad (think & plan tools)               | [docs/modules/think.md](docs/modules/think.md)               |
-| exhub-archery      | MCP Archery SQL audit platform integration                  | [docs/modules/archery.md](docs/modules/archery.md)           |
-| exhub-time         | MCP time utilities (timezone conversion, current time)      | [docs/modules/time.md](docs/modules/time.md)                 |
-| exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)          | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
-| exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)             | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
-| exhub-todo         | MCP multi-tenant todo list management with TTL expiry       | [docs/modules/todo.md](docs/modules/todo.md)                 |
+| Module             | Description                                                    | Doc                                                          |
+|--------------------|----------------------------------------------------------------|--------------------------------------------------------------|
+| exhub-tool         | MCP tool server integration (Git, File, K8s, Gitee, GitHub)    | [docs/modules/tool.md](docs/modules/tool.md)                 |
+| exhub-chat         | Chat, code generation, translation, and document polishing     | [docs/modules/chat.md](docs/modules/chat.md)                 |
+| exhub-agent        | Agent-based interactions and tool orchestration                | [docs/modules/agent.md](docs/modules/agent.md)               |
+| exhub-translate    | Symbol and region translation utilities                        | [docs/modules/translate.md](docs/modules/translate.md)       |
+| exhub-file         | File operations and Markdown preview                           | [docs/modules/file.md](docs/modules/file.md)                 |
+| exhub-fim          | LLM-powered fill-in-the-middle code completion                 | [docs/modules/fim.md](docs/modules/fim.md)                   |
+| exhub-keep-alive   | macOS Bluetooth connection maintenance                         | [docs/modules/keep-alive.md](docs/modules/keep-alive.md)     |
+| exhub-health-check | URL monitoring with webhook notifications                      | [docs/modules/health-check.md](docs/modules/health-check.md) |
+| exhub-habit        | MCP-based habit/environment config storage                     | [docs/modules/habit.md](docs/modules/habit.md)               |
+| exhub-web-tools    | MCP web search and URL fetch tools                             | [docs/modules/web-tools.md](docs/modules/web-tools.md)       |
+| exhub-think        | MCP reasoning scratchpad (think & plan tools)                  | [docs/modules/think.md](docs/modules/think.md)               |
+| exhub-archery      | MCP Archery SQL audit platform integration                     | [docs/modules/archery.md](docs/modules/archery.md)           |
+| exhub-time         | MCP time utilities (timezone conversion, current time)         | [docs/modules/time.md](docs/modules/time.md)                 |
+| exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)             | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
+| exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)                | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
+| exhub-todo         | MCP multi-tenant todo list management with TTL expiry          | [docs/modules/todo.md](docs/modules/todo.md)                 |
+| exhub-desktop      | MCP desktop commander (filesystem, search, process management) | [docs/modules/desktop.md](docs/modules/desktop.md)           |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

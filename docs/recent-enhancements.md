@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## Desktop MCP Server (Filesystem & Process Commander)
+- **New MCP Server**: `Exhub.MCP.DesktopServer` exposes local filesystem and process management over MCP at `/desktop/mcp`
+- **16 Tools** across three categories:
+  - **Filesystem (8)**: `read_file`, `write_file`, `list_directory`, `delete_file`, `move_file`, `create_directory`, `get_file_info`, `edit_block`
+  - **Search (1)**: `search_files` — ripgrep → grep → native Elixir fallback; per-match independent context windows (never merges overlapping windows)
+  - **Process (7)**: `execute_command`, `start_process`, `read_process_output`, `kill_process`, `list_managed_processes`, `list_processes`, `terminate_process`
+- **ProcessStore**: `Exhub.MCP.Desktop.ProcessStore` GenServer tracks long-running managed processes with automatic 1-hour inactivity cleanup
+- **TOON Encoding**: All responses are TOON-encoded (30–60% token reduction vs JSON) with automatic JSON fallback
+- **Path Expansion**: All `path` parameters support `~` and `~/...` expansion to the user home directory
+- **edit_block highlights**: exact case-sensitive match, LF/CRLF/CR line-ending normalization, `expected_replacements` guard, fuzzy-match fallback with Levenshtein similarity score and character-level diff `{-removed-}{+added+}`, >50-line warning
+- **search_files context fix**: `context_lines` parameter correctly slices an independent `±N` line window per match — overlapping windows between nearby matches never merge or broadcast to each other
+- **Supervisor Integration**: `Exhub.MCP.Desktop.ProcessStore` and `Exhub.MCP.DesktopServer` registered in the application supervisor
+- **HTTP Endpoint**: Exposed at `/desktop/mcp`
+- **Unit Tests**: 47 tests across 9 test files in `test/exhub/mcp/tools/desktop/`
+- **Full Docs**: [docs/desktop_mcp_server.md](docs/desktop_mcp_server.md) and [docs/modules/desktop.md](docs/modules/desktop.md)
+
 ## MCP Todo Server (Multi-Tenant Todo List Management)
 - **New MCP Server**: `Exhub.MCP.TodoServer` exposes a multi-tenant todo list service over MCP at `/todo/mcp`
 - **In-Memory ETS Store**: Backed by `Exhub.MCP.TodoStore` — a GenServer using an ETS table (`:todo_store`) for fast, concurrent reads
