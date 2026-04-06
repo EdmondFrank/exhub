@@ -23,14 +23,14 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
 
     Parameters:
     - path: Absolute path to the file to read
-    - offset: Line number to start reading from (0-based, default 0)
+    - offset: Line number to start reading from (0-based, e.g. offset=100 skips the first 100 lines, default 0)
     - length: Maximum number of lines to read (default 1000)
     """
   end
 
   schema do
     field(:path, {:required, :string}, description: "Absolute path to the file to read")
-    field(:offset, :integer, description: "Line number to start reading from (0-based, default 0)", default: 0)
+    field(:offset, :integer, description: "Line number to start reading from (0-based, e.g. 100 skips first 100 lines, default 0)", default: 0)
     field(:length, :integer, description: "Maximum number of lines to read (default 1000)", default: 1000)
   end
 

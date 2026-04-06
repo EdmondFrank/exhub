@@ -51,14 +51,9 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
           Response.tool()
           |> Helpers.toon_response(%{
             "process_id" => process_id,
-            "pid" => entry.pid,
-            "message" => "Process started. Use read_process_output with process_id to get output."
+            "pid" => entry.pid
           })
 
-        {:reply, resp, frame}
-
-      {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to start process: #{reason}")
         {:reply, resp, frame}
     end
   end
@@ -66,32 +61,30 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   defp start_managed_process(process_id, command, working_dir) do
     opts = build_opts(working_dir)
 
-    # Start the process using Exile.stream with spawn mode
-    # We use a Task to consume the stream asynchronously
-    parent = self()
-
-    {:ok, _task_pid} =
-      Task.start(fn ->
-        consume_process_stream(process_id, command, opts, parent)
-      end)
-
-    # Give the task a moment to start and get the system PID
-    Process.sleep(100)
-
-    # Get the actual system PID using pgrep or similar
-    # For now, we use a placeholder that will be updated
-    system_pid = get_system_pid(command)
-
+    # Register the process FIRST so append_output calls don't get dropped
     entry_attrs = %{
-      pid: system_pid,
+      pid: nil,
       command: command,
       working_dir: working_dir
     }
 
-    ProcessStore.register(process_id, entry_attrs)
+    {:ok, _entry} = ProcessStore.register(process_id, entry_attrs)
+
+    # Start the background stream consumer
+    {:ok, _task_pid} =
+      Task.start(fn ->
+        consume_process_stream(process_id, command, opts)
+      end)
+
+    # Best-effort: resolve system PID and update entry
+    system_pid = get_system_pid(command)
+    if system_pid, do: ProcessStore.update_pid(process_id, system_pid)
+
+    entry = ProcessStore.get(process_id)
+    {:ok, entry}
   end
 
-  defp consume_process_stream(process_id, command, opts, _parent) do
+  defp consume_process_stream(process_id, command, opts) do
     try do
       {stdout, stderr, exit_code} =
         Exile.stream(["sh", "-c", command], opts)

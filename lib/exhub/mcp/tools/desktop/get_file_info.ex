@@ -39,15 +39,12 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
           |> Helpers.toon_response(%{
             "path" => path,
             "type" => stat_type(stat.type),
-            "size" => stat.size,
-            "access" => stat.access,
+            "size" => humanize_size(stat.size),
+            "access" => to_string(stat.access),
             "atime" => format_time(stat.atime),
             "mtime" => format_time(stat.mtime),
             "ctime" => format_time(stat.ctime),
-            "mode" => stat.mode,
-            "links" => stat.links,
-            "uid" => stat.uid,
-            "gid" => stat.gid
+            "mode" => format_mode(stat.mode)
           })
 
         {:reply, resp, frame}
@@ -77,4 +74,22 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
   end
 
   defp format_time(_), do: "unknown"
+
+  defp humanize_size(bytes) when bytes < 1024, do: "#{bytes} B"
+  defp humanize_size(bytes) when bytes < 1_048_576 do
+    kb = bytes / 1024
+    "#{Float.round(kb, 1)} KB"
+  end
+  defp humanize_size(bytes) when bytes < 1_073_741_824 do
+    mb = bytes / 1_048_576
+    "#{Float.round(mb, 1)} MB"
+  end
+  defp humanize_size(bytes) do
+    gb = bytes / 1_073_741_824
+    "#{Float.round(gb, 1)} GB"
+  end
+
+  defp format_mode(mode) do
+    :io_lib.format("~.8B", [mode]) |> IO.iodata_to_binary()
+  end
 end

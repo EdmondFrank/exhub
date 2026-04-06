@@ -99,8 +99,15 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
                   []
                 end
 
-              # Determine if this entry should be included
-              include_entry = matches_pattern?(name, pattern)
+              # Determine if this entry should be included.
+              # For directories: always include when no pattern (show full tree),
+              # but suppress empty dirs when pattern is active (they carry no matches).
+              include_entry =
+                if is_dir do
+                  is_nil(pattern) or children != [] or matches_pattern?(name, pattern)
+                else
+                  matches_pattern?(name, pattern)
+                end
 
               if include_entry do
                 display_path = if is_dir, do: relative_path <> "/", else: relative_path

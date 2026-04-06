@@ -26,9 +26,8 @@ defmodule Exhub.MCP.DesktopServer do
   - `start_process`    — Start a long-running command, returns process_id
   - `read_process_output` — Read output from a managed process
   - `list_managed_processes` — List all tracked processes
-  - `terminate_process` — Terminate a managed process
   - `list_processes`   — List all system processes (uses Exile)
-  - `kill_process`     — Kill a system process by PID (uses Exile)
+  - `kill_process`     — Kill a process by OS pid or managed process_id
 
   ### Search
   - `search_files`     — Search for files by name or search inside file contents
@@ -58,7 +57,6 @@ defmodule Exhub.MCP.DesktopServer do
   component Exhub.MCP.Tools.Desktop.StartProcess
   component Exhub.MCP.Tools.Desktop.ReadProcessOutput
   component Exhub.MCP.Tools.Desktop.ListManagedProcesses
-  component Exhub.MCP.Tools.Desktop.TerminateProcess
   component Exhub.MCP.Tools.Desktop.ListProcesses
   component Exhub.MCP.Tools.Desktop.KillProcess
 

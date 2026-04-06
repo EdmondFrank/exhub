@@ -18,7 +18,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
     Write content to a file on the filesystem.
 
     Supports two modes:
-    - rewrite: Overwrite the entire file with new content (default)
+    - overwrite: Overwrite the entire file with new content (default)
     - append: Append content to the end of an existing file
 
     Creates the file and any missing parent directories if they do not exist.
@@ -26,21 +26,21 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
     Parameters:
     - path: Absolute path to the file to write
     - content: The text content to write
-    - mode: "rewrite" (default) or "append"
+    - mode: "overwrite" (default) or "append"
     """
   end
 
   schema do
     field(:path, {:required, :string}, description: "Absolute path to the file to write")
     field(:content, {:required, :string}, description: "The text content to write to the file")
-    field(:mode, :string, description: "Write mode: \"rewrite\" (default) or \"append\"", default: "rewrite")
+    field(:mode, :string, description: "Write mode: \"overwrite\" (default) or \"append\"", default: "overwrite")
   end
 
   @impl true
   def execute(params, frame) do
     path = Map.get(params, :path) |> Helpers.expand_path()
     content = Map.get(params, :content)
-    mode = Map.get(params, :mode, "rewrite")
+    mode = Map.get(params, :mode, "overwrite")
 
     case write_file(path, content, mode) do
       :ok ->

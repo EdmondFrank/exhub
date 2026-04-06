@@ -62,6 +62,11 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     GenServer.cast(__MODULE__, {:set_status, id, status})
   end
 
+  @doc "Update the system PID for a process"
+  def update_pid(id, pid) do
+    GenServer.cast(__MODULE__, {:update_pid, id, pid})
+  end
+
   @doc "Touch a process to update its last_read_at timestamp"
   def touch(id) do
     GenServer.cast(__MODULE__, {:touch, id})
@@ -200,6 +205,17 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       Map.update(state, id, nil, fn
         nil -> nil
         entry -> %{entry | status: status, last_read_at: now()}
+      end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:update_pid, id, pid}, state) do
+    state =
+      Map.update(state, id, nil, fn
+        nil -> nil
+        entry -> %{entry | pid: pid}
       end)
 
     {:noreply, state}

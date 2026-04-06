@@ -17,38 +17,33 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
     """
     List currently running system processes.
 
-    Returns a list of processes with PID, CPU/memory usage, VSZ, RSS, stat,
-    time, command name, and full command path. Uses `ps aux` on Unix/macOS.
+    Returns a list of processes with PID, CPU%, MEM%, and command. Uses `ps aux` on Unix/macOS.
 
     Parameters:
-      - filter: optional string to filter processes by command name (case-insensitive substring match)
+      - filter: optional regexp to filter by command (e.g. "ruby|rails", "^python")
+      - limit: maximum number of results to return (default 20, 0 = unlimited)
 
-    Returns per process:
-      - pid: integer process ID
-      - cpu: string CPU percentage (e.g. "50.2")
-      - mem: string memory percentage (e.g. "3.0")
-      - vsz: humanized virtual memory size (e.g. "395.5 MB")
-      - rss: humanized resident set size (e.g. "491.5 MB")
-      - stat: string process state (e.g. "R", "S")
-      - time: string accumulated CPU time (e.g. "3776:37.31")
-      - command: executable name (basename of cmd)
-      - cmd: full executable path
+    Returns per process: pid, cpu, mem, command.
     """
   end
 
   schema do
     field :filter, :string, default: nil
+    field :limit, :integer, default: 20
   end
 
   @impl true
   def execute(params, frame) do
     filter = Map.get(params, :filter)
+    limit  = Map.get(params, :limit, 20)
 
     case list_processes(filter) do
       {:ok, processes} ->
+        limited = if limit > 0, do: Enum.take(processes, limit), else: processes
+
         resp =
           Response.tool()
-          |> Helpers.toon_response(%{"processes" => processes})
+          |> Helpers.toon_response(%{"processes" => limited})
 
         {:reply, resp, frame}
 
@@ -71,22 +66,23 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
           |> Enum.drop(1)
           |> Enum.reject(&(&1 == ""))
           |> Enum.map(&parse_ps_line/1)
-          |> Enum.reject(&is_nil/1)
-          |> maybe_filter(filter)
+         |> Enum.reject(&is_nil/1)
+         |> filter_processes(filter)
 
-        {:ok, processes}
+      {:ok, processes}
       end
     rescue
       e -> {:error, Exception.message(e)}
     end
   end
 
-  defp maybe_filter(processes, nil), do: processes
-  defp maybe_filter(processes, filter) do
-    filter_lower = String.downcase(filter)
-    Enum.filter(processes, fn proc ->
-      proc["command"] && String.contains?(String.downcase(proc["command"]), filter_lower)
-    end)
+  defp filter_processes(list, nil), do: list
+
+  defp filter_processes(list, pattern) do
+    case Regex.compile(pattern, [:caseless]) do
+      {:ok, re} -> Enum.filter(list, &Regex.match?(re, &1["command"]))
+      {:error, _} -> list
+    end
   end
 
   defp parse_ps_line(line) do
