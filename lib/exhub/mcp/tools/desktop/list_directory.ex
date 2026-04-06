@@ -17,38 +17,39 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     """
     List the contents of a directory on the filesystem.
 
-    Returns a list of entries with their type (file or directory), name, size,
-    and last modification time. Optionally recurse into subdirectories up to
-    a given depth.
+    Returns a list of entries with path and size. Directory entries are suffixed
+    with "/" to distinguish them from files. Optionally recurse into subdirectories
+    up to a given depth. Entry paths are relative to the requested directory.
 
     Parameters:
     - path: Absolute path to the directory to list
-    - depth: How many levels deep to recurse (1 = immediate children only, default 1)
+    - depth: How many levels deep to recurse (0 = immediate children only, default 0)
     - show_modified: Include last modified time in entries (default false)
+    - pattern: Glob pattern to filter entries (e.g. "*.rb", "**/*.ex"). Directories are
+      always recursed into, but only entries matching the pattern are included in results.
+      Default nil (no filter).
     """
   end
 
   schema do
     field(:path, {:required, :string}, description: "Absolute path to the directory to list")
-    field(:depth, :integer, description: "Recursion depth (1 = immediate children only, default 1)", default: 1)
+    field(:depth, :integer, description: "Recursion depth (0 = immediate children only, default 0)", default: 0)
     field(:show_modified, :boolean, description: "Include last modified time in entries (default false)", default: false)
+    field(:pattern, :string, description: "Glob pattern to filter entries (e.g. *.rb, **/*.ex)", default: nil)
   end
 
   @impl true
   def execute(params, frame) do
     path = Map.get(params, :path) |> Helpers.expand_path()
-    depth = Map.get(params, :depth, 1)
+    depth = Map.get(params, :depth, 0)
     show_modified = Map.get(params, :show_modified, false)
+    pattern = Map.get(params, :pattern)
 
-    case list_directory(path, depth, show_modified) do
+    case list_directory(path, depth, show_modified, pattern) do
       {:ok, entries} ->
         resp =
           Response.tool()
-          |> Helpers.toon_response(%{
-            "path" => path,
-            "count" => length(entries),
-            "entries" => entries
-          })
+          |> Helpers.toon_response(%{"entries" => entries})
 
         {:reply, resp, frame}
 
@@ -58,10 +59,10 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     end
   end
 
-  defp list_directory(path, depth, show_modified) do
+  defp list_directory(path, depth, show_modified, pattern) do
     case File.stat(path) do
       {:ok, %File.Stat{type: :directory}} ->
-        entries = collect_entries(path, depth, 0, show_modified)
+        entries = collect_entries(path, path, depth, 0, show_modified, pattern)
         {:ok, entries}
 
       {:ok, _} ->
@@ -78,34 +79,41 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     end
   end
 
-  defp collect_entries(dir, max_depth, current_depth, show_modified) do
+  defp collect_entries(root, dir, max_depth, current_depth, show_modified, pattern) do
     case File.ls(dir) do
       {:ok, names} ->
         names
         |> Enum.sort()
         |> Enum.flat_map(fn name ->
           full_path = Path.join(dir, name)
+          relative_path = Path.relative_to(full_path, root)
 
           case File.stat(full_path) do
             {:ok, stat} ->
-              entry = %{
-                "depth" => current_depth,
-                "name" => name,
-                "path" => full_path,
-                "type" => stat_type(stat.type),
-                "size" => humanize_size(stat.size)
-              }
-
-              entry = if show_modified, do: Map.put(entry, "modified", format_time(stat.mtime)), else: entry
+              is_dir = stat.type == :directory
 
               children =
-                if stat.type == :directory and current_depth < max_depth do
-                  collect_entries(full_path, max_depth, current_depth + 1, show_modified)
+                if is_dir and current_depth < max_depth do
+                  collect_entries(root, full_path, max_depth, current_depth + 1, show_modified, pattern)
                 else
                   []
                 end
 
-              [entry | children]
+              # Determine if this entry should be included
+              include_entry = matches_pattern?(name, pattern)
+
+              if include_entry do
+                display_path = if is_dir, do: relative_path <> "/", else: relative_path
+                entry = %{
+                  "path" => display_path,
+                  "size" => humanize_size(stat.size)
+                }
+
+                entry = if show_modified, do: Map.put(entry, "modified", format_time(stat.mtime)), else: entry
+                [entry | children]
+              else
+                children
+              end
 
             {:error, _} ->
               []
@@ -117,12 +125,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     end
   end
 
-  defp stat_type(:directory), do: "directory"
-  defp stat_type(:regular), do: "file"
-  defp stat_type(:symlink), do: "symlink"
-  defp stat_type(other), do: to_string(other)
-
-  defp format_time({{y, mo, d}, {h, mi, s}}) do
+defp format_time({{y, mo, d}, {h, mi, s}}) do
     :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B", [y, mo, d, h, mi, s])
     |> IO.iodata_to_binary()
   end
@@ -146,5 +149,21 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
   defp humanize_size(bytes) do
     gb = bytes / (1024 * 1024 * 1024)
     "#{:erlang.float_to_binary(gb, decimals: 1)} GB"
+  end
+
+  defp matches_pattern?(_name, nil), do: true
+  defp matches_pattern?(name, pattern) do
+    regex =
+      pattern
+      |> Regex.escape()
+      |> String.replace("\\*\\*", ".*")
+      |> String.replace("\\*", "[^/]*")
+      |> String.replace("\\?", "[^/]")
+      |> then(&("^" <> &1 <> "$"))
+
+    case Regex.compile(regex) do
+      {:ok, re} -> Regex.match?(re, name)
+      _ -> false
+    end
   end
 end
