@@ -48,9 +48,9 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
             "path" => path,
             "offset" => offset,
             "lines_read" => lines_read,
-            "total_lines" => total_lines
+            "total_lines" => total_lines,
+            "content" => content
           })
-          |> Response.text(content)
 
         {:reply, resp, frame}
 
