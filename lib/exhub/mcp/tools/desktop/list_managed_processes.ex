@@ -47,7 +47,6 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
     resp =
       Response.tool()
       |> Helpers.toon_response(%{
-        "success" => true,
         "processes" => processes,
         "count" => length(processes)
       })

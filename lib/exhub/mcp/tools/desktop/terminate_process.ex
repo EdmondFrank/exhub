@@ -39,10 +39,8 @@ defmodule Exhub.MCP.Tools.Desktop.TerminateProcess do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "process_id" => process_id,
-            "status" => to_string(entry.status),
-            "message" => "Process terminated."
+            "status" => to_string(entry.status)
           })
 
         {:reply, resp, frame}

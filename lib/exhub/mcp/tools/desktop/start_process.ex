@@ -50,11 +50,8 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "process_id" => process_id,
-            "command" => command,
             "pid" => entry.pid,
-            "status" => "running",
             "message" => "Process started. Use read_process_output with process_id to get output."
           })
 

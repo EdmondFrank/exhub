@@ -47,9 +47,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "path" => path,
-            "mode" => mode,
             "bytes_written" => byte_size(content)
           })
 

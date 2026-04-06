@@ -38,53 +38,53 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   end
 
   @doc "Register a new process in the store"
-  def register(server \\ __MODULE__, id, attrs) do
-    GenServer.call(server, {:register, id, attrs})
+  def register(id, attrs) do
+    GenServer.call(__MODULE__, {:register, id, attrs})
   end
 
   @doc "Get a process entry by ID"
-  def get(server \\ __MODULE__, id) do
-    GenServer.call(server, {:get, id})
+  def get(id) do
+    GenServer.call(__MODULE__, {:get, id})
   end
 
   @doc "Append output to a process's buffer"
-  def append_output(server \\ __MODULE__, id, data) do
-    GenServer.cast(server, {:append_output, id, data})
+  def append_output(id, data) do
+    GenServer.cast(__MODULE__, {:append_output, id, data})
   end
 
   @doc "Set the exit code for a process"
-  def set_exit_code(server \\ __MODULE__, id, code) do
-    GenServer.cast(server, {:set_exit_code, id, code})
+  def set_exit_code(id, code) do
+    GenServer.cast(__MODULE__, {:set_exit_code, id, code})
   end
 
   @doc "Update process status (running, completed, error)"
-  def set_status(server \\ __MODULE__, id, status) do
-    GenServer.cast(server, {:set_status, id, status})
+  def set_status(id, status) do
+    GenServer.cast(__MODULE__, {:set_status, id, status})
   end
 
   @doc "Touch a process to update its last_read_at timestamp"
-  def touch(server \\ __MODULE__, id) do
-    GenServer.cast(server, {:touch, id})
+  def touch(id) do
+    GenServer.cast(__MODULE__, {:touch, id})
   end
 
   @doc "List all tracked processes"
-  def list(server \\ __MODULE__) do
-    GenServer.call(server, :list)
+  def list do
+    GenServer.call(__MODULE__, :list)
   end
 
   @doc "Get output for a process with optional offset"
-  def get_output(server \\ __MODULE__, id, offset \\ 0) do
-    GenServer.call(server, {:get_output, id, offset})
+  def get_output(id, offset \\ 0) do
+    GenServer.call(__MODULE__, {:get_output, id, offset})
   end
 
   @doc "Remove a process from the store"
-  def remove(server \\ __MODULE__, id) do
-    GenServer.cast(server, {:remove, id})
+  def remove(id) do
+    GenServer.cast(__MODULE__, {:remove, id})
   end
 
   @doc "Kill a running process and update its status"
-  def kill_process(server \\ __MODULE__, id) do
-    GenServer.call(server, {:kill_process, id})
+  def kill_process(id) do
+    GenServer.call(__MODULE__, {:kill_process, id})
   end
 
   # ============================================================================
@@ -159,9 +159,8 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
         # Kill the system process
         _ =
           try do
-            Exile.stream(["kill", "-TERM", to_string(pid)], stderr: :consume)
-            |> Stream.run()
-          catch
+            {_, 0} = System.cmd("kill", ["-TERM", to_string(pid)], stderr_to_stdout: true)
+          rescue
             _ -> :ok
           end
 
@@ -239,9 +238,8 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
         if entry.status == :running and is_integer(entry.pid) do
           _ =
             try do
-              Exile.stream(["kill", "-KILL", to_string(entry.pid)], stderr: :consume)
-              |> Stream.run()
-            catch
+              {_, 0} = System.cmd("kill", ["-KILL", to_string(entry.pid)], stderr_to_stdout: true)
+            rescue
               _ -> :ok
             end
         end

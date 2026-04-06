@@ -55,8 +55,6 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
-            "process_id" => process_id,
             "output" => sliced,
             "offset" => offset,
             "lines_returned" => min(length(lines), length),

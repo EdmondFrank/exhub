@@ -37,7 +37,6 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "path" => path,
             "type" => stat_type(stat.type),
             "size" => stat.size,

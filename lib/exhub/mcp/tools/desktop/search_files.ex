@@ -62,7 +62,6 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "path" => path,
             "pattern" => pattern,
             "search_type" => search_type,

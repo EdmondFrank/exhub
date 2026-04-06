@@ -75,9 +75,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "file_path" => file_path,
-            "replacements_made" => replacements,
             "message" => message
           })
 

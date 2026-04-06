@@ -78,8 +78,6 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
         {:ok, {stdout, stderr, exit_code}} ->
           {:ok,
            %{
-             "success" => exit_code == 0,
-             "command" => command,
              "stdout" => stdout,
              "stderr" => stderr,
              "exit_code" => exit_code

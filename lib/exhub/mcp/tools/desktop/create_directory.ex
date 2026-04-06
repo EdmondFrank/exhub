@@ -38,9 +38,8 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
-            "path" => path,
-            "message" => "Directory created successfully."
+            "message" => "Directory created successfully.",
+            "path" => path
           })
 
         {:reply, resp, frame}

@@ -39,31 +39,21 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
     signal = if force, do: "-KILL", else: "-TERM"
 
     try do
-      {_stdout, stderr, exit_code} =
-        Exile.stream(["kill", signal, to_string(pid)], stderr: :consume)
-        |> Enum.reduce({"", "", 0}, fn
-          {:stdout, data}, {out, err, code} -> {out <> data, err, code}
-          {:stderr, data}, {out, err, code} -> {out, err <> data, code}
-          {:exit, {:status, code}}, {out, err, _} -> {out, err, code}
-          {:exit, :epipe}, {out, err, _} -> {out, err, 0}
-          _, acc -> acc
-        end)
+      {output, exit_code} = System.cmd("kill", [signal, to_string(pid)], stderr_to_stdout: true)
 
       if exit_code == 0 do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "success" => true,
             "pid" => pid,
-            "signal" => if(force, do: "SIGKILL", else: "SIGTERM"),
-            "message" => "Signal sent to process #{pid}."
+            "signal" => if(force, do: "SIGKILL", else: "SIGTERM")
           })
 
         {:reply, resp, frame}
       else
         resp =
           Response.tool()
-          |> Response.error("Failed to kill process #{pid} (exit #{exit_code}): #{String.trim(stderr)}")
+          |> Response.error("Failed to kill process #{pid} (exit #{exit_code}): #{String.trim(output)}")
 
         {:reply, resp, frame}
       end
