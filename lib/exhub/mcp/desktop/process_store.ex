@@ -110,7 +110,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       command: attrs[:command],
       output: "",
       exit_code: nil,
-      started_at: now(),
+      started_at: DateTime.utc_now(),
       last_read_at: now(),
       working_dir: attrs[:working_dir],
       status: :running

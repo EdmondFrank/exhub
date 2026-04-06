@@ -80,7 +80,7 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
           Response.tool()
           |> Helpers.toon_response(%{
             "process_id" => process_id,
-            "status" => to_string(entry.status)
+            "status" => "killed"
           })
 
         {:reply, resp, frame}

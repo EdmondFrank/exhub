@@ -208,7 +208,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     case run_exile_command(["rg" | args]) do
       {:ok, output} ->
-        results = parse_ripgrep_output(output, max_results)
+        results = parse_ripgrep_output(output, max_results, context_lines)
         {:ok, results}
 
       {:error, reason} ->
@@ -223,64 +223,8 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   defp add_ripgrep_max_count(args, max) when max > 0, do: args ++ ["-m", to_string(max)]
   defp add_ripgrep_max_count(args, _), do: args
 
-  defp parse_ripgrep_output(output, max_results) do
-    output
-    |> String.split("\n")
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.reduce(%{current_file: nil, results: [], file_matches: %{}}, fn line, acc ->
-      cond do
-        # Match line: path:line:content
-        Regex.match?(~r/^(.+):(\d+):(.*)$/, line) ->
-          [_, file_path, _line_num, _content] = Regex.run(~r/^(.+):(\d+):(.*)$/, line)
-
-          file_matches = Map.update(acc.file_matches, file_path, [line], &[line | &1])
-
-          if map_size(file_matches) > max_results do
-            acc
-          else
-            %{acc | file_matches: file_matches}
-          end
-
-        # Separator line (context separator)
-        line == "--" ->
-          acc
-
-        # Context line: path-line-content
-        Regex.match?(~r/^(.+)-(\d+)-(.*)$/, line) ->
-          acc
-
-        true ->
-          acc
-      end
-    end)
-    |> then(fn %{file_matches: matches} ->
-      matches
-      |> Enum.take(max_results)
-      |> Enum.map(fn {file_path, lines} ->
-        matches =
-          lines
-          |> Enum.reverse()
-          |> Enum.map(fn line ->
-            case Regex.run(~r/^(.+):(\d+):(.*)$/, line) do
-              [_, _, line_num, content] ->
-                %{
-                  "line_number" => String.to_integer(line_num),
-                  "line" => content,
-                  "context" => content
-                }
-
-              _ ->
-                nil
-            end
-          end)
-          |> Enum.reject(&is_nil/1)
-
-        %{
-          "path" => file_path,
-          "matches" => matches
-        }
-      end)
-    end)
+  defp parse_ripgrep_output(output, max_results, context_lines) do
+    parse_grep_like_output(output, max_results, context_lines)
   end
 
   # ============================================================================
@@ -307,7 +251,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     case run_shell_command(cmd) do
       {:ok, output} ->
-        results = parse_grep_output(output, max_results)
+        results = parse_grep_output(output, max_results, context_lines)
         {:ok, results}
 
       {:error, reason} ->
@@ -316,32 +260,73 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     end
   end
 
-  defp parse_grep_output(output, max_results) do
-    output
-    |> String.split("\n")
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.reduce(%{}, fn line, acc ->
-      # Parse grep -nH output: file:line:content
-      case Regex.run(~r/^([^:]+):(\d+):(.*)$/, line) do
-        [_, file_path, line_num, content] ->
-          Map.update(acc, file_path, [content], fn matches ->
-            if length(matches) < 100 do
-              [%{"line_number" => String.to_integer(line_num), "line" => content, "context" => content} | matches]
-            else
-              matches
-            end
-          end)
+  defp parse_grep_output(output, max_results, context_lines) do
+    parse_grep_like_output(output, max_results, context_lines)
+  end
 
-        _ ->
-          acc
-      end
-    end)
+  # ============================================================================
+  # Shared parsing for grep-like output (ripgrep and grep)
+  # ============================================================================
+
+  defp parse_grep_like_output(output, max_results, context_lines) do
+    lines =
+      output
+      |> String.split("\n")
+      |> Enum.reject(&(&1 == ""))
+
+    # Extract only match lines (skip context lines and "--" separators)
+    entries =
+      Enum.flat_map(lines, fn line ->
+        if Regex.match?(~r/^(.+):(\d+):(.*)$/, line) do
+          [_, file_path, line_num, content] = Regex.run(~r/^(.+):(\d+):(.*)$/, line)
+          [{file_path, String.to_integer(line_num), content}]
+        else
+          []
+        end
+      end)
+
+    # Group by file_path, take up to max_results files
+    entries
+    |> Enum.group_by(&elem(&1, 0), &{elem(&1, 1), elem(&1, 2)})
     |> Enum.take(max_results)
     |> Enum.map(fn {file_path, matches} ->
-      %{
-        "path" => file_path,
-        "matches" => Enum.reverse(matches)
-      }
+      # Read file content to build independent context windows
+      file_lines =
+        case File.read(file_path) do
+          {:ok, content} -> String.split(content, "\n")
+          {:error, _} -> []
+        end
+
+      total_lines = length(file_lines)
+
+      sorted_matches =
+        matches
+        |> Enum.sort_by(&elem(&1, 0))
+        |> Enum.map(fn {line_num, line_content} ->
+          start_line = max(1, line_num - context_lines)
+          end_line = min(total_lines, line_num + context_lines)
+
+          context =
+            file_lines
+            |> Enum.slice((start_line - 1)..(end_line - 1))
+            |> Enum.with_index(start_line)
+            |> Enum.map(fn {l, n} ->
+              if n == line_num do
+                "=> #{n}: #{l}"
+              else
+                "   #{n}: #{l}"
+              end
+            end)
+            |> Enum.join("\n")
+
+          %{
+            "line_number" => line_num,
+            "line" => line_content,
+            "context" => context
+          }
+        end)
+
+      %{"path" => file_path, "matches" => sorted_matches}
     end)
   end
 

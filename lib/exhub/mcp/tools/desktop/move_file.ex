@@ -42,7 +42,8 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
           Response.tool()
           |> Helpers.toon_response(%{
             "source" => source,
-            "destination" => destination
+            "destination" => destination,
+            "message" => "Moved successfully."
           })
 
         {:reply, resp, frame}

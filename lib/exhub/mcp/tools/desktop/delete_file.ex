@@ -41,7 +41,8 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
-            "path" => path
+            "path" => path,
+            "message" => "Deleted successfully."
           })
 
         {:reply, resp, frame}

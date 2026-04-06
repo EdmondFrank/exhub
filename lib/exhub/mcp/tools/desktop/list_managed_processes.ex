@@ -65,12 +65,12 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
     end
   end
 
+  defp format_time(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_time(timestamp) when is_integer(timestamp) do
     DateTime.from_unix!(div(timestamp, 1000), :millisecond)
     |> DateTime.to_iso8601()
   rescue
     _ -> to_string(timestamp)
   end
-
   defp format_time(other), do: to_string(other)
 end
