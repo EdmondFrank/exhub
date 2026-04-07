@@ -533,7 +533,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   defp run_shell_command(cmd) do
     try do
       {stdout, _stderr, _exit_code} =
-        Exile.stream(["sh", "-c", cmd], stderr: :consume, exit_timeout: 5000)
+        Exile.stream(Helpers.shell_command_args(cmd, login: true), stderr: :consume, exit_timeout: 5000)
         |> Enum.reduce({"", "", 0}, fn
           {:stdout, data}, {out, err, code} -> {out <> data, err, code}
           {:stderr, data}, {out, err, code} -> {out, err <> data, code}

@@ -87,7 +87,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   defp consume_process_stream(process_id, command, opts) do
     try do
       {stdout, stderr, exit_code} =
-        Exile.stream(["sh", "-l", "-c", command], opts)
+        Exile.stream(Helpers.shell_command_args(command), opts)
         |> Enum.reduce({"", "", nil}, fn
           {:stdout, data}, {out, err, code} ->
             ProcessStore.append_output(process_id, data)
@@ -148,8 +148,15 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     end
   end
 
-  defp build_opts(nil), do: [stderr: :consume]
-  defp build_opts(working_dir), do: [stderr: :consume, cd: working_dir]
+  defp build_opts(working_dir) do
+    base_opts = [stderr: :consume, env: Helpers.clean_env()]
+
+    if working_dir do
+      Keyword.put(base_opts, :cd, working_dir)
+    else
+      base_opts
+    end
+  end
 
   defp generate_process_id do
     "proc_#{System.monotonic_time(:millisecond)}_#{:rand.uniform(9999)}"

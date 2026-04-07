@@ -428,6 +428,62 @@ setup_all do
 end
 ```
 
+## Shell Configuration
+
+The Desktop MCP Server allows you to customize the shell used for executing commands. By default, it uses `sh`, but you can configure any shell executable.
+
+### Configuration
+
+Set the shell in your `config/config.exs` or `config/runtime.exs`:
+
+```elixir
+config :exhub, :shell, "bash"
+```
+
+Or via environment variable in `runtime.exs`:
+
+```elixir
+config :exhub, :shell, System.get_env("EXHUB_SHELL", "sh")
+```
+
+### Supported Shells
+
+The following shells are automatically detected and use appropriate flags:
+
+| Shell  | Arguments Used | Notes                                     |
+|--------|----------------|-------------------------------------------|
+| `sh`   | `-l -c`        | Default shell, uses login shell mode      |
+| `bash` | `-l -c`        | Bourne-again shell with login mode        |
+| `zsh`  | `-l -c`        | Z shell with login mode                   |
+| `dash` | `-l -c`        | Debian Almquist shell                     |
+| `ksh`  | `-l -c`        | Korn shell                                |
+| `fish` | `-c`           | Friendly interactive shell (no `-l` flag) |
+| Other  | `-c`           | Falls back to `-c` for unknown shells     |
+
+### Affected Tools
+
+The custom shell configuration applies to:
+
+- `execute_command` — Executes shell commands with the configured shell
+- `start_process` — Starts long-running processes with the configured shell
+- `search_files` — Uses the configured shell for grep fallback operations
+
+### Examples
+
+```elixir
+# Use bash with its full feature set
+config :exhub, :shell, "bash"
+
+# Use zsh on macOS
+config :exhub, :shell, "zsh"
+
+# Use fish shell
+config :exhub, :shell, "fish"
+
+# Use a specific path to a shell
+config :exhub, :shell, "/usr/local/bin/bash"
+```
+
 ## Path Expansion
 
 All `path` parameters support tilde expansion via `Helpers.expand_path/1`:

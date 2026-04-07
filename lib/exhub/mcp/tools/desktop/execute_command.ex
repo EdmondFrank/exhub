@@ -58,7 +58,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   end
 
   defp run_command(command, timeout_ms, working_dir) do
-    argv = ["sh", "-l", "-c", command]
+    argv = Helpers.shell_command_args(command)
     opts = build_opts(working_dir)
 
     try do
@@ -99,9 +99,13 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     end
   end
 
-  defp build_opts(nil), do: [stderr: :consume]
-
   defp build_opts(working_dir) do
-    [stderr: :consume, cd: working_dir]
+    base_opts = [stderr: :consume, env: Helpers.clean_env()]
+
+    if working_dir do
+      Keyword.put(base_opts, :cd, working_dir)
+    else
+      base_opts
+    end
   end
 end
