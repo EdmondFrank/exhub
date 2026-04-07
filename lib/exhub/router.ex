@@ -40,6 +40,7 @@ defmodule Exhub.Router do
   - `POST /image-gen/mcp` - MCP image generation server endpoint
   - `POST /todo/mcp` - MCP multi-tenant todo list server endpoint
   - `POST /desktop/mcp` - MCP desktop commander server endpoint (filesystem, process, search)
+  - `POST /doc-extract/mcp` - MCP document extraction server endpoint (PDF, DOCX, images via Gitee AI)
   """
 
   use Plug.Router
@@ -323,6 +324,11 @@ defmodule Exhub.Router do
   forward("/desktop/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.DesktopServer, request_timeout: 120_000]
+  )
+
+  forward("/doc-extract/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.DocExtractServer, request_timeout: 120_000]
   )
 
   # ============================================================================

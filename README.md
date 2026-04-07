@@ -22,6 +22,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
 - **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion`, and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
 - **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Exposes 16 tools at `/desktop/mcp`.
+- **Document Extraction**: MCP-based document text extraction (PDF, DOCX, images, etc.) via Gitee AI PaddleOCR-VL-1.5, supporting both local files and remote URLs. Returns extracted content in Markdown format at `/doc-extract/mcp`.
 
 ## Installation
 
@@ -196,6 +197,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)                | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
 | exhub-todo         | MCP multi-tenant todo list management with TTL expiry          | [docs/modules/todo.md](docs/modules/todo.md)                 |
 | exhub-desktop      | MCP desktop commander (filesystem, search, process management) | [docs/modules/desktop.md](docs/modules/desktop.md)           |
+| exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI  | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

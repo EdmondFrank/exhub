@@ -32,6 +32,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.BrowserUseServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Image Generation Server
       {Exhub.MCP.ImageGenServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Document Extraction Server (PDF, DOCX, images via Gitee AI PaddleOCR-VL-1.5)
+      {Exhub.MCP.DocExtractServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Todo Server (multi-tenant, 2-hour expiry)
       {Exhub.MCP.TodoStore, name: Exhub.MCP.TodoStore},
       {Exhub.MCP.TodoServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},

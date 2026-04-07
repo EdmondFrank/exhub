@@ -19,7 +19,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     """
     Execute a shell command and return its output.
 
-    Runs the command in a shell (sh on Unix/macOS) and waits up to timeout_ms
+    Runs the command in a login shell (sh -l -c) and waits up to timeout_ms
     milliseconds for it to complete. Returns stdout, stderr, and the exit code.
 
     Uses Exile for robust process execution with separate stdout/stderr capture.
@@ -58,14 +58,14 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   end
 
   defp run_command(command, timeout_ms, working_dir) do
-    argv = ["sh", "-c", command]
+    argv = ["sh", "-l", "-c", command]
     opts = build_opts(working_dir)
 
     try do
       task =
         Task.async(fn ->
           Exile.stream(argv, opts)
-          |> Enum.reduce({"", "", 0}, fn
+          |> Enum.reduce({"", "", nil}, fn
             {:stdout, data}, {out, err, code} -> {out <> data, err, code}
             {:stderr, data}, {out, err, code} -> {out, err <> data, code}
             {:exit, {:status, code}}, {out, err, _} -> {out, err, code}
@@ -76,6 +76,9 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
       case Task.yield(task, timeout_ms) do
         {:ok, {stdout, stderr, exit_code}} ->
+          # Default exit_code to 0 if stream ended without explicit exit
+          exit_code = exit_code || 0
+
           {:ok,
            %{
              "stdout" => stdout,
@@ -96,9 +99,9 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     end
   end
 
-  defp build_opts(nil), do: [stderr: :consume, exit_timeout: 5000]
+  defp build_opts(nil), do: [stderr: :consume]
 
   defp build_opts(working_dir) do
-    [stderr: :consume, exit_timeout: 5000, cd: working_dir]
+    [stderr: :consume, cd: working_dir]
   end
 end

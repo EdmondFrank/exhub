@@ -87,7 +87,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   defp consume_process_stream(process_id, command, opts) do
     try do
       {stdout, stderr, exit_code} =
-        Exile.stream(["sh", "-c", command], opts)
+        Exile.stream(["sh", "-l", "-c", command], opts)
         |> Enum.reduce({"", "", nil}, fn
           {:stdout, data}, {out, err, code} ->
             ProcessStore.append_output(process_id, data)

@@ -1,5 +1,17 @@
 # Recent Enhancements
 
+## Document Extraction (PDF, DOCX, Images via Gitee AI)
+- **New MCP Server**: `Exhub.MCP.DocExtractServer` exposes document text extraction over MCP at `/doc-extract/mcp`
+- **Gitee AI Backend**: Calls the Gitee AI Async Document Parse API (`https://ai.gitee.com/v1/async/documents/parse`) powered by PaddleOCR-VL-1.5 — no external scripts required
+- **Async Polling Flow**: Submits a parse task, polls `https://ai.gitee.com/v1/task/{task_id}` every 5 seconds, up to 60 attempts (5-minute maximum), then returns the full extracted content
+- **Supported Input**: Local file paths and remote http/https URLs
+- **Supported Formats**: PDF, DOCX, DOC, PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP, and other document/image types
+- **Output Formats**: Markdown (default, layout-preserving) or plain text
+- **Extended Timeout**: Transport `request_timeout` set to 300 s (5 minutes) to accommodate long-running async extractions
+- **Shared API key**: Reuses the existing `giteeai_api_key` SecretVault entry — no new secrets needed if already configured
+- **HTTP Endpoint**: Exposed at `/doc-extract/mcp`
+- **Full Docs**: [docs/modules/doc-extract.md](docs/modules/doc-extract.md)
+
 ## Desktop MCP Server (Filesystem & Process Commander)
 - **New MCP Server**: `Exhub.MCP.DesktopServer` exposes local filesystem and process management over MCP at `/desktop/mcp`
 - **16 Tools** across three categories:
