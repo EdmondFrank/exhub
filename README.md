@@ -199,6 +199,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-todo         | MCP multi-tenant todo list management with TTL expiry          | [docs/modules/todo.md](docs/modules/todo.md)                 |
 | exhub-desktop      | MCP desktop commander (filesystem, search, process management) | [docs/modules/desktop.md](docs/modules/desktop.md)           |
 | exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI  | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
+| exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration          | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

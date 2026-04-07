@@ -25,7 +25,7 @@ defmodule Exhub.MCP.Tools.Agent.Prompt do
       {:ok, entry} ->
         client = entry.client
         Task.start(fn ->
-          case ExMCP.ACP.Client.prompt(client, session_id, content) do
+          case ExMCP.ACP.Client.prompt(client, session_id, content, timeout: :infinity) do
             {:ok, result} ->
               event = %{type: "complete", session_id: session_id, agent_id: agent_id,
                         stop_reason: Map.get(result, "stopReason")}
@@ -36,7 +36,7 @@ defmodule Exhub.MCP.Tools.Agent.Prompt do
               Exhub.MCP.Agent.Store.push_event(agent_id, session_id, event)
           end
         end)
-        case Exhub.MCP.Agent.Store.wait_for_events(agent_id, session_id, timeout_ms) do
+        case Exhub.MCP.Agent.Store.wait_for_terminal_event(agent_id, session_id, timeout_ms) do
           {:ok, events} ->
             resp = Response.tool() |> Response.text(Jason.encode!(%{events: events}))
             {:reply, resp, frame}

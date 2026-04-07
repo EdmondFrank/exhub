@@ -11,6 +11,7 @@ defmodule Exhub.MCP.Agent.Store do
   - `sessions` — MapSet of session_ids
   - `event_queues` — map of `session_id => list of events`
   - `waiters` — map of `session_id => list of {from, timer_ref}`
+  - `terminal_waiters` — map of `session_id => {from, timer_ref}` for waiting on terminal events
   - `pending_permissions` — map of `session_id => {tool_call, options, from}`
   """
 
@@ -63,6 +64,10 @@ defmodule Exhub.MCP.Agent.Store do
     GenServer.call(__MODULE__, {:wait_for_events, agent_id, session_id, timeout_ms}, timeout_ms + 5000)
   end
 
+  def wait_for_terminal_event(agent_id, session_id, timeout_ms) do
+    GenServer.call(__MODULE__, {:wait_for_terminal_event, agent_id, session_id, timeout_ms}, timeout_ms + 10_000)
+  end
+
   def set_pending_permission(agent_id, session_id, tool_call, options, from) do
     GenServer.cast(__MODULE__, {:set_pending_permission, agent_id, session_id, tool_call, options, from})
   end
@@ -96,6 +101,7 @@ defmodule Exhub.MCP.Agent.Store do
         sessions: MapSet.new(),
         event_queues: %{},
         waiters: %{},
+        terminal_waiters: %{},
         pending_permissions: %{}
       }
 
@@ -123,6 +129,12 @@ defmodule Exhub.MCP.Agent.Store do
             Process.cancel_timer(timer_ref)
             GenServer.reply(from, {:ok, []})
           end)
+        end)
+
+        # Cancel any terminal waiters
+        Enum.each(entry.terminal_waiters, fn {_session_id, {from, timer_ref}} ->
+          Process.cancel_timer(timer_ref)
+          GenServer.reply(from, {:ok, []})
         end)
 
         new_state = update_in(state.agents, &Map.delete(&1, agent_id))
@@ -202,6 +214,33 @@ defmodule Exhub.MCP.Agent.Store do
     end
   end
 
+  def handle_call({:wait_for_terminal_event, agent_id, session_id, timeout_ms}, from, state) do
+    case get_in(state, [:agents, agent_id]) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      entry ->
+        existing_events = get_in(entry, [:event_queues, session_id]) || []
+
+        # Check if there's already a terminal event in the queue
+        if has_terminal_event?(existing_events) do
+          new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
+          {:reply, {:ok, existing_events}, new_state}
+        else
+          # Register a terminal waiter
+          timer_ref = Process.send_after(self(), {:terminal_timeout, session_id, agent_id}, timeout_ms)
+          new_state = put_in(state, [:agents, agent_id, :terminal_waiters, session_id], {from, timer_ref})
+          {:noreply, new_state}
+        end
+    end
+  end
+
+  defp has_terminal_event?(events) do
+    Enum.any?(events, fn event ->
+      event.type in ["complete", "error"]
+    end)
+  end
+
   @impl true
   def handle_cast({:add_session, agent_id, session_id}, state) do
     new_state = update_in(state, [:agents, agent_id, :sessions], fn
@@ -260,20 +299,48 @@ defmodule Exhub.MCP.Agent.Store do
 
             GenServer.reply(from, {:ok, all_events})
 
-            new_state =
-              state
-              |> put_in([:agents, agent_id, :event_queues, session_id], [])
-              |> put_in([:agents, agent_id, :waiters, session_id], rest_waiters)
-
-            {:noreply, new_state}
+            state
+            |> put_in([:agents, agent_id, :event_queues, session_id], [])
+            |> put_in([:agents, agent_id, :waiters, session_id], rest_waiters)
         end
     end
+
+    # Check for terminal waiters
+    new_state =
+      if is_terminal_event?(event) do
+        case get_in(state, [:agents, agent_id, :terminal_waiters, session_id]) do
+          nil ->
+            state
+
+          {from, timer_ref} ->
+            Process.cancel_timer(timer_ref)
+
+            # Get all accumulated events including this one
+            existing_events = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
+            all_events = existing_events ++ [event]
+
+            GenServer.reply(from, {:ok, all_events})
+
+            state
+            |> put_in([:agents, agent_id, :event_queues, session_id], [])
+            |> put_in([:agents, agent_id, :terminal_waiters, session_id], nil)
+        end
+      else
+        state
+      end
+
+    {:noreply, new_state}
   end
 
   def handle_cast({:set_pending_permission, agent_id, session_id, tool_call, options, from}, state) do
     new_state = put_in(state, [:agents, agent_id, :pending_permissions, session_id], {tool_call, options, from})
     {:noreply, new_state}
   end
+
+  defp is_terminal_event?(event) do
+    Map.get(event, :type) in ["complete", "error"]
+  end
+
 
   @impl true
   def handle_info({:timeout, session_id, agent_id}, state) do
@@ -298,6 +365,25 @@ defmodule Exhub.MCP.Agent.Store do
     end
   end
 
+  def handle_info({:terminal_timeout, session_id, agent_id}, state) do
+    case get_in(state, [:agents, agent_id, :terminal_waiters, session_id]) do
+      nil ->
+        {:noreply, state}
+
+      {from, _timer_ref} ->
+        # Drain whatever events are in the queue (may be partial)
+        events = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
+        GenServer.reply(from, {:ok, events})
+
+        new_state =
+          state
+          |> put_in([:agents, agent_id, :event_queues, session_id], [])
+          |> put_in([:agents, agent_id, :terminal_waiters, session_id], nil)
+
+        {:noreply, new_state}
+    end
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     case Map.get(state.monitors, ref) do
       nil ->
@@ -307,13 +393,19 @@ defmodule Exhub.MCP.Agent.Store do
         # Agent process died, clean up
         entry = Map.get(state.agents, agent_id)
 
-        if entry do
+       if entry do
           # Cancel any waiters
           Enum.each(entry.waiters, fn {_session_id, waiters} ->
             Enum.each(waiters, fn {from, timer_ref} ->
               Process.cancel_timer(timer_ref)
               GenServer.reply(from, {:ok, []})
             end)
+          end)
+
+          # Cancel any terminal waiters
+          Enum.each(entry.terminal_waiters, fn {_session_id, {from, timer_ref}} ->
+            Process.cancel_timer(timer_ref)
+            GenServer.reply(from, {:ok, []})
           end)
         end
 

@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## ACP Agent MCP Server (AI Coding Agents Integration)
+- **New MCP Server**: `Exhub.MCP.AgentServer` provides an MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex
+- **15 MCP Tools** across five categories:
+  - **Lifecycle (5)**: `agent_initialize`, `agent_shutdown`, `agent_list_running`, `agent_get_status`, `agent_set_status` — spawn and manage agent processes
+  - **Sessions (4)**: `agent_new_session`, `agent_load_session`, `agent_list_sessions`, `agent_close_session` — session lifecycle management
+  - **Prompts (4)**: `agent_prompt` (blocking), `agent_prompt_start` (non-blocking), `agent_prompt_events`, `agent_cancel` — interact with agents via prompts
+  - **Permissions (1)**: `agent_grant_permission` — operator mode for approving tool usage requests
+  - **Modes (1)**: `agent_set_mode` — switch agent operating modes (auto/manual)
+- **AgentStore GenServer**: `Exhub.MCP.Agent.Store` manages running agents with event queues, session tracking, and permission state
+- **ACP Protocol Handler**: `Exhub.MCP.Agent.Handler` implements `ExMCP.ACP.Client.Handler` for session updates, permission requests, and file operations
+- **Configuration**: Agent definitions loaded from `~/.config/exhub/agents.json` (override via `EXHUB_AGENTS_CONFIG` env var)
+- **Multi-Agent Support**: Run multiple agents simultaneously with isolated sessions and event queues
+- **Event-Driven Architecture**: Asynchronous event polling with waiter pattern for streaming responses
+- **HTTP Endpoint**: Exposed at `/agent/mcp` for MCP protocol communication
+- **Full Docs**: [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md) and [docs/agent-mcp-quickstart.md](docs/agent-mcp-quickstart.md)
+
 ## Document Extraction (PDF, DOCX, Images via Gitee AI)
 - **New MCP Server**: `Exhub.MCP.DocExtractServer` exposes document text extraction over MCP at `/doc-extract/mcp`
 - **Gitee AI Backend**: Calls the Gitee AI Async Document Parse API (`https://ai.gitee.com/v1/async/documents/parse`) powered by PaddleOCR-VL-1.5 — no external scripts required
