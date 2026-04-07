@@ -22,17 +22,26 @@ All tool responses are TOON-encoded (not JSON) to reduce token consumption by 30
 
 ### read_file
 
-Reads the contents of a file from the filesystem with optional line offset and limit.
+Reads the contents of a file from the filesystem. Supports both plain text files and document files (PDF, DOCX, images) with automatic text extraction.
+
+**Supported File Types**
+
+| Category   | Extensions                                                                                  | Behavior                                          |
+|------------|---------------------------------------------------------------------------------------------|---------------------------------------------------|
+| Text files | `.txt`, `.md`, `.ex`, `.exs`, `.json`, `.yaml`, `.xml`, `.html`, `.css`, `.js`, `.ts`, etc. | Line-based reading with offset/length             |
+| Documents  | `.pdf`, `.docx`, `.doc`                                                                     | Text extraction via Gitee AI PaddleOCR-VL-1.5     |
+| Images     | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.gif`, `.webp`                                   | OCR text extraction via Gitee AI PaddleOCR-VL-1.5 |
 
 **Parameters**
 
-| Name     | Type    | Required | Default | Description                                                                 |
-|----------|---------|----------|---------|-----------------------------------------------------------------------------|
-| `path`   | string  | yes      | —       | Absolute path to the file to read                                           |
-| `offset` | integer | no       | `0`     | Line number to start reading from (0-based, e.g. 100 skips first 100 lines) |
-| `length` | integer | no       | `1000`  | Maximum number of lines to read                                             |
+| Name      | Type    | Required | Default | Description                                                                                  |
+|-----------|---------|----------|---------|----------------------------------------------------------------------------------------------|
+| `path`    | string  | yes      | —       | Absolute path to the file to read                                                            |
+| `offset`  | integer | no       | `0`     | Line number to start reading from (0-based, e.g. 100 skips first 100 lines); text files only |
+| `length`  | integer | no       | `1000`  | Maximum number of lines to read; text files only                                             |
+| `extract` | boolean | no       | `true`  | Whether to attempt document extraction for non-text files                                    |
 
-**Return Value (success)**
+**Return Value (success) — Text Files**
 
 | Field         | Type    | Description                          |
 |---------------|---------|--------------------------------------|
@@ -42,12 +51,25 @@ Reads the contents of a file from the filesystem with optional line offset and l
 | `total_lines` | integer | Total lines in the file              |
 | `content`     | string  | The file content (newline-separated) |
 
+**Return Value (success) — Document Files**
+
+| Field     | Type   | Description                                  |
+|-----------|--------|----------------------------------------------|
+| `path`    | string | The absolute path that was read              |
+| `content` | string | The extracted text content (Markdown format) |
+| `type`    | string | The detected document type (e.g., `"pdf"`)   |
+
+**Document Extraction Requirements**
+
+Document extraction requires the Gitee AI API key to be configured (same as the `doc_extract` tool). See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
+
 **Error Cases**
 
 - `"File not found: #{path}"` — File does not exist
 - `"Permission denied: #{path}"` — Insufficient permissions
 - `"Path is a directory: #{path}"` — Path points to a directory
 - `"Invalid path"` — Path is empty or not a valid string
+- `"Document extraction failed: #{reason}"` — Failed to extract text from document
 
 ---
 
