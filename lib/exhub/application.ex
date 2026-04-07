@@ -40,6 +40,9 @@ defmodule Exhub.Application do
       # MCP Desktop Server (filesystem, process, search tools)
       {Exhub.MCP.Desktop.ProcessStore, name: Exhub.MCP.Desktop.ProcessStore},
       {Exhub.MCP.DesktopServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Agent Server (ACP agent management)
+      {Exhub.MCP.Agent.Store, name: Exhub.MCP.Agent.Store},
+      {Exhub.MCP.AgentServer, transport: :streamable_http, request_timeout: 300_000, session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()

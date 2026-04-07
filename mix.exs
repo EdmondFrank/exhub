@@ -47,7 +47,8 @@ defmodule Exhub.MixProject do
       {:quantum, "~> 3.0"},
       {:secret_vault, "~> 1.0"},
       {:exile, "~> 0.10"},
-      {:toon, "~> 0.3.0"}
+      {:toon, "~> 0.3.0"},
+      {:ex_mcp, "~> 0.9.0"}
     ]
   end
 end
