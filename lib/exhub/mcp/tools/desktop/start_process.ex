@@ -7,6 +7,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.PortListener
   alias Exhub.MCP.Desktop.ProcessStore
 
   use Anubis.Server.Component, type: :tool
@@ -36,36 +37,108 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   schema do
     field(:command, {:required, :string}, description: "The shell command to execute")
     field(:working_dir, :string, description: "Working directory for the command (optional)")
+    field(:interactive, :boolean, default: false, description: "Enable interactive mode for sending input")
   end
 
   @impl true
   def execute(params, frame) do
     command = Map.get(params, :command)
     working_dir = Map.get(params, :working_dir) |> Helpers.expand_path()
+    interactive = Map.get(params, :interactive, false)
 
     process_id = generate_process_id()
 
-    case start_managed_process(process_id, command, working_dir) do
+    case start_managed_process(process_id, command, working_dir, interactive) do
       {:ok, entry} ->
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
             "process_id" => process_id,
-            "pid" => entry.pid
+            "pid" => entry.pid,
+            "interactive" => entry.interactive
           })
 
         {:reply, resp, frame}
     end
   end
 
-  defp start_managed_process(process_id, command, working_dir) do
+  defp start_managed_process(process_id, command, working_dir, interactive) do
+    if interactive do
+      start_interactive_process(process_id, command, working_dir)
+    else
+      start_streaming_process(process_id, command, working_dir)
+    end
+  end
+
+  defp start_interactive_process(process_id, command, working_dir) do
+    # Register the process FIRST so append_output calls don't get dropped
+    entry_attrs = %{
+      pid: nil,
+      command: command,
+      working_dir: working_dir,
+      interactive: true
+    }
+
+    {:ok, _entry} = ProcessStore.register(process_id, entry_attrs)
+
+    # Build the shell command using spawn_executable for proper output capture
+    shell = Helpers.get_shell()
+    shell_path = resolve_shell_path(shell)
+    full_args = Helpers.shell_command_args(command, login: true)
+    # shell_command_args returns [shell_name, "-l", "-c", command] or similar
+    # We need to extract the args after the shell path
+    [_shell | args] = full_args
+
+    # Open the port with :spawn_executable for reliable output capture
+    port_opts = [:binary, :exit_status, :use_stdio, :stderr_to_stdout, {:args, args}]
+
+    port_opts =
+      if working_dir do
+        [{:cd, working_dir} | port_opts]
+      else
+        port_opts
+      end
+
+    # Start the listener process FIRST - it will own the port
+    listener_pid = spawn_port_listener(process_id)
+
+    # Open the port (owned by current process temporarily)
+    port = Port.open({:spawn_executable, shell_path}, port_opts)
+
+    # Transfer port ownership to the listener process so it survives after this process exits
+    true = Port.connect(port, listener_pid)
+
+    # Tell the listener which port to monitor
+    send(listener_pid, {:set_port, port})
+
+    # Store the port reference
+    ProcessStore.set_port(process_id, port)
+
+    # Get the real OS PID using Port.info
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> ProcessStore.update_pid(process_id, os_pid)
+      _ -> :ok
+    end
+
+    entry = ProcessStore.get(process_id)
+    {:ok, entry}
+  end
+
+  defp spawn_port_listener(process_id) do
+    spawn(fn ->
+      PortListener.loop(process_id, nil)
+    end)
+  end
+
+  defp start_streaming_process(process_id, command, working_dir) do
     opts = build_opts(working_dir)
 
     # Register the process FIRST so append_output calls don't get dropped
     entry_attrs = %{
       pid: nil,
       command: command,
-      working_dir: working_dir
+      working_dir: working_dir,
+      interactive: false
     }
 
     {:ok, _entry} = ProcessStore.register(process_id, entry_attrs)
@@ -127,7 +200,8 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   defp get_system_pid(command) do
     # Try to get the PID of the most recent matching process
-    # This is a best-effort approach
+    # This is a best-effort approach for streaming processes
+    # Note: Interactive processes use Port.info(:os_pid) instead
     try do
       pattern = Regex.escape(command) |> String.slice(0, 50)
 
@@ -160,5 +234,24 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   defp generate_process_id do
     "proc_#{System.monotonic_time(:millisecond)}_#{:rand.uniform(9999)}"
+  end
+
+  defp resolve_shell_path(shell) do
+    case System.find_executable(shell) do
+      nil ->
+        # Try common locations in order
+        fallbacks =
+          case shell do
+            "zsh" -> ["/bin/zsh", "/usr/bin/zsh"]
+            "bash" -> ["/bin/bash", "/usr/bin/bash"]
+            "sh" -> ["/bin/sh", "/usr/bin/sh"]
+            _ -> ["/bin/sh", "/usr/bin/sh"]
+          end
+
+        Enum.find(fallbacks, shell, fn path -> File.exists?(path) end)
+
+      path ->
+        path
+    end
   end
 end

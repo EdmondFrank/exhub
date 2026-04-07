@@ -44,7 +44,8 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
           "status" => to_string(entry.status),
           "exit_code" => entry.exit_code,
           "pid" => entry.pid,
-          "started_at" => format_time(entry.started_at)
+          "started_at" => format_time(entry.started_at),
+          "interactive" => entry.interactive || false
         }
       end)
       |> filter_processes(filter)

@@ -25,7 +25,9 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     :started_at,
     :last_read_at,
     :working_dir,
-    :status
+    :status,
+    :port,
+    :interactive
   ]
 
   # ============================================================================
@@ -92,6 +94,16 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     GenServer.call(__MODULE__, {:kill_process, id})
   end
 
+  @doc "Set the port reference for an interactive process"
+  def set_port(id, port) do
+    GenServer.cast(__MODULE__, {:set_port, id, port})
+  end
+
+  @doc "Send input to an interactive process's stdin"
+  def send_input(id, data) do
+    GenServer.call(__MODULE__, {:send_input, id, data})
+  end
+
   # ============================================================================
   # GenServer callbacks
   # ============================================================================
@@ -113,7 +125,9 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       started_at: DateTime.utc_now(),
       last_read_at: now(),
       working_dir: attrs[:working_dir],
-      status: :running
+      status: :running,
+      port: attrs[:port],
+      interactive: attrs[:interactive] || false
     }
 
     {:reply, {:ok, entry}, Map.put(state, id, entry)}
@@ -137,8 +151,20 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
       entry ->
         output = entry.output
-        total_lines = length(String.split(output, "\n"))
+
+        # Fix: empty string should have 0 lines, not 1
+        total_lines =
+          if output == "" do
+            0
+          else
+            length(String.split(output, "\n"))
+          end
+
         sliced = String.split(output, "\n") |> Enum.drop(offset) |> Enum.join("\n")
+
+        # Update last_read_at timestamp
+        updated_entry = %{entry | last_read_at: now()}
+        new_state = Map.put(state, id, updated_entry)
 
         {:reply,
          {:ok,
@@ -147,7 +173,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
             total_lines: total_lines,
             exit_code: entry.exit_code,
             status: entry.status
-          }}, state}
+          }}, new_state}
     end
   end
 
@@ -174,6 +200,29 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
       entry ->
         {:reply, {:ok, entry}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:send_input, id, data}, _from, state) do
+    case Map.get(state, id) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      %{interactive: false} ->
+        {:reply, {:error, :not_interactive}, state}
+
+      %{port: nil} ->
+        {:reply, {:error, :no_port}, state}
+
+      %{port: port, status: :running} ->
+        case Port.command(port, data) do
+          true -> {:reply, :ok, state}
+          false -> {:reply, {:error, :port_closed}, state}
+        end
+
+      _entry ->
+        {:reply, {:error, :process_not_running}, state}
     end
   end
 
@@ -238,6 +287,17 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   end
 
   @impl true
+  def handle_cast({:set_port, id, port}, state) do
+    state =
+      Map.update(state, id, nil, fn
+        nil -> nil
+        entry -> %{entry | port: port}
+      end)
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(:cleanup, state) do
     cutoff = now() - @max_age_ms
 
@@ -251,7 +311,17 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
       # Try to kill any still-running expired processes
       Enum.each(to_remove, fn {id, entry} ->
-        if entry.status == :running and is_integer(entry.pid) do
+        # Kill via port if interactive (Port.close terminates the OS process)
+        if entry.status == :running and entry.interactive and is_port(entry.port) do
+          try do
+            Port.close(entry.port)
+          rescue
+            _ -> :ok
+          end
+        end
+
+        # Kill via system pid if available (skip for interactive - already handled above)
+        if entry.status == :running and not entry.interactive and is_integer(entry.pid) do
           _ =
             try do
               {_, 0} = System.cmd("kill", ["-KILL", to_string(entry.pid)], stderr_to_stdout: true)

@@ -48,20 +48,28 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
         # Touch the process to reset its TTL
         ProcessStore.touch(process_id)
 
-        # Slice to requested length
-        lines = String.split(result.output, "\n")
-        sliced = Enum.take(lines, length) |> Enum.join("\n")
+        # Slice to requested length - handle empty output correctly
+        lines = if result.output == "", do: [], else: String.split(result.output, "\n")
+        sliced_lines = Enum.take(lines, length)
+        sliced = Enum.join(sliced_lines, "\n")
+        lines_returned = length(sliced_lines)
+
+        # has_more is true if there are lines beyond what we returned,
+        # OR if process is running and we returned exactly 'length' lines (buffer may grow)
+        has_more =
+          (length(lines) > offset + length) or
+            (result.status == :running and lines_returned == length)
 
         resp =
           Response.tool()
           |> Helpers.toon_response(%{
             "output" => sliced,
             "offset" => offset,
-            "lines_returned" => min(length(lines), length),
+            "lines_returned" => lines_returned,
             "total_lines" => result.total_lines,
             "status" => to_string(result.status),
             "exit_code" => result.exit_code,
-            "has_more" => length(lines) > length or result.status == :running
+            "has_more" => has_more
           })
 
         {:reply, resp, frame}

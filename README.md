@@ -21,7 +21,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing.
 - **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
 - **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion`, and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
-- **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Supports document extraction (PDF, DOCX, images) via Gitee AI PaddleOCR. Exposes 16 tools at `/desktop/mcp`, including `read_multiple_files` for parallel file reading.
+- **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Supports document extraction (PDF, DOCX, images) via Gitee AI PaddleOCR. Exposes 17 tools at `/desktop/mcp`, including `read_multiple_files` for parallel file reading.
 - **Document Extraction**: MCP-based document text extraction (PDF, DOCX, images, etc.) via Gitee AI PaddleOCR-VL-1.5, supporting both local files and remote URLs. Returns extracted content in Markdown format at `/doc-extract/mcp`.
 
 ## Installation
