@@ -73,6 +73,59 @@ Document extraction requires the Gitee AI API key to be configured (same as the 
 
 ---
 
+### read_multiple_files
+
+Reads multiple files in a single call with parallel execution. Returns results for each file with success status and content or error message. Supports optional offset/length for text files and document extraction for supported file types.
+
+**Parameters**
+
+| Name      | Type            | Required | Default | Description                                                                                  |
+|-----------|-----------------|----------|---------|----------------------------------------------------------------------------------------------|
+| `paths`   | list of strings | yes      | —       | List of absolute paths to the files to read                                                  |
+| `offset`  | integer         | no       | `0`     | Line number to start reading from (0-based, e.g. 100 skips first 100 lines); text files only |
+| `length`  | integer         | no       | `2000`  | Maximum number of lines to read; text files only                                             |
+| `extract` | boolean         | no       | `false` | Whether to attempt document extraction for non-text files                                    |
+
+**Return Value (success)**
+
+| Field     | Type | Description                     |
+|-----------|------|---------------------------------|
+| `results` | list | List of result maps (see below) |
+
+Each result in `results` contains:
+
+| Field         | Type    | Description                                         |
+|---------------|---------|-----------------------------------------------------|
+| `path`        | string  | The path that was read                              |
+| `success`     | boolean | Whether the read was successful                     |
+| `content`     | string  | The file content (present when `success: true`)     |
+| `lines_read`  | integer | Number of lines actually returned (text files only) |
+| `total_lines` | integer | Total lines in the file (text files only)           |
+| `error`       | string  | Error message (present when `success: false`)       |
+
+**Parallel Execution**
+
+Files are read concurrently using `Task.async_stream/3` with `max_concurrency: 10`. Results maintain the same order as the input `paths` list, regardless of which file finishes reading first.
+
+**UTF-8 Sanitization**
+
+All file content is sanitized to ensure valid UTF-8 encoding. Invalid byte sequences are replaced with the Unicode replacement character (U+FFFD) to prevent encoding errors in the response.
+
+**Document Extraction**
+
+When `extract: true`, document files (PDF, DOCX, images) are processed using Gitee AI PaddleOCR-VL-1.5 for text extraction. See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
+
+**Error Cases**
+
+Each file is processed independently, so errors are reported per-file in the `results` array with `success: false` and an `error` field:
+
+- `"File not found: #{path}"` — File does not exist
+- `"Permission denied: #{path}"` — Insufficient permissions
+- `"Invalid path: #{path}"` — Path is not absolute or valid
+- Document extraction errors (when `extract: true`)
+
+---
+
 ### write_file
 
 Writes or appends content to a file on the filesystem. Creates the file and any missing parent directories if they do not exist.

@@ -11,6 +11,7 @@ defmodule Exhub.MCP.DesktopServer do
 
   ### Filesystem
   - `read_file`        — Read file contents with optional line offset/limit
+  - `read_multiple_files` — Read multiple files in a single call
   - `write_file`       — Write or append content to a file
   - `create_directory` — Create a directory (and parents) recursively
   - `list_directory`   — List directory contents with optional recursion depth
@@ -42,6 +43,7 @@ defmodule Exhub.MCP.DesktopServer do
 
   # Filesystem tools
   component Exhub.MCP.Tools.Desktop.ReadFile
+  component Exhub.MCP.Tools.Desktop.ReadMultipleFiles
   component Exhub.MCP.Tools.Desktop.WriteFile
   component Exhub.MCP.Tools.Desktop.CreateDirectory
   component Exhub.MCP.Tools.Desktop.ListDirectory
