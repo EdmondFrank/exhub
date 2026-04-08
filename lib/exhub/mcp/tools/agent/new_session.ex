@@ -22,7 +22,8 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
           {:ok, result} ->
             session_id = Map.get(result, "sessionId")
             if session_id, do: Exhub.MCP.Agent.Store.add_session(agent_id, session_id)
-            resp = Response.tool() |> Response.text(Jason.encode!(result))
+            slim = Map.take(result, ["sessionId", "status", "cwd", "mode"])
+            resp = Response.tool() |> Response.text(Jason.encode!(slim))
             {:reply, resp, frame}
           {:error, reason} ->
             {:reply, Response.tool() |> Response.error("Failed to create session: #{inspect(reason)}"), frame}
