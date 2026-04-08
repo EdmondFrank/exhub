@@ -9,7 +9,7 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
 
   schema do
     field(:agent_id, {:required, :string}, description: "ID of the initialized agent")
-    field(:cwd, :string, description: "Working directory for the session (default: current dir)")
+    field(:cwd, :string, description: "Working directory for the session")
   end
 
   @impl true

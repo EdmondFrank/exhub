@@ -19,14 +19,25 @@ defmodule Exhub.MCP.Tools.Agent.PromptStart do
       {:ok, entry} ->
         client = entry.client
         Task.start(fn ->
-          case ExMCP.ACP.Client.prompt(client, session_id, content, timeout: :infinity) do
-            {:ok, result} ->
-              event = %{type: "complete", session_id: session_id, agent_id: agent_id,
-                        stop_reason: Map.get(result, "stopReason")}
-              Exhub.MCP.Agent.Store.push_event(agent_id, session_id, event)
-            {:error, reason} ->
+          try do
+            case ExMCP.ACP.Client.prompt(client, session_id, content, timeout: :infinity) do
+              {:ok, result} ->
+                event = %{type: "complete", session_id: session_id, agent_id: agent_id,
+                          stop_reason: Map.get(result, "stopReason")}
+                Exhub.MCP.Agent.Store.push_event(agent_id, session_id, event)
+              {:error, reason} ->
+                event = %{type: "error", session_id: session_id, agent_id: agent_id,
+                          message: inspect(reason)}
+                Exhub.MCP.Agent.Store.push_event(agent_id, session_id, event)
+            end
+          catch
+            :exit, reason ->
               event = %{type: "error", session_id: session_id, agent_id: agent_id,
-                        message: inspect(reason)}
+                        message: "Agent exited: #{inspect(reason)}"}
+              Exhub.MCP.Agent.Store.push_event(agent_id, session_id, event)
+            kind, reason ->
+              event = %{type: "error", session_id: session_id, agent_id: agent_id,
+                        message: "Unexpected error (#{kind}): #{inspect(reason)}"}
               Exhub.MCP.Agent.Store.push_event(agent_id, session_id, event)
           end
         end)

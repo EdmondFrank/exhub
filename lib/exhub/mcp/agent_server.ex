@@ -21,7 +21,6 @@ defmodule Exhub.MCP.AgentServer do
   - `agent_close_session` — Close a session
 
   ### Prompts
-  - `agent_prompt` — Send a prompt and block for response
   - `agent_prompt_start` — Send a prompt (non-blocking)
   - `agent_prompt_events` — Poll for events from a session
   - `agent_cancel` — Cancel an in-progress prompt
@@ -52,7 +51,6 @@ defmodule Exhub.MCP.AgentServer do
   component Exhub.MCP.Tools.Agent.CloseSession
 
   # Prompt tools
-  component Exhub.MCP.Tools.Agent.Prompt
   component Exhub.MCP.Tools.Agent.PromptStart
   component Exhub.MCP.Tools.Agent.PromptEvents
   component Exhub.MCP.Tools.Agent.Cancel
