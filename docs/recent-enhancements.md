@@ -2,10 +2,10 @@
 
 ## ACP Agent MCP Server (AI Coding Agents Integration)
 - **New MCP Server**: `Exhub.MCP.AgentServer` provides an MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex
-- **15 MCP Tools** across five categories:
+- **14 MCP Tools** across five categories:
   - **Lifecycle (5)**: `agent_initialize`, `agent_shutdown`, `agent_list_running`, `agent_get_status`, `agent_set_status` — spawn and manage agent processes
   - **Sessions (4)**: `agent_new_session`, `agent_load_session`, `agent_list_sessions`, `agent_close_session` — session lifecycle management
-  - **Prompts (4)**: `agent_prompt` (blocking), `agent_prompt_start` (non-blocking), `agent_prompt_events`, `agent_cancel` — interact with agents via prompts
+  - **Prompts (3)**: `agent_prompt_start` (non-blocking), `agent_prompt_events` (long-poll with collect window), `agent_cancel` — interact with agents via prompts
   - **Permissions (1)**: `agent_grant_permission` — operator mode for approving tool usage requests
   - **Modes (1)**: `agent_set_mode` — switch agent operating modes (auto/manual)
 - **AgentStore GenServer**: `Exhub.MCP.Agent.Store` manages running agents with event queues, session tracking, and permission state

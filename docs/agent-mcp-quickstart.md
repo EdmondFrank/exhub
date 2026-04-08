@@ -92,15 +92,6 @@ Call: agent_initialize
   agent_id: "gemini"
 ```
 
-Or without a config file, pass the command directly:
-
-```
-Call: agent_initialize
-  agent_id: "my-gemini"
-  command: "gemini"
-  args: ["--acp"]
-```
-
 Response:
 ```json
 { "agent_id": "gemini", "status": "initialized", "command": ["gemini", "--acp"] }
@@ -125,34 +116,9 @@ Save the `sessionId` — you'll use it for all subsequent calls.
 
 ---
 
-### Step 3 — Send a prompt (blocking)
+### Step 3 — Send a prompt (non-blocking / long-poll)
 
-```
-Call: agent_prompt
-  agent_id: "gemini"
-  session_id: "sess_abc123"
-  content: "Refactor the auth module to use JWT"
-  timeout_ms: 120000
-```
-
-Response:
-```json
-{
-  "events": [
-    { "type": "update", "update": { "sessionUpdate": "agent_message_chunk", ... } },
-    { "type": "update", "update": { "sessionUpdate": "tool_call", ... } },
-    { "type": "complete", "stop_reason": "end_turn" }
-  ]
-}
-```
-
-The call blocks until the agent finishes or `timeout_ms` is reached.
-
----
-
-### Step 4 — Send a prompt (non-blocking / streaming)
-
-For long-running tasks, use the fire-and-poll pattern:
+Agents typically run for a long time, so use the fire-and-poll pattern:
 
 ```
 # 1. Fire the prompt
@@ -164,16 +130,18 @@ Call: agent_prompt_start
 # Response immediately:
 { "status": "prompted", "session_id": "sess_abc123" }
 
-# 2. Poll for events (repeat until you see type: "complete" or "error")
+# 2. Long-poll for events (repeat until you see type: "complete" or "error")
+#    Each call blocks up to collect_ms (default 30s), returning early after
+#    idle_ms (default 15s) of silence, or immediately on a terminal event.
 Call: agent_prompt_events
   agent_id: "gemini"
   session_id: "sess_abc123"
+  collect_ms: 30000   # optional — max collection window
+  idle_ms: 15000      # optional — return early if silent for this long
 
-# Response (may be empty if agent is still thinking):
+# Response (batched events from the collection window):
 { "events": [ { "type": "update", ... }, ... ] }
 ```
-
----
 
 ### Step 5 — Handle permission requests (operator mode)
 
@@ -243,13 +211,15 @@ agent_initialize  agent_id: "gemini-reviewer"
 
 # Writer creates code
 agent_new_session  agent_id: "gemini-writer",  cwd: "/project"  → sess_A
-agent_prompt       agent_id: "gemini-writer",  session_id: sess_A
+agent_prompt_start agent_id: "gemini-writer",  session_id: sess_A
                    content: "Implement the OAuth2 login flow"
+agent_prompt_events agent_id: "gemini-writer", session_id: sess_A  # repeat until complete
 
 # Reviewer checks it
 agent_new_session  agent_id: "gemini-reviewer", cwd: "/project" → sess_B
-agent_prompt       agent_id: "gemini-reviewer", session_id: sess_B
+agent_prompt_start agent_id: "gemini-reviewer", session_id: sess_B
                    content: "Review the changes in git diff and suggest improvements"
+agent_prompt_events agent_id: "gemini-reviewer", session_id: sess_B  # repeat until complete
 ```
 
 ---
@@ -287,29 +257,28 @@ Call: agent_set_mode
 
 ## 7. Tool Reference
 
-| Tool | Required params | Description |
-|------|----------------|-------------|
-| `agent_initialize` | `agent_id` | Spawn & handshake an ACP agent |
-| `agent_shutdown` | `agent_id` | Gracefully shut down |
-| `agent_new_session` | `agent_id` | Create a new session |
-| `agent_load_session` | `agent_id`, `session_id` | Resume a session |
-| `agent_list_sessions` | `agent_id` | List active sessions |
-| `agent_close_session` | `agent_id`, `session_id` | Close a session |
-| `agent_prompt` | `agent_id`, `session_id`, `content` | Prompt + block until done |
-| `agent_prompt_start` | `agent_id`, `session_id`, `content` | Prompt (non-blocking) |
-| `agent_prompt_events` | `agent_id`, `session_id` | Poll for events |
-| `agent_grant_permission` | `agent_id`, `session_id`, `option_id` | Resolve permission request |
-| `agent_cancel` | `agent_id`, `session_id` | Cancel active prompt |
-| `agent_set_mode` | `agent_id`, `session_id`, `mode_id` | Set agent mode |
-| `agent_list_running` | — | List all running agents |
-| `agent_get_status` | `agent_id` | Detailed agent status |
-| `agent_set_status` | `agent_id`, `status_text` | Set status label |
+| Tool                     | Required params                       | Description                    |
+|--------------------------|---------------------------------------|--------------------------------|
+| `agent_initialize`       | `agent_id`                            | Spawn & handshake an ACP agent |
+| `agent_shutdown`         | `agent_id`                            | Gracefully shut down           |
+| `agent_new_session`      | `agent_id`                            | Create a new session           |
+| `agent_load_session`     | `agent_id`, `session_id`              | Resume a session               |
+| `agent_list_sessions`    | `agent_id`                            | List active sessions           |
+| `agent_close_session`    | `agent_id`, `session_id`              | Close a session                |
+| `agent_prompt_start`     | `agent_id`, `session_id`, `content`   | Prompt (non-blocking)          |
+| `agent_prompt_events`    | `agent_id`, `session_id`              | Long-poll for batched events   |
+| `agent_grant_permission` | `agent_id`, `session_id`, `option_id` | Resolve permission request     |
+| `agent_cancel`           | `agent_id`, `session_id`              | Cancel active prompt           |
+| `agent_set_mode`         | `agent_id`, `session_id`, `mode_id`   | Set agent mode                 |
+| `agent_list_running`     | —                                     | List all running agents        |
+| `agent_get_status`       | `agent_id`                            | Detailed agent status          |
+| `agent_set_status`       | `agent_id`, `status_text`             | Set status label               |
 
 ---
 
 ## 8. Event Types
 
-Events returned by `agent_prompt` and `agent_prompt_events`:
+Events returned by `agent_prompt_events`:
 
 | `type` | Description |
 |--------|-------------|
@@ -343,9 +312,10 @@ Error: Agent 'gemini' is not running.
 ```
 → The agent process may have crashed. Call `agent_list_running` to check, then re-initialize.
 
-**Prompt timeout**
-→ Increase `timeout_ms` in `agent_prompt`, or switch to the non-blocking
-`agent_prompt_start` + `agent_prompt_events` pattern.
+**Prompt timeout / slow agent**
+→ Use `agent_prompt_start` + `agent_prompt_events`. Each `agent_prompt_events` call
+long-polls for up to `collect_ms` (default 30s) and returns early after `idle_ms`
+(default 15s) of silence — no busy-polling needed.
 
 **Permission request blocking**
 → Poll `agent_prompt_events` and call `agent_grant_permission` with the

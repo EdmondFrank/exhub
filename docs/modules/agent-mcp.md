@@ -23,12 +23,11 @@ This server acts as a gateway that translates MCP tool calls into ACP protocol m
 │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────────────────────┐│
 │  │ Lifecycle Tools │ │  Session Tools  │ │      Prompt/Permission Tools    ││
 │  │ ─────────────── │ │ ─────────────── │ │ ─────────────────────────────── ││
-│  │ agent_initialize│ │ agent_new_session│ │ agent_prompt                   ││
-│  │ agent_shutdown  │ │ agent_load_session││ agent_prompt_start             ││
-│  │ agent_list_...  │ │ agent_list_sessions││ agent_prompt_events           ││
-│  │ agent_get_status│ │ agent_close_session││ agent_cancel                  ││
-│  │ agent_set_status│ │                 │ │ agent_grant_permission          ││
-│  └─────────────────┘ └─────────────────┘ │ agent_set_mode                  ││
+│  │ agent_initialize│ │ agent_new_session│ │ agent_prompt_start             ││
+│  │ agent_shutdown  │ │ agent_load_session││ agent_prompt_events            ││
+│  │ agent_list_...  │ │ agent_list_sessions││ agent_cancel                  ││
+│  │ agent_get_status│ │ agent_close_session││ agent_grant_permission        ││
+│  │ agent_set_status│ │                 │ │ agent_set_mode                  ││
 │                                          └─────────────────────────────────┘│
 └─────────────────────────────────┬───────────────────────────────────────────┘
                                   │
@@ -43,7 +42,8 @@ This server acts as a gateway that translates MCP tool calls into ACP protocol m
 │  │    status_text: "...",   # Human-readable status                        ││
 │  │    sessions: MapSet,     # Active session IDs                           ││
 │  │    event_queues: %{},    # Per-session event buffers                    ││
-│  │    waiters: %{},         # Pending event waiters                        ││
+│  │    waiters: %{},         # Pending single-event waiters                 ││
+│  │    collect_waiters: %{}, # Long-poll collect waiters                    ││
 │  │    pending_permissions: {} # Permission request state                   ││
 │  │  }}}                                                                    ││
 │  └─────────────────────────────────────────────────────────────────────────┘│
@@ -98,15 +98,11 @@ Create `~/.config/exhub/agents.json` to define available agents:
   },
   "opencode": {
     "command": "opencode",
-    "args": []
-  },
-  "claude": {
-    "command": "claude",
-    "args": []
+    "args": ["acp"]
   },
   "codex": {
-    "command": "codex",
-    "args": ["--acp"]
+    "command": "codex-acp",
+    "args": []
   }
 }
 ```
@@ -135,11 +131,9 @@ Spawn an ACP agent process and perform the initialize handshake.
 
 **Parameters:**
 
-| Parameter  | Type            | Required | Description                                        |
-|------------|-----------------|----------|----------------------------------------------------|
-| `agent_id` | string          | yes      | Unique identifier for this agent instance          |
-| `command`  | string          | no       | Command to run (overrides config). E.g. `'gemini'` |
-| `args`     | list of strings | no       | Command arguments (default: `[]`)                  |
+| Parameter  | Type   | Required | Description                               |
+|------------|--------|----------|-------------------------------------------|
+| `agent_id` | string | yes      | Unique identifier for this agent instance |
 
 **Response (success):**
 
@@ -153,7 +147,7 @@ Spawn an ACP agent process and perform the initialize handshake.
 
 **Error Cases:**
 - `"Agent 'X' is already running. Call agent_shutdown first."` — Agent with this ID already exists
-- `"Agent 'X' not found in config and no command provided."` — No config entry and no command override
+- `"Agent 'X' not found in config."` — No config entry for this agent_id
 - `"Failed to start agent: ..."` — Process spawn failure
 
 ---
@@ -335,34 +329,7 @@ Close a session (keeps it resumable if the agent supports persistence).
 
 ---
 
-### Prompt Tools (4)
-
-#### `agent_prompt`
-
-Send a prompt to an agent session and **block** until complete or timeout. Returns all accumulated events.
-
-**Parameters:**
-
-| Parameter    | Type    | Required | Description                                       |
-|--------------|---------|----------|---------------------------------------------------|
-| `agent_id`   | string  | yes      | ID of the agent                                   |
-| `session_id` | string  | yes      | Session ID                                        |
-| `content`    | string  | yes      | Prompt text to send to the agent                  |
-| `timeout_ms` | integer | no       | Max wait time in milliseconds (default: `120000`) |
-
-**Response:**
-
-```json
-{
-  "events": [
-    { "type": "update", "update": { "sessionUpdate": "agent_message_chunk", ... } },
-    { "type": "update", "update": { "sessionUpdate": "tool_call", ... } },
-    { "type": "complete", "stop_reason": "end_turn" }
-  ]
-}
-```
-
----
+### Prompt Tools (3)
 
 #### `agent_prompt_start`
 
@@ -389,15 +356,16 @@ Send a prompt to an agent session (**non-blocking**). Use with `agent_prompt_eve
 
 #### `agent_prompt_events`
 
-Poll for events from a session. Call repeatedly after `agent_prompt_start` until you see `type: "complete"` or `type: "error"`.
+Long-poll for events from a session. Collects events for up to `collect_ms` ms, returning early after `idle_ms` of silence or immediately on a terminal event (`complete`/`error`). Call repeatedly after `agent_prompt_start` until you see `type: "complete"` or `type: "error"`.
 
 **Parameters:**
 
-| Parameter    | Type    | Required | Description                                     |
-|--------------|---------|----------|-------------------------------------------------|
-| `agent_id`   | string  | yes      | ID of the agent                                 |
-| `session_id` | string  | yes      | Session ID                                      |
-| `timeout_ms` | integer | no       | Max wait time for new events (default: `30000`) |
+| Parameter    | Type    | Required | Description                                              |
+|--------------|---------|----------|----------------------------------------------------------|
+| `agent_id`   | string  | yes      | ID of the agent                                          |
+| `session_id` | string  | yes      | Session ID                                               |
+| `collect_ms` | integer | no       | Max collection window in ms (default: `30000`)           |
+| `idle_ms`    | integer | no       | Return early if idle for this many ms (default: `15000`) |
 
 **Response:**
 
@@ -486,7 +454,7 @@ Set the operating mode for a session (if the agent supports modes like `auto`/`m
 
 ## Event Types
 
-Events returned by `agent_prompt` and `agent_prompt_events`:
+Events returned by `agent_prompt_events`:
 
 | Type                 | Description                                                           |
 |----------------------|-----------------------------------------------------------------------|
@@ -552,21 +520,25 @@ You can run multiple agents simultaneously. Each has its own `agent_id`:
 { "tool": "agent_new_session", "params": { "agent_id": "gemini-writer", "cwd": "/project" } }
 // → Returns sess_A
 
-{ "tool": "agent_prompt", "params": {
+{ "tool": "agent_prompt_start", "params": {
   "agent_id": "gemini-writer",
   "session_id": "sess_A",
   "content": "Implement the OAuth2 login flow"
 } }
+// Poll until complete:
+{ "tool": "agent_prompt_events", "params": { "agent_id": "gemini-writer", "session_id": "sess_A" } }
 
 // Reviewer checks it
 { "tool": "agent_new_session", "params": { "agent_id": "gemini-reviewer", "cwd": "/project" } }
 // → Returns sess_B
 
-{ "tool": "agent_prompt", "params": {
+{ "tool": "agent_prompt_start", "params": {
   "agent_id": "gemini-reviewer",
   "session_id": "sess_B",
   "content": "Review the changes in git diff and suggest improvements"
 } }
+// Poll until complete:
+{ "tool": "agent_prompt_events", "params": { "agent_id": "gemini-reviewer", "session_id": "sess_B" } }
 ```
 
 ### Pipeline Patterns
@@ -626,7 +598,7 @@ Error: Agent 'gemini' is not running.
 
 ### Prompt timeout
 
-**Solution:** Increase `timeout_ms` in `agent_prompt`, or switch to the non-blocking `agent_prompt_start` + `agent_prompt_events` pattern.
+**Solution:** Use `agent_prompt_start` + `agent_prompt_events`. Each poll call long-polls for up to `collect_ms` (default 30s) and returns early after `idle_ms` (default 15s) of silence — no busy-polling needed.
 
 ---
 
@@ -649,7 +621,7 @@ Error: Agent 'gemini' is not running.
 
 | File                                               | Description                                                                 |
 |----------------------------------------------------|-----------------------------------------------------------------------------|
-| `lib/exhub/mcp/agent_server.ex`                    | MCP server definition (Anubis) with 15 tool components                      |
+| `lib/exhub/mcp/agent_server.ex`                    | MCP server definition (Anubis) with 14 tool components                      |
 | `lib/exhub/mcp/agent/store.ex`                     | GenServer for agent state management, event queues, and permission handling |
 | `lib/exhub/mcp/agent/config.ex`                    | Configuration loader for `~/.config/exhub/agents.json`                      |
 | `lib/exhub/mcp/agent/handler.ex`                   | ACP protocol handler implementing `ExMCP.ACP.Client.Handler` behaviour      |
@@ -662,7 +634,6 @@ Error: Agent 'gemini' is not running.
 | `lib/exhub/mcp/tools/agent/load_session.ex`        | `agent_load_session` tool — resume session                                  |
 | `lib/exhub/mcp/tools/agent/list_sessions.ex`       | `agent_list_sessions` tool — list sessions                                  |
 | `lib/exhub/mcp/tools/agent/close_session.ex`       | `agent_close_session` tool — close session                                  |
-| `lib/exhub/mcp/tools/agent/prompt.ex`              | `agent_prompt` tool — blocking prompt                                       |
 | `lib/exhub/mcp/tools/agent/prompt_start.ex`        | `agent_prompt_start` tool — non-blocking prompt                             |
 | `lib/exhub/mcp/tools/agent/prompt_events.ex`       | `agent_prompt_events` tool — poll for events                                |
 | `lib/exhub/mcp/tools/agent/cancel.ex`              | `agent_cancel` tool — cancel prompt                                         |
