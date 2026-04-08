@@ -14,9 +14,39 @@ defmodule Exhub.MCP.Agent.Handler do
   end
 
   def handle_session_update(session_id, update, state) do
+    # Strip large fields from tool_call_update events
+    update = slim_tool_call_update(update)
+
     event = %{type: "update", update: update, session_id: session_id, agent_id: state.agent_id}
     Exhub.MCP.Agent.Store.push_event(state.agent_id, session_id, event)
     {:ok, state}
+  end
+
+  defp slim_tool_call_update(update) when is_map(update) do
+    if Map.get(update, "sessionUpdate") == "tool_call_update" do
+      update
+      |> strip_raw_output_fields()
+    else
+      update
+    end
+  end
+
+  defp slim_tool_call_update(update), do: update
+
+  defp strip_raw_output_fields(update) do
+    case Map.get(update, "rawOutput") do
+      raw_output when is_map(raw_output) ->
+        stripped_raw_output =
+          raw_output
+          |> Map.delete("filediff")
+          |> Map.delete("before")
+          |> Map.delete("after")
+
+        Map.put(update, "rawOutput", stripped_raw_output)
+
+      _ ->
+        update
+    end
   end
 
   def handle_permission_request(session_id, tool_call, options, state) do

@@ -107,7 +107,8 @@ defmodule Exhub.MCP.Agent.Store do
         waiters: %{},
         terminal_waiters: %{},
         collect_waiters: %{},
-        pending_permissions: %{}
+        pending_permissions: %{},
+        tool_call_seen: %{}
       }
 
       # Monitor the client process
@@ -132,7 +133,7 @@ defmodule Exhub.MCP.Agent.Store do
         Enum.each(entry.waiters, fn {_session_id, waiters} ->
           Enum.each(waiters, fn {from, timer_ref} ->
             Process.cancel_timer(timer_ref)
-            GenServer.reply(from, {:ok, []})
+            GenServer.reply(from, {:ok, merge_chunks([])})
           end)
         end)
 
@@ -141,7 +142,7 @@ defmodule Exhub.MCP.Agent.Store do
           {_session_id, nil} -> :ok
           {_session_id, {from, timer_ref}} ->
             Process.cancel_timer(timer_ref)
-            GenServer.reply(from, {:ok, []})
+            GenServer.reply(from, {:ok, merge_chunks([])})
         end)
 
         # Cancel any collect waiters
@@ -150,7 +151,7 @@ defmodule Exhub.MCP.Agent.Store do
           {_session_id, {from, collect_ref, idle_ref, _idle_ms, acc}} ->
             Process.cancel_timer(collect_ref)
             Process.cancel_timer(idle_ref)
-            GenServer.reply(from, {:ok, acc})
+            GenServer.reply(from, {:ok, merge_chunks(acc)})
         end)
 
         new_state = update_in(state.agents, &Map.delete(&1, agent_id))
@@ -177,7 +178,7 @@ defmodule Exhub.MCP.Agent.Store do
 
       events ->
         new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
-        {:reply, {:ok, events}, new_state}
+        {:reply, {:ok, merge_chunks(events)}, new_state}
     end
   end
 
@@ -191,7 +192,7 @@ defmodule Exhub.MCP.Agent.Store do
           events when is_list(events) and events != [] ->
             # Return immediately if events already queued
             new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
-            {:reply, {:ok, events}, new_state}
+            {:reply, {:ok, merge_chunks(events)}, new_state}
 
           _ ->
             # Register a waiter
@@ -240,7 +241,7 @@ defmodule Exhub.MCP.Agent.Store do
 
         if has_terminal_event?(existing) do
           new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
-          {:reply, {:ok, existing}, new_state}
+          {:reply, {:ok, merge_chunks(existing)}, new_state}
         else
           collect_ref = Process.send_after(self(), {:collect_timeout, session_id, agent_id}, collect_ms)
           idle_ref = Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
@@ -266,7 +267,7 @@ defmodule Exhub.MCP.Agent.Store do
         # Check if there's already a terminal event in the queue
         if has_terminal_event?(existing_events) do
           new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
-          {:reply, {:ok, existing_events}, new_state}
+          {:reply, {:ok, merge_chunks(existing_events)}, new_state}
         else
           # Register a terminal waiter
           timer_ref = Process.send_after(self(), {:terminal_timeout, session_id, agent_id}, timeout_ms)
@@ -299,6 +300,7 @@ defmodule Exhub.MCP.Agent.Store do
       |> update_in([:agents, agent_id, :waiters], &Map.delete(&1, session_id))
       |> update_in([:agents, agent_id, :collect_waiters], &Map.delete(&1, session_id))
       |> update_in([:agents, agent_id, :pending_permissions], &Map.delete(&1, session_id))
+      |> update_in([:agents, agent_id, :tool_call_seen], &Map.delete(&1, session_id))
 
     {:noreply, new_state}
   end
@@ -314,6 +316,9 @@ defmodule Exhub.MCP.Agent.Store do
         {:noreply, state}
 
       entry ->
+        # Step 0: deduplicate tool_call_update events
+        {event, state} = maybe_dedup_tool_call(event, session_id, state, agent_id)
+
         # Step 1: handle regular waiters → produce state1
         state1 =
           case get_in(entry, [:waiters, session_id]) do
@@ -329,7 +334,7 @@ defmodule Exhub.MCP.Agent.Store do
               Process.cancel_timer(timer_ref)
               existing_events = get_in(entry, [:event_queues, session_id]) || []
               all_events = existing_events ++ [event]
-              GenServer.reply(from, {:ok, all_events})
+              GenServer.reply(from, {:ok, merge_chunks(all_events)})
 
               state
               |> put_in([:agents, agent_id, :event_queues, session_id], [])
@@ -347,7 +352,7 @@ defmodule Exhub.MCP.Agent.Store do
                 Process.cancel_timer(timer_ref)
                 # Drain the full queue from state1 (already includes this event if no regular waiter took it)
                 queued = get_in(state1, [:agents, agent_id, :event_queues, session_id]) || []
-                GenServer.reply(from, {:ok, queued})
+                GenServer.reply(from, {:ok, merge_chunks(queued)})
 
                 state1
                 |> put_in([:agents, agent_id, :event_queues, session_id], [])
@@ -370,6 +375,89 @@ defmodule Exhub.MCP.Agent.Store do
     Map.get(event, :type) in ["complete", "error"]
   end
 
+  # Deduplicate tool_call_update events by stripping rawInput/rawOutput on repeats
+  defp maybe_dedup_tool_call(event, session_id, state, agent_id) do
+    tool_call_id = event[:update]["toolCallId"]
+
+    if tool_call_id != nil do
+      seen = get_in(state, [:agents, agent_id, :tool_call_seen, session_id]) || MapSet.new()
+
+      if MapSet.member?(seen, tool_call_id) do
+        # Already seen — strip rawInput and rawOutput
+        stripped_update =
+          event.update
+          |> maybe_delete_in(["rawInput"])
+          |> maybe_delete_in(["rawOutput"])
+
+        event = put_in(event, [:update], stripped_update)
+        {event, state}
+      else
+        # First time seeing this tool_call_id — add to seen set
+        new_seen = MapSet.put(seen, tool_call_id)
+        state = put_in(state, [:agents, agent_id, :tool_call_seen, session_id], new_seen)
+        {event, state}
+      end
+    else
+      {event, state}
+    end
+  end
+
+  defp maybe_delete_in(map, [key]) when is_map(map), do: Map.delete(map, key)
+  defp maybe_delete_in(map, _keys), do: map
+
+  # Merge consecutive chunk events of the same type
+  defp chunk_text(event) do
+    case event do
+      %{update: %{"content" => %{"text" => text}}} when is_binary(text) -> text
+      _ -> nil
+    end
+  end
+
+  defp chunk_type(event) do
+    case event do
+      %{update: %{"sessionUpdate" => type}} -> type
+      _ -> nil
+    end
+  end
+
+  defp merge_text(event, extra_text) do
+    update_in(event, [:update], fn update ->
+      Map.update!(update, "content", fn content ->
+        Map.update!(content, "text", &(&1 <> extra_text))
+      end)
+    end)
+  end
+
+  defp merge_chunks(events) when is_list(events) do
+    events
+    |> Enum.reduce([], fn event, acc ->
+      text = chunk_text(event)
+      session_update = chunk_type(event)
+
+      if is_binary(text) and session_update in ["agent_thought_chunk", "agent_message_chunk"] do
+        case acc do
+          [last | rest] ->
+            last_text = chunk_text(last)
+            last_type = chunk_type(last)
+
+            if last_type == session_update and is_binary(last_text) do
+              [merge_text(last, text) | rest]
+            else
+              [event | acc]
+            end
+
+          _ ->
+            [event | acc]
+        end
+      else
+        [event | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp merge_chunks(events), do: events
+
 
   @impl true
   def handle_info({:timeout, session_id, agent_id}, state) do
@@ -387,7 +475,7 @@ defmodule Exhub.MCP.Agent.Store do
             {:noreply, state}
 
           {[{from, _timer_ref}], rest_waiters} ->
-            GenServer.reply(from, {:ok, []})
+            GenServer.reply(from, {:ok, merge_chunks([])})
             new_state = put_in(state, [:agents, agent_id, :waiters, session_id], rest_waiters)
             {:noreply, new_state}
         end
@@ -402,7 +490,7 @@ defmodule Exhub.MCP.Agent.Store do
       {from, _timer_ref} ->
         # Drain whatever events are in the queue (may be partial)
         events = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
-        GenServer.reply(from, {:ok, events})
+        GenServer.reply(from, {:ok, merge_chunks(events)})
 
         new_state =
           state
@@ -420,7 +508,7 @@ defmodule Exhub.MCP.Agent.Store do
 
       {from, _collect_ref, idle_ref, _idle_ms, acc} ->
         Process.cancel_timer(idle_ref)
-        GenServer.reply(from, {:ok, acc})
+        GenServer.reply(from, {:ok, merge_chunks(acc)})
         new_state = put_in(state, [:agents, agent_id, :collect_waiters, session_id], nil)
         {:noreply, new_state}
     end
@@ -433,7 +521,7 @@ defmodule Exhub.MCP.Agent.Store do
 
       {from, collect_ref, _idle_ref, _idle_ms, acc} ->
         Process.cancel_timer(collect_ref)
-        GenServer.reply(from, {:ok, acc})
+        GenServer.reply(from, {:ok, merge_chunks(acc)})
         new_state = put_in(state, [:agents, agent_id, :collect_waiters, session_id], nil)
         {:noreply, new_state}
     end
@@ -449,11 +537,11 @@ defmodule Exhub.MCP.Agent.Store do
         entry = Map.get(state.agents, agent_id)
 
        if entry do
-          # Cancel any waiters
+         # Cancel any waiters
           Enum.each(entry.waiters, fn {_session_id, waiters} ->
             Enum.each(waiters, fn {from, timer_ref} ->
               Process.cancel_timer(timer_ref)
-              GenServer.reply(from, {:ok, []})
+              GenServer.reply(from, {:ok, merge_chunks([])})
             end)
           end)
 
@@ -463,7 +551,7 @@ defmodule Exhub.MCP.Agent.Store do
               :ok
             {_session_id, {from, timer_ref}} ->
               Process.cancel_timer(timer_ref)
-              GenServer.reply(from, {:ok, []})
+              GenServer.reply(from, {:ok, merge_chunks([])})
           end)
 
           # Cancel any collect waiters
@@ -472,7 +560,7 @@ defmodule Exhub.MCP.Agent.Store do
             {_session_id, {from, collect_ref, idle_ref, _idle_ms, acc}} ->
               Process.cancel_timer(collect_ref)
               Process.cancel_timer(idle_ref)
-              GenServer.reply(from, {:ok, acc})
+              GenServer.reply(from, {:ok, merge_chunks(acc)})
           end)
         end
 
