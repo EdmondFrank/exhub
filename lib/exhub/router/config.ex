@@ -44,6 +44,7 @@ defmodule Exhub.Router.Config do
     "glm-4.6",
     "glm-4.7",
     "glm-5",
+    "glm-5.1",
     "glm-5-turbo",
     "deepseek-v3",
     "deepseek-r1",
