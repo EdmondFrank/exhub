@@ -25,6 +25,7 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
     - All notes:       { }
     - In folder:       { "folder": "journal/2024" }
     - Non-recursive:   { "folder": "projects", "recursive": false }
+    - Absolute paths:  { "abs_path": true }
     """
   end
 
@@ -37,12 +38,18 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
       description: "Whether to list notes recursively (default: true)",
       default: true
     )
+
+    field(:abs_path, :boolean,
+      description: "Return absolute paths instead of relative (default: false)",
+      default: false
+    )
   end
 
   @impl true
   def execute(params, frame) do
     folder = Map.get(params, :folder)
     recursive = Map.get(params, :recursive, true)
+    abs_path = Map.get(params, :abs_path, false)
 
     vault = Helpers.vault_path()
     search_dir = if folder, do: Path.join(vault, folder), else: vault
@@ -54,6 +61,18 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
         else
           list_flat(search_dir, vault)
         end
+
+      entries = if abs_path do
+        Enum.map(entries, fn e ->
+          if String.ends_with?(e, "/") do
+            Path.join(vault, String.trim_trailing(e, "/")) <> "/"
+          else
+            Path.join(vault, e)
+          end
+        end)
+      else
+        entries
+      end
 
       if entries == [] do
         resp = Response.tool() |> Response.text("Vault: #{vault}\n\nNo entries found.")

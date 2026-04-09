@@ -30,6 +30,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     - Tag search:      { "query": "tag:status/active" }
     - Scoped search:   { "query": "todo", "path": "projects" }
     - Case sensitive:  { "query": "TODO", "case_sensitive": true }
+    - Absolute paths:  { "query": "meeting", "abs_path": true }
     """
   end
 
@@ -51,6 +52,11 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       description: "Whether to perform case-sensitive search (default: false)",
       default: false
     )
+
+    field(:abs_path, :boolean,
+      description: "Return absolute paths instead of relative (default: false)",
+      default: false
+    )
   end
 
   @impl true
@@ -59,6 +65,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     scope_path = Map.get(params, :path)
     search_type = Map.get(params, :search_type, "content")
     case_sensitive = Map.get(params, :case_sensitive, false)
+    abs_path = Map.get(params, :abs_path, false)
 
     vault = Helpers.vault_path()
     search_dir = if scope_path, do: Path.join(vault, scope_path), else: vault
@@ -79,6 +86,20 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
           true ->
             search_content(vault, search_dir, files, query, case_sensitive)
         end
+
+      results = if abs_path do
+        Enum.map(results, fn %{file: file, matches: matches} = result ->
+          abs_file = Path.join(vault, file)
+          new_matches = Enum.map(matches, fn
+            %{line: 0, text: "Filename match: " <> _} = m ->
+              %{m | text: "Filename match: #{abs_file}"}
+            m -> m
+          end)
+          %{result | file: abs_file, matches: new_matches}
+        end)
+      else
+        results
+      end
 
       total_matches = Enum.reduce(results, 0, fn r, acc -> acc + length(r.matches) end)
 
