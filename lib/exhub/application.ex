@@ -45,6 +45,10 @@ defmodule Exhub.Application do
       {Exhub.MCP.AgentServer, transport: :streamable_http, request_timeout: 300_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Brain Server (Obsidian vault as second brain)
       {Exhub.MCP.BrainServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Hub - ClientManager for upstream server management
+      {Exhub.MCP.Hub.ClientManager, name: Exhub.MCP.Hub.ClientManager},
+      # MCP Hub Server - unified endpoint for all upstream MCP servers
+      {Exhub.MCP.Hub.Server, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()

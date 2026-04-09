@@ -317,6 +317,38 @@ defmodule Exhub.Router do
   end
 
   # ============================================================================
+  # MCP Hub Management API
+  # ============================================================================
+
+  get "/mcp-hub/servers" do
+    Exhub.Controllers.MCPHubController.list_servers(conn)
+  end
+
+  post "/mcp-hub/servers" do
+    Exhub.Controllers.MCPHubController.add_server(conn)
+  end
+
+  get "/mcp-hub/servers/:name" do
+    Exhub.Controllers.MCPHubController.get_server(conn, conn.params["name"])
+  end
+
+  put "/mcp-hub/servers/:name" do
+    Exhub.Controllers.MCPHubController.update_server(conn, conn.params["name"])
+  end
+
+  delete "/mcp-hub/servers/:name" do
+    Exhub.Controllers.MCPHubController.remove_server(conn, conn.params["name"])
+  end
+
+  post "/mcp-hub/servers/:name/toggle" do
+    Exhub.Controllers.MCPHubController.toggle_server(conn, conn.params["name"])
+  end
+
+  get "/mcp-hub/tools" do
+    Exhub.Controllers.MCPHubController.list_tools(conn)
+  end
+
+  # ============================================================================
   # MCP Endpoint
   # ============================================================================
 
@@ -378,6 +410,12 @@ defmodule Exhub.Router do
   forward("/brain/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 120_000]
+  )
+
+  # MCP Hub - unified endpoint for all upstream MCP servers
+  forward("/mcp-hub",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.Hub.Server, request_timeout: 120_000]
   )
 
   # ============================================================================
@@ -486,6 +524,24 @@ defmodule Exhub.Router do
         conn
         |> put_resp_content_type("application/json")
         |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  # ============================================================================
+  # Virtual Route Proxy - expose individual upstream MCP servers
+  # ============================================================================
+
+  match "/:group/mcp" do
+    route = conn.params["group"]
+
+    case Exhub.MCP.Hub.ClientManager.get_exposed_route(route) do
+      {:ok, _config} ->
+        Exhub.MCP.Hub.ProxyPlug.call(conn, group: route)
+
+      :not_found ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(404, Jason.encode!(%{error: "Virtual route not found"}))
     end
   end
 

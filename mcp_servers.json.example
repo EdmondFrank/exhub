@@ -1,0 +1,37 @@
+{
+  "servers": [
+    {
+      "name": "desktop-commander",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@wonderwhy/desktop-commander"],
+      "env": {},
+      "enabled": true,
+      "expose_route": "desktop-commander"
+    },
+    {
+      "name": "fetch-server",
+      "transport": "sse",
+      "url": "http://localhost:3001/sse",
+      "headers": {},
+      "enabled": true,
+      "expose_route": null
+    },
+    {
+      "name": "remote-mcp",
+      "transport": "streamable_http",
+      "url": "http://api.example.com/mcp",
+      "headers": { "Authorization": "Bearer token" },
+      "enabled": false,
+      "expose_route": null
+    },
+    {
+      "name": "realtime-mcp",
+      "transport": "websocket",
+      "url": "ws://localhost:8080/mcp",
+      "headers": {},
+      "enabled": false,
+      "expose_route": null
+    }
+  ]
+}
