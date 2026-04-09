@@ -27,7 +27,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     The pattern is treated as a case-insensitive substring by default.
 
     Parameters:
-    - path: Absolute path to the directory to search in
+    - path: Absolute path or ~ shorthand to the directory to search in
     - pattern: The search pattern (substring or regex)
     - search_type: "files" (search by filename) or "content" (search inside files), default "files"
     - file_pattern: Optional glob pattern to filter files (e.g. "*.ex"), only for content search
@@ -38,7 +38,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path to the directory to search in")
+    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the directory to search in")
     field(:pattern, {:required, :string}, description: "The search pattern (substring or regex)")
     field(:search_type, :string, description: "\"files\" or \"content\" (default \"files\")", default: "files")
     field(:file_pattern, :string, description: "Optional glob pattern to filter files (e.g. \"*.ex\")")

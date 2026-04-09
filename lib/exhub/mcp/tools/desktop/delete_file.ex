@@ -21,13 +21,13 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
     contents. By default, only empty directories can be deleted.
 
     Parameters:
-    - path: Absolute path to the file or directory to delete
+    - path: Absolute path or ~ shorthand to the file or directory to delete
     - recursive: If true, delete directories and their contents recursively (default false)
     """
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path to the file or directory to delete")
+    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file or directory to delete")
     field(:recursive, :boolean, description: "If true, delete directories recursively (default false)", default: false)
   end
 

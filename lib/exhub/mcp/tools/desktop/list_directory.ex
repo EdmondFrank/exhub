@@ -22,7 +22,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     up to a given depth. Entry paths are relative to the requested directory.
 
     Parameters:
-    - path: Absolute path to the directory to list
+    - path: Absolute path or ~ shorthand to the directory to list
     - depth: How many levels deep to recurse (0 = immediate children only, default 0)
     - show_modified: Include last modified time in entries (default false)
     - pattern: Glob pattern to filter entries (e.g. "*.rb", "**/*.ex"). Directories are
@@ -32,7 +32,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path to the directory to list")
+    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the directory to list")
     field(:depth, :integer, description: "Recursion depth (0 = immediate children only, default 0)", default: 0)
     field(:show_modified, :boolean, description: "Include last modified time in entries (default false)", default: false)
     field(:pattern, :string, description: "Glob pattern to filter entries (e.g. *.rb, **/*.ex)", default: nil)

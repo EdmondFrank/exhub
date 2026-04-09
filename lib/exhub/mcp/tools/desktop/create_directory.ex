@@ -21,12 +21,12 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
     Succeeds silently if the directory already exists.
 
     Parameters:
-    - path: Absolute path of the directory to create
+    - path: Absolute path or ~ shorthand of the directory to create
     """
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path of the directory to create")
+    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand of the directory to create")
   end
 
   @impl true

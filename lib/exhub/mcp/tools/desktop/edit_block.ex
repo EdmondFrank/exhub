@@ -42,7 +42,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
     when only a small section needs to change.
 
     Parameters:
-    - file_path: Absolute path to the file to edit
+    - file_path: Absolute path or ~ shorthand to the file to edit
     - old_string: The exact text to find and replace
     - new_string: The replacement text
     - expected_replacements: Number of replacements expected (default 1)
@@ -50,7 +50,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
   end
 
   schema do
-    field(:file_path, {:required, :string}, description: "Absolute path to the file to edit")
+    field(:file_path, {:required, :string}, description: "Absolute path or ~ shorthand to the file to edit")
     field(:old_string, {:required, :string}, description: "The exact text to find and replace")
     field(:new_string, {:required, :string}, description: "The replacement text")
 

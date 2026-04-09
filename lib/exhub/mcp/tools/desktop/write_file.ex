@@ -24,14 +24,14 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
     Creates the file and any missing parent directories if they do not exist.
 
     Parameters:
-    - path: Absolute path to the file to write
+    - path: Absolute path or ~ shorthand to the file to write
     - content: The text content to write
     - mode: "overwrite" (default) or "append"
     """
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path to the file to write")
+    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file to write")
     field(:content, {:required, :string}, description: "The text content to write to the file")
     field(:mode, :string, description: "Write mode: \"overwrite\" (default) or \"append\"", default: "overwrite")
   end

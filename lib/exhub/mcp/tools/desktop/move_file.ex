@@ -21,14 +21,14 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
     directory does not exist, it will be created automatically.
 
     Parameters:
-    - source: Absolute path of the file or directory to move
-    - destination: Absolute path of the new location
+    - source: Absolute path or ~ shorthand of the file or directory to move
+    - destination: Absolute path or ~ shorthand of the new location
     """
   end
 
   schema do
-    field(:source, {:required, :string}, description: "Absolute path of the file or directory to move")
-    field(:destination, {:required, :string}, description: "Absolute path of the new location")
+    field(:source, {:required, :string}, description: "Absolute path or ~ shorthand of the file or directory to move")
+    field(:destination, {:required, :string}, description: "Absolute path or ~ shorthand of the new location")
   end
 
   @impl true

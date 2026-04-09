@@ -20,12 +20,12 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
     Returns information including type, size, permissions, and timestamps.
 
     Parameters:
-    - path: Absolute path to the file or directory
+    - path: Absolute path or ~ shorthand to the file or directory
     """
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path to the file or directory")
+    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file or directory")
   end
 
   @impl true
