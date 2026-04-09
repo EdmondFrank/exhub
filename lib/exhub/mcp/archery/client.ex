@@ -736,7 +736,23 @@ defmodule Exhub.MCP.Archery.Client do
     {:ok, client}
   end
   defp ensure_authenticated(%__MODULE__{} = client) do
-    login(client)
+    do_login_with_retry(client, 1, 3)
+  end
+
+  defp do_login_with_retry(client, attempt, max) do
+    case login(client) do
+      {:ok, authenticated_client} ->
+        {:ok, authenticated_client}
+
+      {:error, reason} when attempt < max ->
+        Logger.warning("[Archery] Login attempt #{attempt}/#{max} failed: #{inspect(reason)}, retrying in 1s...")
+        Process.sleep(1_000)
+        do_login_with_retry(client, attempt + 1, max)
+
+      {:error, reason} ->
+        Logger.error("[Archery] Login failed after #{max} attempts: #{inspect(reason)}")
+        {:error, reason, client}
+    end
   end
 
   defp api_request(%__MODULE__{} = client, method, endpoint, data, params) do

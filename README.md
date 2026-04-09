@@ -24,6 +24,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Supports document extraction (PDF, DOCX, images) via Gitee AI PaddleOCR. Exposes 17 tools at `/desktop/mcp`, including `read_multiple_files` for parallel file reading.
 - **Document Extraction**: MCP-based document text extraction (PDF, DOCX, images, etc.) via Gitee AI PaddleOCR-VL-1.5, supporting both local files and remote URLs. Returns extracted content in Markdown format at `/doc-extract/mcp`.
 - **ACP Agent MCP Server**: MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex. Spawn, manage, and interact with AI coding agents via MCP tools at `/agent/mcp`. Supports session management, prompts, permission handling, and multi-agent pipelines.
+- **Brain (Obsidian Vault)**: MCP-based interface to an Obsidian vault as a "second brain". Exposes tools for listing notes and directories (recursive, flat, absolute paths) and searching by content, filename, or tags (including hierarchical tag search) at `/brain/mcp`.
 
 ## Installation
 
@@ -200,6 +201,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-desktop      | MCP desktop commander (filesystem, search, process management) | [docs/modules/desktop.md](docs/modules/desktop.md)           |
 | exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI  | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
 | exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration          | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
+| exhub-brain        | MCP Obsidian vault "second brain" (list & search notes)        | [docs/modules/brain.md](docs/modules/brain.md)               |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).
