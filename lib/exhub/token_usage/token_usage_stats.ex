@@ -385,19 +385,8 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
   def get_dashboard_data(filters) when is_map(filters) do
     date_filters = build_date_filters(filters)
 
-    trend_days = Map.get(filters, :days, 30)
-
-    trends_filters =
-      if map_size(date_filters) > 0 do
-        date_filters
-      else
-        end_date = Date.utc_today()
-        start_date = Date.add(end_date, -trend_days)
-        %{start_date: Date.to_iso8601(start_date), end_date: Date.to_iso8601(end_date)}
-      end
-
     with {:ok, summary} <- get_summary(date_filters),
-         {:ok, trends} <- TokenUsageStore.get_stats(:day, trends_filters),
+         {:ok, trends} <- TokenUsageStore.get_stats(:day, date_filters),
          {:ok, top_models} <- top_models(5, date_filters),
          {:ok, top_providers} <- top_providers(5, date_filters),
          {:ok, recent} <- TokenUsageStore.get_usage(Map.merge(date_filters, %{limit: 50})) do
@@ -414,9 +403,22 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
   end
 
   defp build_date_filters(filters) do
-    %{}
-    |> maybe_put_filter(:start_date, Map.get(filters, :start_date))
-    |> maybe_put_filter(:end_date, Map.get(filters, :end_date))
+    base =
+      %{}
+      |> maybe_put_filter(:start_date, Map.get(filters, :start_date))
+      |> maybe_put_filter(:end_date, Map.get(filters, :end_date))
+
+    if map_size(base) == 0 and Map.has_key?(filters, :days) do
+      days = Map.get(filters, :days)
+      end_date = Date.utc_today()
+      start_date = Date.add(end_date, -days)
+
+      base
+      |> Map.put(:start_date, Date.to_iso8601(start_date))
+      |> Map.put(:end_date, Date.to_iso8601(end_date))
+    else
+      base
+    end
   end
 
   defp maybe_put_filter(map, _key, nil), do: map
