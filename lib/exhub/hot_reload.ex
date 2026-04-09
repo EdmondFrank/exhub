@@ -12,6 +12,11 @@ defmodule Exhub.HotReload do
   * GenServers continue with old code until the next message dispatch,
     at which point the new module version is used automatically.
 
+  Because modules are discovered by scanning the ebin directory on disk
+  (rather than reading the in-memory application spec), **new modules
+  added since the last start are also loaded** — not just existing ones
+  hot-swapped.
+
   ## Typical workflow
 
   1. Build a new release:  `mix release --overwrite`
@@ -29,15 +34,20 @@ defmodule Exhub.HotReload do
   """
   @spec reload() :: %{ok: non_neg_integer(), errors: non_neg_integer()}
   def reload do
-    app = :exhub
+    # Locate the ebin directory by finding the .app file for :exhub in the
+    # code path — avoids the deprecated :code.lib_dir/2.
+    ebin =
+      :code.where_is_file(~c"exhub.app")
+      |> to_string()
+      |> Path.dirname()
 
     modules =
-      case :application.get_key(app, :modules) do
-        {:ok, mods} -> mods
-        :undefined -> []
-      end
+      File.ls!(ebin)
+      |> Enum.filter(&String.ends_with?(&1, ".beam"))
+      |> Enum.map(&String.replace_suffix(&1, ".beam", ""))
+      |> Enum.map(&String.to_atom/1)
 
-    Logger.info("[HotReload] Reloading #{length(modules)} modules for app :#{app}")
+    Logger.info("[HotReload] Reloading #{length(modules)} modules from #{ebin}")
 
     results =
       Enum.map(modules, fn mod ->
