@@ -43,6 +43,8 @@ defmodule Exhub.Application do
       # MCP Agent Server (ACP agent management)
       {Exhub.MCP.Agent.Store, name: Exhub.MCP.Agent.Store},
       {Exhub.MCP.AgentServer, transport: :streamable_http, request_timeout: 300_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Brain Server (Obsidian vault as second brain)
+      {Exhub.MCP.BrainServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
       cowboy_spec()

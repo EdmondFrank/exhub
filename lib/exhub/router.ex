@@ -42,6 +42,7 @@ defmodule Exhub.Router do
   - `POST /desktop/mcp` - MCP desktop commander server endpoint (filesystem, process, search)
   - `POST /doc-extract/mcp` - MCP document extraction server endpoint (PDF, DOCX, images via Gitee AI)
   - `POST /agent/mcp` - MCP agent control server endpoint (ACP bridge for coding agents)
+  - `POST /brain/mcp` - MCP brain server endpoint (Obsidian vault as second brain)
   """
 
   use Plug.Router
@@ -372,6 +373,11 @@ defmodule Exhub.Router do
   forward("/agent/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.AgentServer, request_timeout: 300_000]
+  )
+
+  forward("/brain/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 120_000]
   )
 
   # ============================================================================
