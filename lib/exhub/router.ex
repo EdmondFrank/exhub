@@ -84,9 +84,14 @@ defmodule Exhub.Router do
 
   for {path, upstream} <- @proxy_routes do
     post "#{path}/*path" do
-      ProxyPlug.forward_upstream(conn, unquote(upstream),
+      Logger.info("[Proxy] Forwarding request to #{unquote(upstream)}/#{Enum.join(path, "/")}")
+      start = System.monotonic_time(:millisecond)
+      conn = ProxyPlug.forward_upstream(conn, unquote(upstream),
         client_options: [proxy: RouterConfig.get_proxy()]
       )
+      duration = System.monotonic_time(:millisecond) - start
+      Logger.info("[Proxy] Forwarded in #{duration}ms")
+      conn
     end
   end
 
@@ -106,7 +111,11 @@ defmodule Exhub.Router do
     ]
 
     Logger.info("[OpenAI Proxy] Forwarding request - models")
-    ProxyPlug.forward_upstream(conn, "https://pinova.ai/v1", options)
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, "https://pinova.ai/v1", options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
+    conn
   end
 
   post "/openai/v1/*path" do
@@ -126,7 +135,11 @@ defmodule Exhub.Router do
       "[OpenAI Proxy] Forwarding request - model: #{inspect(model)}, target: #{target_url}, has_token: #{token != ""}"
     )
 
-    ProxyPlug.forward_upstream(conn, target_url, options)
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, target_url, options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
+    conn
   end
 
   # ============================================================================
@@ -145,7 +158,11 @@ defmodule Exhub.Router do
     ]
 
     Logger.info("[BurnCloud Proxy] Forwarding request - #{inspect(path)}")
-    ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[BurnCloud Proxy] Forwarded in #{duration}ms")
+    conn
   end
 
   post "/burncloud/v1/*path" do
@@ -160,7 +177,11 @@ defmodule Exhub.Router do
     ]
 
     Logger.info("[BurnCloud Proxy] Forwarding request - #{inspect(path)}")
-    ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[BurnCloud Proxy] Forwarded in #{duration}ms")
+    conn
   end
 
   # ============================================================================
@@ -187,7 +208,11 @@ defmodule Exhub.Router do
       "[Anthropic Proxy] Forwarding request - model: #{inspect(model)}, target: #{target_url}, proxy: #{proxy}, use_proxy: #{use_proxy}"
     )
 
-    ProxyPlug.forward_upstream(conn, target_url, options)
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, target_url, options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[Anthropic Proxy] Forwarded in #{duration}ms")
+    conn
   end
 
   # ============================================================================
