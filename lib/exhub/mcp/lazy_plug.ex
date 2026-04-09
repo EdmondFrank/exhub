@@ -102,6 +102,10 @@ defmodule Exhub.MCP.LazyPlug do
         Logger.warning("[MCP LazyPlug] Session #{session_id} already started, registering existing pid")
         registry_mod.register_session(registry_name, session_id, pid)
 
+        # The session may have been restarted by DynamicSupervisor with fresh state
+        # (initialized: false). Mark it as initialized so it can accept requests immediately.
+        mark_session_initialized(pid, session_id)
+
       {:error, reason} ->
         Logger.error("[MCP LazyPlug] Failed to start session #{session_id}: #{inspect(reason)}")
     end
