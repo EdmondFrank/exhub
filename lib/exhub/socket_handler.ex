@@ -22,6 +22,16 @@ defmodule Exhub.SocketHandler do
     {:reply, {:text, "(exhub-pong)"}, state}
   end
 
+  def websocket_handle({:text, "exhub-reload"}, state) do
+    Task.start(fn ->
+      summary = Exhub.HotReload.reload_and_summarize()
+      escaped = String.replace(summary, "\"", "\\\"")
+      Exhub.send_message("(message \"[Exhub] #{escaped}\")")
+    end)
+
+    {:reply, {:text, "(message \"[Exhub] Hot reload started...\")"}, state}
+  end
+
   def websocket_handle({:text, message}, state) do
     Logger.debug("Received message #{inspect message}")
     dispatch_message(message)

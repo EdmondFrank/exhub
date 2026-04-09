@@ -71,6 +71,18 @@ defmodule Exhub.Router do
   plug(:dispatch)
 
   # ============================================================================
+  # System Routes
+  # ============================================================================
+
+  post "/system/reload" do
+    summary = Exhub.HotReload.reload_and_summarize()
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(%{status: "ok", message: summary}))
+  end
+
+  # ============================================================================
   # Provider Proxy Routes
   # ============================================================================
 

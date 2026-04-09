@@ -196,11 +196,29 @@ If nil or empty, the environment variable will not be set."
       (setq exhub--elixir-process nil)))
   (exhub-start-elixir))
 
-(defun exhub-restart ()
-  "Restart the websocket connection and the Elixir application."
+(defun exhub-reload ()
+  "Hot-reload all BEAM modules in the running Exhub server.
+
+Uses two strategies:
+1. RPC via the Exhub backend binary (preferred) — calls into the
+   running BEAM VM and hot-swaps all modules without restarting
+   the server or interrupting in-flight HTTP requests.
+2. WebSocket fallback — sends a reload message over the WebSocket
+   connection when the RPC binary is unavailable."
   (interactive)
-  (exhub-restart-elixir)
-  (exhub-restart-websocket))
+  (message "[Exhub] Triggering hot reload via RPC...")
+  (if (file-executable-p exhub-backend-path)
+      (let ((buffer (get-buffer-create "*exhub-reload*")))
+        (with-current-buffer buffer
+          (erase-buffer))
+        (let ((proc (start-process "exhub-reload" buffer exhub-backend-path "rpc" "Exhub.HotReload.reload_and_summarize()")))
+          (set-process-sentinel proc
+                                (lambda (proc _event)
+                                  (when (memq (process-status proc) '(exit signal))
+                                    (with-current-buffer (process-buffer proc)
+                                      (message "%s" (buffer-string))))))))
+    (message "[Exhub] Backend not executable, falling back to WebSocket reload")
+    (exhub-send "exhub-reload")))
 
 (provide 'exhub)
 ;;; exhub.el ends here
