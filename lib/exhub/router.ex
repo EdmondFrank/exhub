@@ -450,8 +450,15 @@ defmodule Exhub.Router do
 
   get "/dashboard/data" do
     days = Helpers.parse_int(conn.params["days"], 30)
+    start_date = conn.params["start_date"]
+    end_date = conn.params["end_date"]
 
-    case Exhub.TokenUsage.TokenUsageStats.get_dashboard_data(days) do
+    filters =
+      %{days: days}
+      |> Helpers.maybe_put(:start_date, start_date)
+      |> Helpers.maybe_put(:end_date, end_date)
+
+    case Exhub.TokenUsage.TokenUsageStats.get_dashboard_data(filters) do
       {:ok, data} ->
         conn
         |> put_resp_content_type("application/json")

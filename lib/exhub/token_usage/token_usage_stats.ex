@@ -366,19 +366,41 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
   Returns a map with all key metrics for the dashboard view.
 
   ## Parameters
-    - days: Number of days for trend data (default: 30)
+    - filters: Map with optional filters:
+      - :days - Number of days for trend data (default: 30)
+      - :start_date - ISO8601 date string for filtering
+      - :end_date - ISO8601 date string for filtering
 
   ## Examples
       iex> TokenUsageStats.get_dashboard_data()
       {:ok, %{summary: %{...}, trends: [...], top_models: [...], recent: [...]}}
   """
-  @spec get_dashboard_data(non_neg_integer()) :: {:ok, map()}
-  def get_dashboard_data(days \\ 30) do
-    with {:ok, summary} <- get_summary(),
-         {:ok, trends} <- get_trends(days),
-         {:ok, top_models} <- top_models(5),
-         {:ok, top_providers} <- top_providers(5),
-         {:ok, recent} <- recent_usage(50) do
+  @spec get_dashboard_data(map() | non_neg_integer()) :: {:ok, map()}
+  def get_dashboard_data(filters \\ %{})
+
+  def get_dashboard_data(days) when is_integer(days) do
+    get_dashboard_data(%{days: days})
+  end
+
+  def get_dashboard_data(filters) when is_map(filters) do
+    date_filters = build_date_filters(filters)
+
+    trend_days = Map.get(filters, :days, 30)
+
+    trends_filters =
+      if map_size(date_filters) > 0 do
+        date_filters
+      else
+        end_date = Date.utc_today()
+        start_date = Date.add(end_date, -trend_days)
+        %{start_date: Date.to_iso8601(start_date), end_date: Date.to_iso8601(end_date)}
+      end
+
+    with {:ok, summary} <- get_summary(date_filters),
+         {:ok, trends} <- TokenUsageStore.get_stats(:day, trends_filters),
+         {:ok, top_models} <- top_models(5, date_filters),
+         {:ok, top_providers} <- top_providers(5, date_filters),
+         {:ok, recent} <- TokenUsageStore.get_usage(Map.merge(date_filters, %{limit: 50})) do
       data = %{
         summary: summary,
         trends: trends,
@@ -390,4 +412,13 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
       {:ok, data}
     end
   end
+
+  defp build_date_filters(filters) do
+    %{}
+    |> maybe_put_filter(:start_date, Map.get(filters, :start_date))
+    |> maybe_put_filter(:end_date, Map.get(filters, :end_date))
+  end
+
+  defp maybe_put_filter(map, _key, nil), do: map
+  defp maybe_put_filter(map, key, value), do: Map.put(map, key, value)
 end
