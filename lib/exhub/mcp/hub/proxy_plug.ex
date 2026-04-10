@@ -59,24 +59,28 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     end
   end
 
-  defp handle_request(conn, client_pid, group) do
+  defp handle_request(conn, _client_pid, group) do
+    client_ref = Exhub.MCP.Hub.ServerConfig.client_name(group)
     case conn.method do
-      "POST" -> handle_post(conn, client_pid, group)
-      "GET" -> handle_get(conn, client_pid, group)
+      "POST" -> handle_post(conn, client_ref, group)
+      "GET" -> handle_get(conn, client_ref, group)
       "DELETE" -> handle_delete(conn, group)
       _ -> send_method_not_allowed(conn)
     end
   end
 
-  defp handle_post(conn, client_pid, group) do
-    with {:ok, body, conn} <- read_request_body(conn),
-         {:ok, message} <- Jason.decode(body) do
+  defp handle_post(conn, client_ref, group) do
+    message = conn.body_params
+
+    if message == %{} or is_nil(message) do
+      send_jsonrpc_error(conn, -32700, "Parse error: empty or invalid body", nil)
+    else
       session_id = get_or_create_session_id(conn)
-      store_session(session_id, client_pid, group)
+      store_session(session_id, client_ref, group)
 
       case message do
         %{"method" => "initialize"} = req ->
-          handle_initialize(conn, req, client_pid, session_id, group)
+          handle_initialize(conn, req, client_ref, session_id, group)
 
         %{"method" => "notifications/initialized"} ->
           conn
@@ -85,29 +89,23 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
           |> send_resp(202, "{}")
 
         %{"method" => "ping"} = req ->
-          handle_ping(conn, req, client_pid, session_id)
+          handle_ping(conn, req, client_ref, session_id)
 
         %{"method" => "tools/list"} = req ->
-          handle_tools_list(conn, req, client_pid, session_id)
+          handle_tools_list(conn, req, client_ref, session_id)
 
         %{"method" => "tools/call"} = req ->
-          handle_tools_call(conn, req, client_pid, session_id)
+          handle_tools_call(conn, req, client_ref, session_id)
 
         _ ->
           send_jsonrpc_error(conn, -32601, "Method not found", message["id"])
       end
-    else
-      {:error, :invalid_json} ->
-        send_jsonrpc_error(conn, -32700, "Parse error", nil)
-
-      {:error, reason} ->
-        send_jsonrpc_error(conn, -32603, inspect(reason), nil)
     end
   end
 
-  defp handle_initialize(conn, req, client_pid, session_id, group) do
-    server_info = fetch_server_info(client_pid, group)
-    capabilities = fetch_capabilities(client_pid)
+  defp handle_initialize(conn, req, client_ref, session_id, group) do
+    server_info = fetch_server_info(client_ref, group)
+    capabilities = fetch_capabilities(client_ref)
 
     result = %{
       "protocolVersion" => "2024-11-05",
@@ -129,8 +127,8 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     |> send_resp(200, Jason.encode!(response))
   end
 
-  defp handle_ping(conn, req, client_pid, session_id) do
-    response = case Anubis.Client.ping(client_pid, timeout: 10_000) do
+  defp handle_ping(conn, req, client_ref, session_id) do
+    response = case Anubis.Client.ping(client_ref, timeout: 10_000) do
       :pong ->
         %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{}}
 
@@ -144,8 +142,8 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     |> send_resp(200, Jason.encode!(response))
   end
 
-  defp handle_tools_list(conn, req, client_pid, session_id) do
-    response = case Anubis.Client.list_tools(client_pid, timeout: 30_000) do
+  defp handle_tools_list(conn, req, client_ref, session_id) do
+    response = case Anubis.Client.list_tools(client_ref, timeout: 30_000) do
       {:ok, %{result: result}} when is_map(result) ->
         tools = Map.get(result, "tools", [])
         %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{"tools" => tools}}
@@ -160,11 +158,11 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     |> send_resp(200, Jason.encode!(response))
   end
 
-  defp handle_tools_call(conn, req, client_pid, session_id) do
+  defp handle_tools_call(conn, req, client_ref, session_id) do
     tool_name = get_in(req, ["params", "name"])
     arguments = get_in(req, ["params", "arguments"]) || %{}
 
-    response = case Anubis.Client.call_tool(client_pid, tool_name, arguments, timeout: 120_000) do
+    response = case Anubis.Client.call_tool(client_ref, tool_name, arguments, timeout: 120_000) do
       {:ok, %{result: result}} ->
         %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
 
@@ -181,7 +179,7 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     |> send_resp(200, Jason.encode!(response))
   end
 
-  defp handle_get(conn, _client_pid, _group) do
+  defp handle_get(conn, _client_ref, _group) do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(405, Jason.encode!(%{error: "SSE streaming not supported on virtual routes"}))
@@ -193,12 +191,6 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     |> send_resp(200, "{}")
   end
 
-  defp read_request_body(conn) do
-    case Plug.Conn.read_body(conn, read_timeout: 30_000) do
-      {:ok, body, conn} -> {:ok, body, conn}
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp get_or_create_session_id(conn) do
     case get_req_header(conn, @session_header) do
@@ -212,18 +204,20 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   end
 
   defp ensure_session_table do
-    if :ets.whereis(@session_table) == :undefined do
+    try do
       :ets.new(@session_table, [:named_table, :public, :set, read_concurrency: true])
+    rescue
+      ArgumentError -> :ok
     end
   end
 
-  defp store_session(session_id, client_pid, group) do
-    :ets.insert(@session_table, {session_id, %{client_pid: client_pid, group: group, created_at: DateTime.utc_now()}})
+  defp store_session(session_id, client_ref, group) do
+    :ets.insert(@session_table, {session_id, %{client_pid: client_ref, group: group, created_at: DateTime.utc_now()}})
   end
 
-  defp fetch_server_info(client_pid, default_name) do
+  defp fetch_server_info(client_ref, default_name) do
     try do
-      case Anubis.Client.get_server_info(client_pid) do
+      case Anubis.Client.get_server_info(client_ref) do
         nil -> %{"name" => default_name, "version" => "1.0.0"}
         info when is_map(info) -> info
         _ -> %{"name" => default_name, "version" => "1.0.0"}
@@ -235,9 +229,9 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     end
   end
 
-  defp fetch_capabilities(client_pid) do
+  defp fetch_capabilities(client_ref) do
     try do
-      case Anubis.Client.get_server_capabilities(client_pid) do
+      case Anubis.Client.get_server_capabilities(client_ref) do
         nil -> %{}
         caps when is_map(caps) -> caps
         _ -> %{}
