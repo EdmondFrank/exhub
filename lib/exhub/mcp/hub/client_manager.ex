@@ -138,7 +138,13 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @impl true
   def init(_opts) do
-    {:ok, dynamic_supervisor} = DynamicSupervisor.start_link(strategy: :one_for_one)
+    Process.flag(:trap_exit, true)
+
+    {:ok, dynamic_supervisor} = DynamicSupervisor.start_link(
+      strategy: :one_for_one,
+      max_restarts: 100,
+      max_seconds: 60
+    )
 
     config_path = Path.join(:code.priv_dir(:exhub), "mcp_servers.json")
     configs = load_configs(config_path)
@@ -222,6 +228,71 @@ defmodule Exhub.MCP.Hub.ClientManager do
           end)
 
         {:noreply, %{state | clients: new_clients, pending_tasks: new_pending}}
+    end
+  end
+
+  @impl true
+  def handle_info({:EXIT, pid, reason}, %{dynamic_supervisor: sup_pid} = state) when pid == sup_pid do
+    Logger.error("DynamicSupervisor crashed: #{inspect(reason)}. Re-creating and scheduling reconnect in 30s.")
+
+    {:ok, new_sup} = DynamicSupervisor.start_link(
+      strategy: :one_for_one,
+      max_restarts: 100,
+      max_seconds: 60
+    )
+
+    new_clients =
+      state.clients
+      |> Enum.map(fn
+        {name, %{status: :connected} = client} ->
+          {name, %{client | status: :error, pid: nil, last_error: "supervisor_crashed: #{inspect(reason)}"}}
+        {name, client} ->
+          {name, client}
+      end)
+      |> Map.new()
+
+    Process.send_after(self(), :reconnect_failed_clients, 30_000)
+
+    {:noreply, %{state | dynamic_supervisor: new_sup, clients: new_clients, pending_tasks: %{}}}
+  end
+
+  @impl true
+  def handle_info({:EXIT, _pid, _reason}, state) do
+    # EXIT from a child process other than the DynamicSupervisor — ignore,
+    # the DynamicSupervisor will handle restarts per its own strategy.
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:reconnect_failed_clients, state) do
+    if Process.alive?(state.dynamic_supervisor) do
+      failed_clients =
+        state.clients
+        |> Enum.filter(fn
+          {_name, %{status: status, config: %{enabled: true}}} when status in [:error, :disconnected] ->
+            true
+          _ ->
+            false
+        end)
+
+      pending_tasks =
+        Enum.reduce(failed_clients, state.pending_tasks, fn {name, client}, acc ->
+          task = spawn_client_task(state.dynamic_supervisor, client.config)
+          Map.put(acc, task.ref, name)
+        end)
+
+      # Mark reconnecting clients as :connecting
+      new_clients =
+        Enum.reduce(failed_clients, state.clients, fn {name, _client}, acc ->
+          Map.update!(acc, name, fn c -> %{c | status: :connecting} end)
+        end)
+
+      {:noreply, %{state | clients: new_clients, pending_tasks: pending_tasks}}
+    else
+      # DynamicSupervisor is not alive — schedule another attempt
+      Logger.warning("DynamicSupervisor not alive during reconnect, retrying in 30s")
+      Process.send_after(self(), :reconnect_failed_clients, 30_000)
+      {:noreply, state}
     end
   end
 
