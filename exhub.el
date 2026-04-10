@@ -196,6 +196,12 @@ If nil or empty, the environment variable will not be set."
       (setq exhub--elixir-process nil)))
   (exhub-start-elixir))
 
+(defun exhub-restart ()
+  "Restart the websocket connection and the Elixir application."
+  (interactive)
+  (exhub-restart-elixir)
+  (exhub-restart-websocket))
+
 (defun exhub-reload ()
   "Hot-reload all BEAM modules in the running Exhub server.
 

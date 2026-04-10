@@ -100,10 +100,18 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   end
 
   def to_anubis_client_opts(%__MODULE__{transport: :sse} = config) do
+    sse_opts =
+      if String.ends_with?(config.url || "", "/sse") do
+        stripped = String.replace_suffix(config.url, "/sse", "")
+        [base_url: stripped, base_path: "/"]
+      else
+        [base_url: config.url]
+      end
+
     [
       name: client_name(config.name),
       transport_name: transport_name(config.name),
-      transport: {:sse, server: [base_url: config.url]},
+      transport: {:sse, server: sse_opts},
       protocol_version: "2024-11-05",
       client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
@@ -111,10 +119,13 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   end
 
   def to_anubis_client_opts(%__MODULE__{transport: :streamable_http} = config) do
+    # Anubis.Transport.StreamableHTTP appends "/mcp" (default mcp_path) to base_url
+    # via URI.append_path/2, so strip a trailing "/mcp" to avoid doubling the path.
+    base_url = strip_mcp_path(config.url)
     [
       name: client_name(config.name),
       transport_name: transport_name(config.name),
-      transport: {:streamable_http, base_url: config.url},
+      transport: {:streamable_http, base_url: base_url},
       client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
@@ -206,4 +217,11 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   def client_name(name), do: {:via, Registry, {Exhub.Registry, {:mcp_hub_client, name}}}
 
   defp transport_name(name), do: {:via, Registry, {Exhub.Registry, {:mcp_hub_transport, name}}}
+
+  # Strips a trailing "/mcp" suffix from a URL so that Anubis's default
+  # mcp_path ("/mcp") doesn't produce a doubled path like "/mcp/mcp".
+  defp strip_mcp_path(url) when is_binary(url) do
+    url = String.trim_trailing(url, "/")
+    String.replace_suffix(url, "/mcp", "")
+  end
 end
