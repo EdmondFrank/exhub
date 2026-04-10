@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## Org-mode Password Vault (exhub-vault)
+- **New Feature**: Emacs org-mode password vault integrated with Exhub backend for managing encrypted secrets as org links
+- **AES-256-GCM Encryption**: Secrets encrypted on the Elixir server using AES-256-GCM with the existing `SECRET_VAULT_PASSWORD` (SHA-256 key derivation, random 12-byte IV per encryption)
+- **Org Link Integration**: Secrets stored as `[[exhub-vault:BASE64_CIPHERTEXT][description]]` links — native org-mode rendering with custom face (forest green, underlined)
+- **Three Core Commands**:
+  - `exhub-vault-insert-secret` (`C-c v i`) — prompt for description + secret, encrypt, insert as org link
+  - `exhub-vault-decrypt-and-copy` (`C-c v c`) — decrypt link at point or selected region, copy to clipboard
+  - `exhub-vault-decrypt-and-show` (`C-c v s`) — decrypt and display in minibuffer
+- **Org Link Follow**: `C-c C-o` on vault links triggers decrypt & copy via `org-link-set-parameters`
+- **WebSocket Handler**: `Exhub.ResponseHandlers.ExhubVault` processes encrypt/decrypt via the existing WebSocket channel (same pattern as `exhub-tool`, `exhub-file`, etc.)
+- **Zero Additional Configuration**: Reuses the existing `SECRET_VAULT_PASSWORD` — no new secrets or environment variables needed
+- **Minor Mode**: `exhub-vault-mode` provides `C-c v` keybinding prefix; can be enabled globally or via `org-mode-hook`
+- **New Files**: `exhub-vault.el` (Emacs client), `lib/exhub/response_handlers/exhub_vault.ex` (Elixir handler)
+- **Modified Files**: `lib/exhub/default_response_handler.ex` (registered vault handler)
+- **Full Docs**: [docs/modules/vault.md](docs/modules/vault.md)
+
 ## ACP Agent MCP Server (AI Coding Agents Integration)
 - **New MCP Server**: `Exhub.MCP.AgentServer` provides an MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex
 - **14 MCP Tools** across five categories:
