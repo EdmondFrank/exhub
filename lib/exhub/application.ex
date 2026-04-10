@@ -45,6 +45,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.AgentServer, transport: :streamable_http, request_timeout: 300_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Brain Server (Obsidian vault as second brain)
       {Exhub.MCP.BrainServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Hub - TaskSupervisor for non-blocking parallel client startup
+      {Task.Supervisor, name: Exhub.MCP.Hub.TaskSupervisor},
       # MCP Hub - ClientManager for upstream server management
       {Exhub.MCP.Hub.ClientManager, name: Exhub.MCP.Hub.ClientManager},
       # MCP Hub Server - unified endpoint for all upstream MCP servers

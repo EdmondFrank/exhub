@@ -29,6 +29,15 @@ defmodule Exhub.MCP.Hub.ClientManager do
   - Route tool calls to the appropriate upstream server
   - Expose management API for CRUD operations on servers
 
+  ## Startup Behavior (Non-blocking)
+
+  The ClientManager starts **without** blocking on upstream client initialization.
+  On `init/1`, only the DynamicSupervisor and config are loaded. Actual client
+  startup (including MCP handshake and tool discovery) is deferred to
+  `handle_continue/2`, where each client is started in its own Task for
+  parallelism. This ensures the ExHub application supervisor tree completes
+  quickly, allowing the Cowboy WebSocket server to start on time.
+
   ## Registry Keys
 
   Clients are registered in Exhub.Registry with the format:
@@ -49,7 +58,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
     :dynamic_supervisor,
     :config_path,
     configs: %{},
-    clients: %{}
+    clients: %{},
+    pending_tasks: %{}
   ]
 
   # Client API
@@ -133,39 +143,91 @@ defmodule Exhub.MCP.Hub.ClientManager do
     config_path = Path.join(:code.priv_dir(:exhub), "mcp_servers.json")
     configs = load_configs(config_path)
 
+    # Initialize all enabled clients as :connecting — actual startup is deferred
+    # to handle_continue so that init/1 returns immediately and does not block
+    # the ExHub supervisor tree (and the Cowboy WebSocket server startup).
     clients =
       configs
       |> Enum.filter(& &1.enabled)
       |> Enum.reduce(%{}, fn config, acc ->
-        case start_client(dynamic_supervisor, config) do
-          {:ok, pid, tools} ->
-            Map.put(acc, config.name, %ClientState{
-              server_name: config.name,
-              config: config,
-              pid: pid,
-              status: :connected,
-              tools: tools,
-              connected_at: DateTime.utc_now()
-            })
-
-          {:error, reason} ->
-            Logger.error("Failed to start client #{config.name}: #{inspect(reason)}")
-
-            Map.put(acc, config.name, %ClientState{
-              server_name: config.name,
-              config: config,
-              status: :error,
-              last_error: inspect(reason)
-            })
-        end
+        Map.put(acc, config.name, %ClientState{
+          server_name: config.name,
+          config: config,
+          status: :connecting
+        })
       end)
 
-    {:ok, %__MODULE__{
+    state = %__MODULE__{
       dynamic_supervisor: dynamic_supervisor,
       config_path: config_path,
       configs: Map.new(configs, &{&1.name, &1}),
-      clients: clients
-    }}
+      clients: clients,
+      pending_tasks: %{}
+    }
+
+    {:ok, state, {:continue, :start_clients}}
+  end
+
+  @impl true
+  def handle_continue(:start_clients, state) do
+    enabled_configs =
+      state.configs
+      |> Map.values()
+      |> Enum.filter(& &1.enabled)
+
+    if Enum.empty?(enabled_configs) do
+      {:noreply, state}
+    else
+      # Launch each client in its own Task for parallel startup.
+      # Each Task spawns the Anubis.Client under the DynamicSupervisor,
+      # performs the MCP handshake, and discovers tools — all without
+      # blocking the GenServer message loop.
+      pending_tasks =
+        enabled_configs
+        |> Enum.reduce(%{}, fn config, acc ->
+          task = spawn_client_task(state.dynamic_supervisor, config)
+          Map.put(acc, task.ref, config.name)
+        end)
+
+      {:noreply, %{state | pending_tasks: pending_tasks}}
+    end
+  end
+
+  @impl true
+  def handle_info({ref, result}, %{pending_tasks: pending} = state) do
+    Process.demonitor(ref, [:flush])
+
+    case Map.pop(pending, ref) do
+      {nil, _pending} ->
+        {:noreply, state}
+
+      {server_name, new_pending} ->
+        new_clients = apply_client_result(state.clients, server_name, result)
+        {:noreply, %{state | clients: new_clients, pending_tasks: new_pending}}
+    end
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{pending_tasks: pending} = state) do
+    case Map.pop(pending, ref) do
+      {nil, _pending} ->
+        {:noreply, state}
+
+      {server_name, new_pending} ->
+        Logger.error("Client startup task for #{server_name} crashed: #{inspect(reason)}")
+
+        new_clients =
+          Map.update!(state.clients, server_name, fn client ->
+            %{client | status: :error, last_error: "task_crashed: #{inspect(reason)}"}
+          end)
+
+        {:noreply, %{state | clients: new_clients, pending_tasks: new_pending}}
+    end
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
+    {:noreply, state}
   end
 
   @impl true
@@ -212,6 +274,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
   @impl true
   def handle_call({:call_tool, server_name, tool_name, arguments}, _from, state) do
     case Map.get(state.clients, server_name) do
+      %{status: :connecting} ->
+        {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
+
       %{status: :connected, pid: pid} ->
         if Process.alive?(pid) do
           client_reg_name = ServerConfig.client_name(server_name)
@@ -280,27 +345,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
         new_clients =
           if enabled do
-            case start_client(state.dynamic_supervisor, updated_config) do
-              {:ok, pid, tools} ->
-                Map.put(state.clients, name, %ClientState{
-                  server_name: name,
-                  config: updated_config,
-                  pid: pid,
-                  status: :connected,
-                  tools: tools,
-                  connected_at: DateTime.utc_now()
-                })
-
-              {:error, reason} ->
-                Logger.error("Failed to start client #{name}: #{inspect(reason)}")
-
-                Map.put(state.clients, name, %ClientState{
-                  server_name: name,
-                  config: updated_config,
-                  status: :error,
-                  last_error: inspect(reason)
-                })
-            end
+            Map.put(state.clients, name, %ClientState{
+              server_name: name,
+              config: updated_config,
+              status: :connecting
+            })
           else
             case Map.get(state.clients, name) do
               %{pid: pid} when is_pid(pid) ->
@@ -317,7 +366,23 @@ defmodule Exhub.MCP.Hub.ClientManager do
             })
           end
 
-        new_state = %{state | configs: new_configs, clients: new_clients}
+        # For the enabled=true case, we need to also track the task
+        new_state =
+          if enabled do
+            task = spawn_client_task(state.dynamic_supervisor, updated_config)
+            new_pending = Map.put(state.pending_tasks, task.ref, name)
+
+            new_clients_map = Map.put(state.clients, name, %ClientState{
+              server_name: name,
+              config: updated_config,
+              status: :connecting
+            })
+
+            %{state | configs: new_configs, clients: new_clients_map, pending_tasks: new_pending}
+          else
+            %{state | configs: new_configs, clients: new_clients}
+          end
+
         save_configs(new_state.configs, new_state.config_path)
         {:reply, {:ok, updated_config}, new_state}
     end
@@ -393,35 +458,25 @@ defmodule Exhub.MCP.Hub.ClientManager do
         with :ok <- ServerConfig.validate(updated_config) do
           new_configs = Map.put(state.configs, name, updated_config)
 
-          new_clients =
+          {new_clients, new_pending} =
             if updated_config.enabled do
+              # Stop existing client if running
               case Map.get(state.clients, name) do
                 %{pid: pid} when is_pid(pid) ->
                   DynamicSupervisor.terminate_child(state.dynamic_supervisor, pid)
                 _ -> :ok
               end
 
-              case start_client(state.dynamic_supervisor, updated_config) do
-                {:ok, pid, tools} ->
-                  Map.put(state.clients, name, %ClientState{
-                    server_name: name,
-                    config: updated_config,
-                    pid: pid,
-                    status: :connected,
-                    tools: tools,
-                    connected_at: DateTime.utc_now()
-                  })
+              # Start new client asynchronously
+              task = spawn_client_task(state.dynamic_supervisor, updated_config)
 
-                {:error, reason} ->
-                  Logger.error("Failed to restart client #{name}: #{inspect(reason)}")
+              new_clients_map = Map.put(state.clients, name, %ClientState{
+                server_name: name,
+                config: updated_config,
+                status: :connecting
+              })
 
-                  Map.put(state.clients, name, %ClientState{
-                    server_name: name,
-                    config: updated_config,
-                    status: :error,
-                    last_error: inspect(reason)
-                  })
-              end
+              {new_clients_map, Map.put(state.pending_tasks, task.ref, name)}
             else
               case Map.get(state.clients, name) do
                 %{pid: pid} when is_pid(pid) ->
@@ -429,14 +484,16 @@ defmodule Exhub.MCP.Hub.ClientManager do
                 _ -> :ok
               end
 
-              Map.put(state.clients, name, %ClientState{
+              new_clients_map = Map.put(state.clients, name, %ClientState{
                 server_name: name,
                 config: updated_config,
                 status: :disconnected
               })
+
+              {new_clients_map, state.pending_tasks}
             end
 
-          new_state = %{state | configs: new_configs, clients: new_clients}
+          new_state = %{state | configs: new_configs, clients: new_clients, pending_tasks: new_pending}
           save_configs(new_state.configs, new_state.config_path)
           {:reply, {:ok, updated_config}, new_state}
         else
@@ -447,59 +504,123 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   # Private functions
 
-  defp start_client(supervisor, config) do
+  defp spawn_client_task(supervisor, config) do
+    # Each client is started in a dedicated Task that:
+    # 1. Starts the Anubis.Client under the DynamicSupervisor
+    # 2. Waits for MCP handshake (with retries)
+    # 3. Discovers available tools
+    # The result is sent back as a message to this GenServer.
+    Task.Supervisor.async_nolink(
+      Exhub.MCP.Hub.TaskSupervisor,
+      fn ->
+        start_client_sync(supervisor, config)
+      end
+    )
+  end
+
+  defp start_client_sync(supervisor, config) do
     client_opts = ServerConfig.to_anubis_client_opts(config)
     client_reg_name = ServerConfig.client_name(config.name)
+    client_label = config.name
 
     case DynamicSupervisor.start_child(supervisor, {Anubis.Client, client_opts}) do
       {:ok, pid} ->
-        client_label = config.name
-
-        tools =
-          try do
-            case Anubis.Client.list_tools(client_reg_name, timeout: 30_000) do
-              {:ok, %{result: %{"tools" => tool_list}}} -> tool_list
-              {:ok, %{result: result}} when is_map(result) -> Map.get(result, "tools", [])
-              _ -> []
-            end
-          rescue
-            _ -> []
-          catch
-            _, _ -> []
-          end
+        # Retry list_tools with backoff to wait for MCP initialize handshake
+        tools = fetch_tools_with_retry(client_label, client_reg_name, 5, 1000)
 
         Logger.info("Client #{client_label} started (PID: #{inspect(pid)}), #{length(tools)} tools")
         {:ok, pid, tools}
 
       {:error, reason} ->
+        Logger.error("Failed to start client #{client_label}: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  defp start_and_register_client(state, config) do
-    case start_client(state.dynamic_supervisor, config) do
-      {:ok, pid, tools} ->
-        client_state = %ClientState{
-          server_name: config.name,
-          config: config,
-          pid: pid,
-          status: :connected,
-          tools: tools,
-          connected_at: DateTime.utc_now()
-        }
+  defp apply_client_result(clients, server_name, {:ok, pid, tools}) do
+    Map.update!(clients, server_name, fn client ->
+      %{client |
+        pid: pid,
+        status: :connected,
+        tools: tools,
+        connected_at: DateTime.utc_now(),
+        last_error: nil
+      }
+    end)
+  end
 
-        new_state = %{state |
-          configs: Map.put(state.configs, config.name, config),
-          clients: Map.put(state.clients, config.name, client_state)
-        }
+  defp apply_client_result(clients, server_name, {:error, reason}) do
+    Map.update!(clients, server_name, fn client ->
+      %{client |
+        status: :error,
+        last_error: inspect(reason)
+      }
+    end)
+  end
 
-        save_configs(new_state.configs, new_state.config_path)
-        new_state
+  defp fetch_tools_with_retry(client_label, client_reg_name, attempts, base_delay) do
+    do_fetch_tools(client_label, client_reg_name, attempts, base_delay, [])
+  end
 
-      {:error, reason} ->
-        Logger.error("Failed to start client #{config.name}: #{inspect(reason)}")
-        state
+  defp do_fetch_tools(_client_label, _client_reg_name, 0, _delay, []) do
+    []
+  end
+
+  defp do_fetch_tools(_client_label, _client_reg_name, 0, _delay, tools) do
+    tools
+  end
+
+  defp do_fetch_tools(client_label, client_reg_name, attempts, delay, _prev_tools) do
+    result =
+      try do
+        case Anubis.Client.list_tools(client_reg_name, timeout: 10_000) do
+          {:ok, %{result: %{"tools" => tool_list}}} when is_list(tool_list) -> {:ok, tool_list}
+          {:ok, %{result: result}} when is_map(result) ->
+            {:ok, Map.get(result, "tools", [])}
+          {:error, %Anubis.MCP.Error{} = e} ->
+            {:error, e}
+          other ->
+            Logger.warning("Client #{client_label} list_tools unexpected: #{inspect(other)}")
+            {:error, :unexpected}
+        end
+      rescue
+        e ->
+          Logger.warning("Client #{client_label} list_tools exception: #{inspect(e)}")
+          {:error, :exception}
+      catch
+        kind, reason ->
+          Logger.warning("Client #{client_label} list_tools caught #{kind}: #{inspect(reason)}")
+          {:error, kind}
+      end
+
+    case result do
+      {:ok, tools} -> tools
+      {:error, _reason} ->
+        Process.sleep(delay)
+        do_fetch_tools(client_label, client_reg_name, attempts - 1, delay, [])
     end
+  end
+
+  defp start_and_register_client(state, config) do
+    # For dynamically added servers, also start asynchronously via Task
+    task = spawn_client_task(state.dynamic_supervisor, config)
+
+    new_clients = Map.put(state.clients, config.name, %ClientState{
+      server_name: config.name,
+      config: config,
+      status: :connecting
+    })
+
+    new_configs = Map.put(state.configs, config.name, config)
+    new_pending = Map.put(state.pending_tasks, task.ref, config.name)
+
+    save_configs(new_configs, state.config_path)
+
+    %{state |
+      configs: new_configs,
+      clients: new_clients,
+      pending_tasks: new_pending
+    }
   end
 
   defp load_configs(path) do

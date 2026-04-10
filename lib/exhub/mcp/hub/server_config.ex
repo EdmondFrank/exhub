@@ -94,7 +94,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       name: client_name(config.name),
       transport_name: transport_name(config.name),
       transport: {:stdio, opts},
-      client_info: %{"name" => "exhub-mcp-hub", "version" => "1.0.0"},
+      client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
   end
@@ -105,7 +105,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       transport_name: transport_name(config.name),
       transport: {:sse, server: [base_url: config.url]},
       protocol_version: "2024-11-05",
-      client_info: %{"name" => "exhub-mcp-hub", "version" => "1.0.0"},
+      client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
   end
@@ -115,7 +115,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       name: client_name(config.name),
       transport_name: transport_name(config.name),
       transport: {:streamable_http, base_url: config.url},
-      client_info: %{"name" => "exhub-mcp-hub", "version" => "1.0.0"},
+      client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
   end
@@ -125,7 +125,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       name: client_name(config.name),
       transport_name: transport_name(config.name),
       transport: {:websocket, url: config.url},
-      client_info: %{"name" => "exhub-mcp-hub", "version" => "1.0.0"},
+      client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
   end
