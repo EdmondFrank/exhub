@@ -149,6 +149,9 @@ defmodule Exhub.Router.Config do
       ] ->
         Application.get_env(:exhub, :openrouter_api_key, "")
 
+      model in ["gemini-2.5-pro", "gemini-2.5-flash"] ->
+        Application.get_env(:exhub, :burncloud_api_key, "")
+
       true ->
         Application.get_env(:exhub, :openai_api_key, "")
     end
