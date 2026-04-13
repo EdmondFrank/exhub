@@ -175,6 +175,15 @@ defmodule Exhub.ProxyPlug do
   defp encode_body_with_model_transforms(body_params) do
     body_params = fill_tool_calls_content(body_params)
 
+    # Normalize model name by stripping prefixes before sending to API
+    body_params =
+      case Map.get(body_params, "model") do
+        nil -> body_params
+        model ->
+          normalized_model = Exhub.Router.Config.normalize_model_name(model)
+          Map.put(body_params, "model", normalized_model)
+      end
+
     case body_params do
       %{"model" => "deepseek-v3.2"} ->
         Jason.encode!(
@@ -238,6 +247,7 @@ defmodule Exhub.ProxyPlug do
       String.contains?(path, "google") -> "google"
       String.contains?(path, "cohere") -> "cohere"
       String.contains?(path, "samba") -> "samba"
+      String.contains?(path, "infini") -> "infini"
       true -> "unknown"
     end
   end

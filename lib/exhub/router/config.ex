@@ -32,7 +32,8 @@ defmodule Exhub.Router.Config do
     minimaxi: "https://api.minimaxi.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
-    openai: @default_upstream
+    openai: @default_upstream,
+    infini: "https://cloud.infini-ai.com/maas/v1"
   }
 
   # Model to provider mappings
@@ -74,6 +75,22 @@ defmodule Exhub.Router.Config do
 
   @minimax_models ["minimax-m2.7", "minimax-m2-preview"]
 
+  # Infini AI models (with inf- prefix for distinction)
+  @infini_models [
+    "inf-glm-5.1",
+    "inf-kimi-k2.5",
+    "inf-minimax-m2.7",
+    "inf-deepseek-v3.2"
+  ]
+
+  # Mapping from prefixed model names to actual API model names
+  @infini_model_mapping %{
+    "inf-glm-5.1" => "glm-5.1",
+    "inf-kimi-k2.5" => "kimi-k2.5",
+    "inf-minimax-m2.7" => "minimax-m2.7",
+    "inf-deepseek-v3.2" => "deepseek-v3.2"
+  }
+
   @doc """
   Returns the target URL for a given model.
 
@@ -108,6 +125,9 @@ defmodule Exhub.Router.Config do
 
       model in ["gemini-2.5-pro", "gemini-2.5-flash"] ->
         get_burncloud_target()
+
+      model in @infini_models ->
+        @provider_urls.infini
 
       true ->
         Logger.debug("No specific target for model #{model}, using default")
@@ -151,6 +171,9 @@ defmodule Exhub.Router.Config do
 
       model in ["gemini-2.5-pro", "gemini-2.5-flash"] ->
         Application.get_env(:exhub, :burncloud_api_key, "")
+
+      model in @infini_models ->
+        Application.get_env(:exhub, :infini_api_key, "")
 
       true ->
         Application.get_env(:exhub, :openai_api_key, "")
@@ -244,6 +267,26 @@ defmodule Exhub.Router.Config do
   """
   @spec provider_urls() :: %{atom() => provider_url()}
   def provider_urls, do: @provider_urls
+
+  @doc """
+  Normalizes a model name by stripping provider prefixes.
+  For Infini models (inf-*), returns the actual model name used by the API.
+
+  ## Examples
+
+      iex> Exhub.Router.Config.normalize_model_name("inf-deepseek-v3.2")
+      "deepseek-v3.2"
+
+      iex> Exhub.Router.Config.normalize_model_name("deepseek-v3")
+      "deepseek-v3"
+  """
+  @spec normalize_model_name(model()) :: model()
+  def normalize_model_name(model) when is_binary(model) do
+    case Map.get(@infini_model_mapping, model) do
+      nil -> model
+      actual_name -> actual_name
+    end
+  end
 
   @doc """
   Returns the proxy configuration from application environment.
