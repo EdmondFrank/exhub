@@ -107,7 +107,7 @@ defmodule Exhub.Router.Config do
         @provider_urls.openrouter
 
       model in ["gemini-2.5-pro", "gemini-2.5-flash"] ->
-        @provider_urls.local
+        get_burncloud_target()
 
       true ->
         Logger.debug("No specific target for model #{model}, using default")

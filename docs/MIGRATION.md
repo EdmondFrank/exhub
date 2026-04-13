@@ -189,13 +189,14 @@ Share with your team:
 
 After migration, the `api_base` URLs for all LLM providers are defined in `config/runtime.exs`. The defaults are:
 
-| Provider / Model group          | Default `api_base`                                  |
-|---------------------------------|-----------------------------------------------------|
-| Gitee AI models                 | `https://ai.gitee.com/v1`                           |
-| SiliconFlow models              | `https://api.siliconflow.cn/v1`                     |
-| Mistral models                  | `https://api.mistral.ai/v1`                         |
-| Codestral                       | `https://codestral.mistral.ai/v1`                   |
-| Anthropic, Groq, Gemini, Cohere | `http://127.0.0.1:9069/<provider>/v1` (local proxy) |
+| Provider / Model group  | Default `api_base`                                  |
+|-------------------------|-----------------------------------------------------|
+| Gitee AI models         | `https://ai.gitee.com/v1`                           |
+| SiliconFlow models      | `https://api.siliconflow.cn/v1`                     |
+| Mistral models          | `https://api.mistral.ai/v1`                         |
+| Codestral               | `https://codestral.mistral.ai/v1`                   |
+| Anthropic, Groq, Cohere | `http://127.0.0.1:9069/<provider>/v1` (local proxy) |
+| Gemini                  | `https://csp.burncloud.com/v1` (BurnCloud API)      |
 
 To change the API base URL for a specific model, open `config/runtime.exs` and replace the helper call with an explicit map. For example, to route a Gitee model through a custom proxy:
 
