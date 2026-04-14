@@ -60,6 +60,7 @@ defmodule Exhub.Router.Config do
     "kimi-k2-thinking",
     "qwen3.5-27b",
     "qwen3.5-35b-a3b",
+    "qwen3.5-122b-a10b",
     "qwen3-235b-a22b",
     "qwen3-235b-a22b-instruct-2507",
     "qwen3-next-80b-a3b-instruct",
