@@ -66,6 +66,7 @@ defmodule Exhub.Router.Config do
     "qwen3-next-80b-a3b-thinking",
     "qwen3-coder-next",
     "qwen3-coder-480b-a35b-instruct",
+    "qwen3.5-27b-claude-4.6-opus-reasoning-distilled",
     "minimax-m2",
     "minimax-m2.1",
     "minimax-m2.5",
