@@ -79,12 +79,11 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
           # Default exit_code to 0 if stream ended without explicit exit
           exit_code = exit_code || 0
 
-          {:ok,
-           %{
-             "stdout" => stdout,
-             "stderr" => stderr,
-             "exit_code" => exit_code
-           }}
+          result = %{"exit_code" => exit_code}
+          result = if stdout != "", do: Map.put(result, "stdout", stdout), else: result
+          result = if stderr != "", do: Map.put(result, "stderr", stderr), else: result
+
+          {:ok, result}
 
         nil ->
           Task.shutdown(task, :brutal_kill)
