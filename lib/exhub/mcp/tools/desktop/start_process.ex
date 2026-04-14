@@ -36,7 +36,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   schema do
     field(:command, {:required, :string}, description: "The shell command to execute")
-    field(:working_dir, :string, description: "Working directory for the command (optional)")
+    field(:working_dir, {:required, :string}, description: "Working directory for the command")
     field(:interactive, :boolean, default: false, description: "Enable interactive mode for sending input")
   end
 

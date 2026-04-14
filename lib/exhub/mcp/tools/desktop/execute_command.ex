@@ -34,7 +34,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   schema do
     field(:command, {:required, :string}, description: "The shell command to execute")
     field(:timeout_ms, :integer, description: "Maximum time to wait in milliseconds (default 30000)", default: 30_000)
-    field(:working_dir, :string, description: "Working directory for the command (optional)")
+    field(:working_dir, {:required, :string}, description: "Working directory for the command")
   end
 
   @impl true
