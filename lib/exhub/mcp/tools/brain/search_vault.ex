@@ -3,12 +3,17 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   MCP Tool: brain_search_vault
 
   Search for notes in the Obsidian vault by content, filename, or tags.
+  Results are ranked by BM25 score for relevance.
   """
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Brain.Helpers
 
   use Anubis.Server.Component, type: :tool
+
+  # BM25 parameters
+  @k1 1.2
+  @b 0.75
 
   def name, do: "brain_search_vault"
 
@@ -87,6 +92,22 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
             search_content(vault, search_dir, files, query, case_sensitive)
         end
 
+      # Fallback: if no results, split query into words and search again
+      results =
+        if results == [] and search_type in ["content", "both"] do
+          words = split_query_into_words(query)
+          if length(words) > 1 do
+            search_content_with_words(vault, search_dir, files, words, case_sensitive)
+          else
+            results
+          end
+        else
+          results
+        end
+
+      # Sort by BM25 score descending
+      results = Enum.sort_by(results, & &1.score, :desc)
+
       results = if abs_path do
         Enum.map(results, fn %{file: file, matches: matches} = result ->
           abs_file = Path.join(vault, file)
@@ -122,7 +143,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       target = if case_sensitive, do: file, else: String.downcase(file)
 
       if String.contains?(target, q) do
-        [%{file: file, matches: [%{line: 0, text: "Filename match: #{file}"}]}]
+        [%{file: file, matches: [%{line: 0, text: "Filename match: #{file}"}], score: 1.0}]
       else
         []
       end
@@ -134,6 +155,11 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   defp search_content(vault, _search_dir, files, query, case_sensitive) do
     is_tag_search = String.starts_with?(query, "tag:")
     tag_query = if is_tag_search, do: String.slice(query, 4..-1//1) |> normalize_tag(), else: nil
+
+    # Pre-calculate document statistics for BM25
+    docs_data = build_docs_data(vault, files)
+    avgdl = calculate_avgdl(docs_data)
+    n = length(files)
 
     Enum.flat_map(files, fn rel_path ->
       full_path = Path.join(vault, rel_path)
@@ -147,12 +173,132 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
               find_text_matches(content, query, case_sensitive)
             end
 
-          if matches == [], do: [], else: [%{file: rel_path, matches: matches}]
+          if matches == [] do
+            []
+          else
+            doc_length = docs_data[rel_path][:length] || 1
+            term_freq = length(matches)
+            doc_freq = calculate_doc_freq(docs_data, query, case_sensitive, is_tag_search, tag_query)
+            score = calculate_bm25(term_freq, doc_length, avgdl, n, doc_freq)
+            [%{file: rel_path, matches: matches, score: score}]
+          end
 
         {:error, _} ->
           []
       end
     end)
+  end
+
+  # Search with multiple words (OR logic) and aggregate scores
+  defp search_content_with_words(vault, _search_dir, files, words, case_sensitive) do
+    docs_data = build_docs_data(vault, files)
+    avgdl = calculate_avgdl(docs_data)
+    n = length(files)
+
+    # Search for each word and aggregate results
+    words_results =
+      Enum.flat_map(words, fn word ->
+        Enum.flat_map(files, fn rel_path ->
+          full_path = Path.join(vault, rel_path)
+
+          case File.read(full_path) do
+            {:ok, content} ->
+              matches = find_text_matches(content, word, case_sensitive)
+
+              if matches == [] do
+                []
+              else
+                doc_length = docs_data[rel_path][:length] || 1
+                term_freq = length(matches)
+                doc_freq = calculate_doc_freq(docs_data, word, case_sensitive, false, nil)
+                score = calculate_bm25(term_freq, doc_length, avgdl, n, doc_freq)
+                [%{file: rel_path, matches: matches, word: word, score: score}]
+              end
+
+            {:error, _} ->
+              []
+          end
+        end)
+      end)
+
+    # Group by file and aggregate scores
+    words_results
+    |> Enum.group_by(& &1.file)
+    |> Enum.map(fn {file, entries} ->
+      all_matches = Enum.flat_map(entries, & &1.matches) |> Enum.uniq_by(& &1.line)
+      total_score = Enum.sum(Enum.map(entries, & &1.score))
+      %{file: file, matches: all_matches, score: total_score}
+    end)
+  end
+
+  defp split_query_into_words(query) do
+    query
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp build_docs_data(vault, files) do
+    Enum.reduce(files, %{}, fn rel_path, acc ->
+      full_path = Path.join(vault, rel_path)
+
+      case File.read(full_path) do
+        {:ok, content} ->
+          length = String.length(content)
+          terms = extract_terms(content)
+          Map.put(acc, rel_path, %{length: length, terms: terms})
+
+        {:error, _} ->
+          acc
+      end
+    end)
+  end
+
+  defp extract_terms(content) do
+    content
+    |> String.downcase()
+    |> String.split(~r/[^\w\s]/u, trim: true)
+    |> Enum.flat_map(&String.split(&1, ~r/\s+/, trim: true))
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp calculate_avgdl(docs_data) do
+    if map_size(docs_data) == 0 do
+      1.0
+    else
+      total_length = Enum.sum(Enum.map(docs_data, fn {_, v} -> v.length end))
+      total_length / map_size(docs_data)
+    end
+  end
+
+  defp calculate_doc_freq(docs_data, query, case_sensitive, is_tag_search, tag_query) do
+    Enum.count(docs_data, fn {_, data} ->
+      if is_tag_search do
+        Enum.any?(data.terms, fn term ->
+          normalized = normalize_tag(term)
+          tag_matches?(normalized, tag_query)
+        end)
+      else
+        q = if case_sensitive, do: query, else: String.downcase(query)
+        Enum.any?(data.terms, fn term ->
+          t = if case_sensitive, do: term, else: String.downcase(term)
+          String.contains?(t, q)
+        end)
+      end
+    end)
+  end
+
+  defp calculate_bm25(term_freq, doc_length, avgdl, n, doc_freq) do
+    # Avoid division by zero
+    doc_freq = max(doc_freq, 1)
+    n = max(n, 1)
+
+    # IDF calculation
+    idf = :math.log((n - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
+
+    # Term frequency component
+    tf_component = (term_freq * (@k1 + 1)) / (term_freq + @k1 * (1 - @b + @b * doc_length / avgdl))
+
+    idf * tf_component
   end
 
   defp find_text_matches(content, query, case_sensitive) do
@@ -199,7 +345,8 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     |> Enum.group_by(& &1.file)
     |> Enum.map(fn {file, entries} ->
       matches = Enum.flat_map(entries, & &1.matches) |> Enum.uniq_by(& &1.line)
-      %{file: file, matches: matches}
+      max_score = Enum.max(Enum.map(entries, & &1.score))
+      %{file: file, matches: matches, score: max_score}
     end)
   end
 
@@ -211,13 +358,13 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     header = "Vault: #{vault}\n\nFound #{total} match(es) in #{length(results)} file(s):\n\n"
 
     body =
-      Enum.map_join(results, "\n", fn %{file: file, matches: matches} ->
+      Enum.map_join(results, "\n", fn %{file: file, matches: matches, score: score} ->
         match_lines =
           Enum.map_join(matches, "\n", fn %{line: line, text: text} ->
             if line == 0, do: "  #{text}", else: "  L#{line}: #{text}"
           end)
 
-        "#{file}:\n#{match_lines}"
+        "#{file} (score: #{:erlang.float_to_binary(score, decimals: 4)}):\n#{match_lines}"
       end)
 
     header <> body
