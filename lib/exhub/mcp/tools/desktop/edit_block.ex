@@ -219,33 +219,50 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
     end
   end
 
-  # Levenshtein distance between two strings (O(m × n) DP, row-based).
+  # Levenshtein distance between two strings (O(m × n) DP, optimized for performance).
   defp levenshtein_distance(s, t) do
+    if s == t, do: 0, else: do_levenshtein(s, t)
+  end
+
+  defp do_levenshtein(s, t) do
     s_chars = String.graphemes(s)
     t_chars = String.graphemes(t)
-    t_len = length(t_chars)
+    m = length(s_chars)
+    n = length(t_chars)
 
-    # Initial row: cost of transforming "" into t[0..j]
-    initial_row = Enum.to_list(0..t_len)
+    case {m, n} do
+      {0, n} ->
+        n
 
-    s_chars
-    |> Enum.with_index(1)
-    |> Enum.reduce(initial_row, fn {s_char, i}, prev_row ->
-      # Build the next row left-to-right.
-      {_left, next_row} =
-        t_chars
-        |> Enum.with_index(1)
-        |> Enum.reduce({i, [i]}, fn {t_char, j}, {left, row_acc} ->
-          diag = Enum.at(prev_row, j - 1)
-          up = Enum.at(prev_row, j)
-          cost = if s_char == t_char, do: 0, else: 1
-          curr = Enum.min([left + 1, up + 1, diag + cost])
-          {curr, row_acc ++ [curr]}
+      {m, 0} ->
+        m
+
+      _ ->
+        t_tuple = List.to_tuple(t_chars)
+        # Initial row: 0..n
+        first_row = Enum.to_list(0..n)
+
+        s_chars
+        |> Enum.reduce(first_row, fn s_char, prev_row ->
+          [prev_h | prev_t] = prev_row
+          # Current row starts with i (distance from empty t)
+          next_row_head = prev_h + 1
+
+          {_last_val, final_row} =
+            Enum.reduce(0..(n - 1), {next_row_head, [next_row_head]}, fn j, {left, acc} ->
+              # up is prev_row[j+1]
+              up = :lists.nth(j + 1, prev_t)
+              # diag is prev_row[j]
+              diag = :lists.nth(j + 1, prev_row)
+              cost = if s_char == elem(t_tuple, j), do: 0, else: 1
+              curr = min(min(left + 1, up + 1), diag + cost)
+              {curr, [curr | acc]}
+            end)
+
+          Enum.reverse(final_row)
         end)
-
-      next_row
-    end)
-    |> List.last()
+        |> List.last()
+    end
   end
 
   # Similarity as a ratio in [0, 1] where 1 = identical strings.
@@ -302,7 +319,18 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
   end
 
   defp count_occurrences(content, pattern) do
-    content |> String.split(pattern) |> length() |> Kernel.-(1)
+    count_occurrences(content, pattern, 0)
+  end
+
+  defp count_occurrences(content, pattern, count) do
+    case :binary.match(content, pattern) do
+      :nomatch ->
+        count
+
+      {pos, len} ->
+        <<_::binary-size(pos), _::binary-size(len), rest::binary>> = content
+        count_occurrences(rest, pattern, count + 1)
+    end
   end
 
   # ---------------------------------------------------------------------------
