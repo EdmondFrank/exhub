@@ -27,33 +27,52 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     Parameters:
     - command: The shell command to execute
     - timeout_ms: Maximum time to wait in milliseconds (default 30000)
-    - working_dir: Working directory for the command (optional)
+    - working_dir: Working directory for the command. Required unless the command
+      uses absolute paths or includes 'cd'. (Current server pwd: #{Helpers.current_pwd()})
     """
   end
 
   schema do
-    field(:command, {:required, :string}, description: "The shell command to execute")
+    field(:command, :string, description: "The shell command to execute")
     field(:timeout_ms, :integer, description: "Maximum time to wait in milliseconds (default 30000)", default: 30_000)
-    field(:working_dir, {:required, :string}, description: "Working directory for the command")
+    field(:working_dir, :string, description: "Working directory for the command")
   end
 
   @impl true
   def execute(params, frame) do
     command = Map.get(params, :command)
     timeout_ms = Map.get(params, :timeout_ms, 30_000)
-    working_dir = Map.get(params, :working_dir) |> Helpers.expand_path()
+    working_dir = Map.get(params, :working_dir)
 
-    case run_command(command, timeout_ms, working_dir) do
-      {:ok, result} ->
+    cond do
+      is_nil(command) ->
+        resp = Response.tool() |> Response.error("Missing required parameter: command")
+        {:reply, resp, frame}
+
+      is_nil(working_dir) and Helpers.needs_working_dir?(command) ->
         resp =
           Response.tool()
-          |> Helpers.toon_response(result)
+          |> Response.error(
+            "Missing required parameter: working_dir. It must be provided unless the command is absolute or includes 'cd'."
+          )
 
         {:reply, resp, frame}
 
-      {:error, reason} ->
-        resp = Response.tool() |> Response.error("Command execution failed: #{reason}")
-        {:reply, resp, frame}
+      true ->
+        working_dir = Helpers.expand_path(working_dir)
+
+        case run_command(command, timeout_ms, working_dir) do
+          {:ok, result} ->
+            resp =
+              Response.tool()
+              |> Helpers.toon_response(result)
+
+            {:reply, resp, frame}
+
+          {:error, reason} ->
+            resp = Response.tool() |> Response.error("Command execution failed: #{reason}")
+            {:reply, resp, frame}
+        end
     end
   end
 

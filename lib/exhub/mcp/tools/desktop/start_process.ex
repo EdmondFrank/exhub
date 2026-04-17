@@ -30,35 +30,53 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
     Parameters:
     - command: The shell command to execute
-    - working_dir: Working directory for the command (optional)
+    - working_dir: Working directory for the command. Required unless the command
+      uses absolute paths or includes 'cd'. (Current server pwd: #{Helpers.current_pwd()})
     """
   end
 
   schema do
-    field(:command, {:required, :string}, description: "The shell command to execute")
-    field(:working_dir, {:required, :string}, description: "Working directory for the command")
+    field(:command, :string, description: "The shell command to execute")
+    field(:working_dir, :string, description: "Working directory for the command")
     field(:interactive, :boolean, default: false, description: "Enable interactive mode for sending input")
   end
 
   @impl true
   def execute(params, frame) do
     command = Map.get(params, :command)
-    working_dir = Map.get(params, :working_dir) |> Helpers.expand_path()
+    working_dir = Map.get(params, :working_dir)
     interactive = Map.get(params, :interactive, false)
 
-    process_id = generate_process_id()
+    cond do
+      is_nil(command) ->
+        resp = Response.tool() |> Response.error("Missing required parameter: command")
+        {:reply, resp, frame}
 
-    case start_managed_process(process_id, command, working_dir, interactive) do
-      {:ok, entry} ->
+      is_nil(working_dir) and Helpers.needs_working_dir?(command) ->
         resp =
           Response.tool()
-          |> Helpers.toon_response(%{
-            "process_id" => process_id,
-            "pid" => entry.pid,
-            "interactive" => entry.interactive
-          })
+          |> Response.error(
+            "Missing required parameter: working_dir. It must be provided unless the command is absolute or includes 'cd'."
+          )
 
         {:reply, resp, frame}
+
+      true ->
+        working_dir = Helpers.expand_path(working_dir)
+        process_id = generate_process_id()
+
+        case start_managed_process(process_id, command, working_dir, interactive) do
+          {:ok, entry} ->
+            resp =
+              Response.tool()
+              |> Helpers.toon_response(%{
+                "process_id" => process_id,
+                "pid" => entry.pid,
+                "interactive" => entry.interactive
+              })
+
+            {:reply, resp, frame}
+        end
     end
   end
 

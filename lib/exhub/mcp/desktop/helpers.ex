@@ -132,4 +132,25 @@ defmodule Exhub.MCP.Desktop.Helpers do
 
     [shell | args]
   end
+
+  @doc """
+  Checks if a command likely needs a working directory.
+  """
+  @spec needs_working_dir?(String.t()) :: boolean()
+  def needs_working_dir?(command) do
+    trimmed = String.trim(command)
+
+    not (String.starts_with?(trimmed, "cd ") or
+           String.contains?(trimmed, " cd ") or
+           String.starts_with?(trimmed, "/") or
+           String.starts_with?(trimmed, "~/"))
+  end
+
+  @doc """
+  Returns the current server working directory for documentation.
+  """
+  @spec current_pwd() :: String.t()
+  def current_pwd do
+    File.cwd!() || System.user_home!()
+  end
 end
