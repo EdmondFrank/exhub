@@ -19,10 +19,11 @@ defmodule Exhub.MCP.Tools.Look do
 
   @valid_models ~w(
     glm-5v-turbo
-    Qwen2.5-VL-72B-Instruct
-    Qwen2-VL-72B-Instruct
-    GLM-4V
-    deepseek-vl
+    kimi-k2.5
+    qwen3.5-122b-a10b
+    qwen2.5-vl-32b-instruct
+    glm-4.6v
+    qwen2-vl-72b
   )
 
   def name, do: "look"
@@ -37,10 +38,11 @@ defmodule Exhub.MCP.Tools.Look do
 
     **Supported models:**
     - `glm-5v-turbo` (default) — Zhipu AI efficient vision model
-    - `Qwen2.5-VL-72B-Instruct` — Alibaba's flagship vision model
-    - `Qwen2-VL-72B-Instruct` — Previous generation Qwen
-    - `GLM-4V` — Zhipu AI vision model
-    - `deepseek-vl` — DeepSeek vision
+    - `kimi-k2.5` — Moonshot AI vision model
+    - `qwen3.5-122b-a10b` — Alibaba Qwen3.5 vision model
+    - `qwen2.5-vl-32b-instruct` — Alibaba Qwen2.5-VL 32B
+    - `glm-4.6v` — Zhipu AI GLM-4.6V vision model
+    - `qwen2-vl-72b` — Alibaba Qwen2-VL 72B
 
     **Supported formats:** PNG, JPG, JPEG, GIF, WebP, BMP
 
@@ -70,7 +72,7 @@ defmodule Exhub.MCP.Tools.Look do
   def execute(params, frame) do
     image = Map.get(params, :image)
     prompt = Map.get(params, :prompt)
-    model = Map.get(params, :model, @default_model) || @default_model
+    model = (Map.get(params, :model, @default_model) || @default_model) |> String.downcase()
     response_format = Map.get(params, :response_format, "text") || "text"
 
     cond do

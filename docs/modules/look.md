@@ -33,10 +33,11 @@ Analyze images using AI vision models.
 | Model | Description |
 |-------|-------------|
 | `glm-5v-turbo` | Zhipu AI efficient vision model (default) |
-| `Qwen2.5-VL-72B-Instruct` | Alibaba's flagship vision model |
-| `Qwen2-VL-72B-Instruct` | Previous generation Qwen |
-| `GLM-4V` | Zhipu AI vision model |
-| `deepseek-vl` | DeepSeek vision |
+| `kimi-k2.5` | Moonshot AI vision model |
+| `qwen3.5-122b-a10b` | Alibaba Qwen3.5 vision model |
+| `qwen2.5-vl-32b-instruct` | Alibaba Qwen2.5-VL 32B |
+| `glm-4.6v` | Zhipu AI GLM-4.6V vision model |
+| `qwen2-vl-72b` | Alibaba Qwen2-VL 72B |
 
 ### Supported Image Formats
 
@@ -78,7 +79,7 @@ PNG, JPG, JPEG, GIF, WebP, BMP
 {
   "image": "/path/to/chart.png",
   "prompt": "Analyze this chart and summarize the data trends",
-  "model": "Qwen2.5-VL-72B-Instruct"
+  "model": "qwen2.5-vl-32b-instruct"
 }
 ```
 
