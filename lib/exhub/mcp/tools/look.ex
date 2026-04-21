@@ -12,13 +12,14 @@ defmodule Exhub.MCP.Tools.Look do
 
   @api_url "https://ai.gitee.com/v1/chat/completions"
 
-  @default_model "glm-5v-turbo"
+  @default_model "kimi-k2.6"
   @max_tokens 4096
 
   @supported_image_exts ~w(.png .jpg .jpeg .gif .webp .bmp)
 
   @valid_models ~w(
     glm-5v-turbo
+    kimi-k2.6
     kimi-k2.5
     qwen3.5-122b-a10b
     qwen2.5-vl-32b-instruct
@@ -37,7 +38,8 @@ defmodule Exhub.MCP.Tools.Look do
     describe contents, answer questions about images, or analyze visual data.
 
     **Supported models:**
-    - `glm-5v-turbo` (default) — Zhipu AI efficient vision model
+    - `kimi-k2.6` (default) — Moonshot AI vision model
+    - `glm-5v-turbo` — Zhipu AI efficient vision model
     - `kimi-k2.5` — Moonshot AI vision model
     - `qwen3.5-122b-a10b` — Alibaba Qwen3.5 vision model
     - `qwen2.5-vl-32b-instruct` — Alibaba Qwen2.5-VL 32B
@@ -52,7 +54,7 @@ defmodule Exhub.MCP.Tools.Look do
 
   schema do
     field(:image, {:required, :string},
-      description: "Local file path (e.g. /path/to/img.png) or remote URL (https://...)"
+      description: "Local file path: Absolute path or ~ shorthand to the file (e.g. /path/to/img.png) or remote URL: (https://...)"
     )
 
     field(:prompt, {:required, :string},
@@ -60,7 +62,7 @@ defmodule Exhub.MCP.Tools.Look do
     )
 
     field(:model, :string,
-      description: "Vision model to use. Default: glm-5v-turbo"
+      description: "Vision model to use. Default: kimi-k2.6"
     )
 
     field(:response_format, :string,
