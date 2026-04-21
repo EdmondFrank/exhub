@@ -56,6 +56,7 @@ defmodule Exhub.Router.Config do
     "gpt-oss-120b",
     "internvl3-78b",
     "kimi-k2.5",
+    "kimi-k2.6",
     "kimi-k2-instruct",
     "kimi-k2-thinking",
     "qwen3.5-27b",
@@ -217,7 +218,7 @@ defmodule Exhub.Router.Config do
     token = get_model_api_key(model)
     headers = [{"authorization", "Bearer #{token}"}]
 
-    if model == "kimi-k2.5" do
+    if model == "kimi-k2.5" || model == "kimi-k2.6" do
       headers ++ [{"X-Package", 6609}]
     else
       headers

@@ -385,14 +385,51 @@ If nil, it uses the current buffer."
                 "Refactorying..."
                 "Refactory code done.")))
 
+(defun exhub-chat--tramp-p (path)
+  "Return t if PATH is a TRAMP path."
+  (and (stringp path)
+       (string-match-p "^/[^/]+:" path)))
+
+(defun exhub-chat--tramp-git-output (dir args)
+  "Run git ARGS in DIR via TRAMP-aware shell command.
+ARGS is a space-separated string of git arguments.
+Returns the command output as a string, or nil on error."
+  (let ((default-directory dir))
+    (with-temp-buffer
+      (if (zerop (shell-command (concat "git " args) (current-buffer)))
+          (string-trim (buffer-string))
+        (message "[Exhub-Chat] git %s failed in %s: %s"
+                 args dir (string-trim (buffer-string)))
+        nil))))
+
 (defun exhub-chat-generate-commit-message ()
   (interactive)
-  (exhub-call "exhub-chat"
-              "generate-git-commit-message"
-              (file-truename (file-name-directory buffer-file-name))
-              (buffer-name)
-              (point)
-              (point)))
+  (let* ((dir (file-truename (file-name-directory buffer-file-name)))
+         (buffer-name (buffer-name))
+         (region-begin (point))
+         (region-end (point)))
+    (if (exhub-chat--tramp-p dir)
+        ;; For TRAMP paths, fetch git data on the Emacs side (where SSH
+        ;; credentials and agent forwarding already work) and send the
+        ;; pre-fetched content to the server.
+        (let ((diff (exhub-chat--tramp-git-output dir "diff --staged"))
+              (commits (exhub-chat--tramp-git-output dir "log --pretty=format:%s -5")))
+          (if diff
+              (exhub-call "exhub-chat"
+                          "generate-git-commit-message-with-content"
+                          diff
+                          (or commits "")
+                          buffer-name
+                          region-begin
+                          region-end)
+            (message "[Exhub-Chat] Failed to get staged diff from TRAMP path: %s" dir)))
+      ;; Local paths: let the Elixir server run git directly
+      (exhub-call "exhub-chat"
+                  "generate-git-commit-message"
+                  dir
+                  buffer-name
+                  region-begin
+                  region-end))))
 
 (defun exhub-chat-generate-pull-desc ()
   (interactive)
