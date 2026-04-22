@@ -219,7 +219,7 @@ defmodule Exhub.Router.Config do
     headers = [{"authorization", "Bearer #{token}"}]
 
     if model == "kimi-k2.5" || model == "kimi-k2.6" do
-      headers ++ [{"X-Package", 6609}]
+      headers ++ [{"X-Package", "6609"}]
     else
       headers
     end

@@ -27,7 +27,7 @@ defmodule Exhub.ProxyPlug do
       Enum.reduce(custom_headers, conn, fn {header, value}, conn ->
         header = String.downcase(header)
         conn = Plug.Conn.delete_req_header(conn, header)
-        Plug.Conn.put_req_header(conn, header, value)
+        Plug.Conn.put_req_header(conn, header, to_string(value))
       end)
 
     {pre_body, conn} =
