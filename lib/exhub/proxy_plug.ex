@@ -212,10 +212,10 @@ defmodule Exhub.ProxyPlug do
 
         Jason.encode!(Map.put(body_params, "messages", transformed_messages))
 
-      %{"model" => "kimi-k2.5"} ->
+      %{"model" => model} when model in ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"] ->
         body_params
         |> Map.put("temperature", 1)
-        |> Exhub.Router.Config.transform_request_body("kimi-k2.5")
+        |> Exhub.Router.Config.transform_request_body(model)
         |> Jason.encode!()
 
       _ ->
