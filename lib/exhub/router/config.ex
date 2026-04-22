@@ -349,7 +349,9 @@ defmodule Exhub.Router.Config do
                is_list(Map.get(msg, "tool_calls")) and
                length(Map.get(msg, "tool_calls")) > 0 and
                is_nil(Map.get(msg, "reasoning_content")) do
-            Map.put(msg, "reasoning_content", ".")
+            tool_calls = Map.get(msg, "tool_calls")
+            cached = Exhub.Router.ReasoningCache.get_for_tool_calls(tool_calls)
+            Map.put(msg, "reasoning_content", cached || ".")
           else
             msg
           end
