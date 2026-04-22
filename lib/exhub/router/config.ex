@@ -307,13 +307,23 @@ defmodule Exhub.Router.Config do
     Application.get_env(:exhub, :default_timeout, 1_800_000)
   end
 
+  # Models that require reasoning_content to be present in assistant tool-call
+  # messages when thinking is enabled (Moonshot AI requirement).
+  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"]
+
   @doc """
   Transforms request body for model-specific requirements.
-  For kimi-k2.5, adds reasoning_content to assistant messages with tool_calls.
+  For kimi-k2.5/kimi-k2.6/inf-kimi-k2.5, injects a placeholder `reasoning_content`
+  into assistant messages that have tool_calls but are missing the field.
+  This prevents the Moonshot API error:
+  "thinking is enabled but reasoning_content is missing in assistant tool call message"
 
   ## Examples
 
       iex> Exhub.Router.Config.transform_request_body(%{"messages" => [%{"role" => "assistant", "tool_calls" => [%{}]}]}, "kimi-k2.5")
+      %{"messages" => [%{"role" => "assistant", "tool_calls" => [%{}], "reasoning_content" => "."}]}
+
+      iex> Exhub.Router.Config.transform_request_body(%{"messages" => [%{"role" => "assistant", "tool_calls" => [%{}]}]}, "kimi-k2.6")
       %{"messages" => [%{"role" => "assistant", "tool_calls" => [%{}], "reasoning_content" => "."}]}
 
       iex> Exhub.Router.Config.transform_request_body(%{"model" => "test"}, "deepseek-v3")
@@ -321,13 +331,14 @@ defmodule Exhub.Router.Config do
   """
   @spec transform_request_body(map(), model()) :: map()
   def transform_request_body(body, model) when is_map(body) and is_binary(model) do
-    case model do
-      "kimi-k2.5" -> transform_kimi_k2_5_body(body)
-      _ -> body
+    if model in @kimi_reasoning_models do
+      transform_kimi_reasoning_body(body)
+    else
+      body
     end
   end
 
-  defp transform_kimi_k2_5_body(body) do
+  defp transform_kimi_reasoning_body(body) do
     messages = Map.get(body, "messages")
 
     if is_list(messages) do
