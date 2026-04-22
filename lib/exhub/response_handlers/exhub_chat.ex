@@ -21,12 +21,12 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
     notify("Generating...")
     case Exhub.Utils.git_cmd(["diff", "--staged"], dir) do
       {:ok, diff} when diff != "" ->
-        case Exhub.Utils.git_cmd(["log", "--pretty=format:%s", "-5"], dir) do
-          {:ok, commits} ->
-            generate_commit_message(diff, commits, buffer_name, region_begin, region_end)
-          {:error, {exit_code, error_output}} ->
-            notify("Failed to fetch recent commits: exit code #{exit_code}, output: #{inf_inspect(error_output)}")
-        end
+        commits =
+          case Exhub.Utils.git_cmd(["log", "--pretty=format:%s", "-5"], dir) do
+            {:ok, output} -> output
+            {:error, _} -> ""
+          end
+        generate_commit_message(diff, commits, buffer_name, region_begin, region_end)
       {:ok, ""} ->
         notify("Please Staged changes at first")
       {:error, reason} ->

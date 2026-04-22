@@ -142,6 +142,8 @@ defmodule Exhub.MCP.Desktop.Helpers do
 
     not (String.starts_with?(trimmed, "cd ") or
            String.contains?(trimmed, " cd ") or
+           String.starts_with?(trimmed, "ls ") or
+           String.contains?(trimmed, " ls ") or
            String.starts_with?(trimmed, "/") or
            String.starts_with?(trimmed, "~/"))
   end
