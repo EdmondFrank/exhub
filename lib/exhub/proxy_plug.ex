@@ -6,6 +6,9 @@ defmodule Exhub.ProxyPlug do
 
   require Logger
 
+  # Models that require reasoning_content to be preserved across turns.
+  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"]
+
   @doc """
   Forward connection to upstream server with proper error handling.
   """
@@ -122,6 +125,10 @@ defmodule Exhub.ProxyPlug do
                 end
             end
           end)
+        end
+
+        if model_name in @kimi_reasoning_models do
+          Exhub.Router.ReasoningCache.put_from_response(response_body)
         end
 
         :ok
@@ -274,6 +281,10 @@ defmodule Exhub.ProxyPlug do
 
   defp track_token_usage({:ok, %{body: resp_body}}, model_name, provider, req_body)
        when is_binary(resp_body) and resp_body != "" do
+    if model_name in @kimi_reasoning_models do
+      Exhub.Router.ReasoningCache.put_from_response(resp_body)
+    end
+
     spawn(fn ->
       try do
         Exhub.TokenUsage.Tracker.track_openai_usage(resp_body, model_name, provider, req_body)
