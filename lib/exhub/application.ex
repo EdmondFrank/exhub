@@ -11,6 +11,7 @@ defmodule Exhub.Application do
 
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
+      {Exhub.Router.ReasoningCache, []},
       {Exhub.Llm.World, name: Exhub.Llm.World},
       {Exhub.Llm.LlmConfigServer, name: Exhub.Llm.LlmConfigServer},
       {Exhub.Llm.Mcp.ServerManager, name: Exhub.Llm.Mcp.ServerManager},
