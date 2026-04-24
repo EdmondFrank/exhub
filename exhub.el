@@ -226,49 +226,59 @@ Uses two strategies:
     (message "[Exhub] Backend not executable, falling back to WebSocket reload")
     (exhub-send "exhub-reload")))
 
-(defun exhub-release ()
-  "Run the full Exhub release pipeline via RPC.
+(defun exhub--source-dir ()
+  "Derive the Exhub source tree root from `exhub-backend-path'.
 
-Calls `Exhub.MCP.Tools.Exhub.Release.run/0' in the running BEAM VM,
-which executes the following steps in sequence:
+The backend binary is expected at:
+  <source-root>/_build/<env>/rel/exhub/bin/exhub
 
-  1. mix compile        (MIX_ENV=prod)
-  2. mix release --overwrite
-  3. GracefulRestart.schedule_restart(:soft, 3000)
-
-Progress is written to the server log.  The result summary is
-displayed in the minibuffer and written to the *exhub-release* buffer.
-
-If the backend binary is not executable (e.g. first-time setup before
-any release exists), falls back to running the pipeline directly via
-`mix run' in a shell buffer."
-  (interactive)
-  (message "[Exhub] Starting release pipeline...")
-  (if (file-executable-p exhub-backend-path)
-      (let ((buffer (get-buffer-create "*exhub-release*")))
-        (with-current-buffer buffer
-          (erase-buffer))
-        (let ((proc (start-process "exhub-release" buffer
-                                   exhub-backend-path "rpc"
-                                   "Exhub.MCP.Tools.Exhub.Release.run()")))
-          (set-process-sentinel
-           proc
-           (lambda (proc _event)
-             (when (memq (process-status proc) '(exit signal))
-               (with-current-buffer (process-buffer proc)
-                 (message "%s" (string-trim (buffer-string)))))))))
-    (message "[Exhub] Backend not executable; running pipeline via mix in shell")
-    (let ((default-directory (file-name-directory exhub-backend-path)))
-      (async-shell-command
-       (format "MIX_ENV=%s mix compile && MIX_ENV=%s mix release --overwrite"
-               exhub-mix-env exhub-mix-env)
-       "*exhub-release*"))))
+So the source root is five directories above the bin/ directory."
+  (expand-file-name
+   (concat (file-name-directory (expand-file-name exhub-backend-path))
+           "../../../../../")))
 
 (defcustom exhub-graceful-restart-delay 3000
   "Default delay in milliseconds before the BEAM VM restarts gracefully.
 The WebSocket reconnect is attempted after this delay plus a 5-second
 buffer to allow the server to finish starting up."
   :type 'integer)
+
+(defun exhub-release ()
+  "Build a new Exhub release and perform a graceful restart.
+
+Steps executed in sequence:
+  1. `mix compile'          -- compile changed modules (MIX_ENV=exhub-mix-env)
+  2. `mix release --overwrite' -- assemble a new OTP release on disk
+  3. Graceful soft restart  -- hot-swap the running VM into the new release
+
+The source tree is derived automatically from `exhub-backend-path'.
+Build output is written to the *exhub-release* buffer.  The final
+result is displayed in the minibuffer.
+
+The restart step uses `exhub--graceful-restart-internal', so the
+WebSocket is automatically reconnected after the VM comes back up."
+  (interactive)
+  (let* ((source-dir (exhub--source-dir))
+         (build-cmd  (format "cd %s && MIX_ENV=%s mix compile && MIX_ENV=%s mix release --overwrite"
+                             (shell-quote-argument source-dir)
+                             exhub-mix-env
+                             exhub-mix-env))
+         (buffer (get-buffer-create "*exhub-release*")))
+    (with-current-buffer buffer
+      (erase-buffer))
+    (message "[Exhub] Building release from %s ..." source-dir)
+    (let ((proc (start-process-shell-command "exhub-release" buffer build-cmd)))
+      (set-process-sentinel
+       proc
+       (lambda (proc _event)
+         (when (memq (process-status proc) '(exit signal))
+           (if (= (process-exit-status proc) 0)
+               (progn
+                 (message "[Exhub] Release built. Scheduling graceful restart...")
+                 (exhub--graceful-restart-internal "soft" exhub-graceful-restart-delay))
+             (with-current-buffer (process-buffer proc)
+               (message "[Exhub] Release build FAILED: %s"
+                        (string-trim (buffer-string)))))))))))
 
 (defun exhub--graceful-restart-internal (mode delay-ms)
   "Schedule a graceful BEAM restart via RPC and reconnect the WebSocket.
