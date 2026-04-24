@@ -18,6 +18,7 @@ defmodule Exhub.MCP.ExhubServer do
   | `exhub_restart` | Schedule a soft or hard VM restart |
   | `exhub_get_status` | Runtime statistics (uptime, memory, processes) |
   | `exhub_get_version` | Version info for Exhub, Elixir, OTP, and ERTS |
+  | `exhub_release` | Full pipeline: compile → release → restart |
   """
 
   use Anubis.Server,
@@ -31,6 +32,7 @@ defmodule Exhub.MCP.ExhubServer do
   component Exhub.MCP.Tools.Exhub.Restart
   component Exhub.MCP.Tools.Exhub.GetStatus
   component Exhub.MCP.Tools.Exhub.GetVersion
+  component Exhub.MCP.Tools.Exhub.Release
 
   @impl true
   def init(client_info, frame) do
