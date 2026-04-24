@@ -13,12 +13,11 @@ defmodule Exhub.MCP.ExhubServer do
 
   | Tool | Description |
   |------|-------------|
-  | `exhub_compile` | Run `mix compile` in the project directory |
   | `exhub_hot_reload` | Zero-downtime BEAM code hot-reload |
   | `exhub_restart` | Schedule a soft or hard VM restart |
   | `exhub_get_status` | Runtime statistics (uptime, memory, processes) |
   | `exhub_get_version` | Version info for Exhub, Elixir, OTP, and ERTS |
-  | `exhub_release` | Full pipeline: compile → release → restart |
+  | `exhub_release` | Delegate full release pipeline to Emacs (compile → release → restart) |
   """
 
   use Anubis.Server,
@@ -27,7 +26,6 @@ defmodule Exhub.MCP.ExhubServer do
     capabilities: [:tools]
 
   # Management tools
-  component Exhub.MCP.Tools.Exhub.Compile
   component Exhub.MCP.Tools.Exhub.HotReload
   component Exhub.MCP.Tools.Exhub.Restart
   component Exhub.MCP.Tools.Exhub.GetStatus
