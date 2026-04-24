@@ -419,6 +419,11 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 120_000]
   )
 
+  forward("/exhub/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.ExhubServer, request_timeout: 120_000]
+  )
+
   # MCP Hub - unified endpoint for all upstream MCP servers
   forward("/mcp-hub",
     to: Exhub.MCP.LazyPlug,

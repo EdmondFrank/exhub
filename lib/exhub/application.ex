@@ -48,6 +48,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.AgentServer, transport: :streamable_http, request_timeout: 300_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Brain Server (Obsidian vault as second brain)
       {Exhub.MCP.BrainServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Exhub Self-Management Server (compile, reload, restart, status)
+      {Exhub.MCP.ExhubServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Hub - TaskSupervisor for non-blocking parallel client startup
       {Task.Supervisor, name: Exhub.MCP.Hub.TaskSupervisor},
       # MCP Hub - ClientManager for upstream server management
@@ -78,13 +80,16 @@ defmodule Exhub.Application do
   end
 
   defp cowboy_spec do
+    base_opts = [port: port(), dispatch: dispatch(), protocol_options: [idle_timeout: 1_800_000]]
+    options = Keyword.merge(base_opts, Exhub.GracefulRestart.socket_options())
+
     Plug.Cowboy.child_spec(
       scheme: :http,
       plug: Exhub.Router,
-      options: [port: port(), dispatch: dispatch(), protocol_options: [idle_timeout: 1_800_000]]
+      options: options
     )
   end
 
   defp dispatch, do: PlugSocket.plug_cowboy_dispatch(Exhub.Router)
-  defp port, do: Application.get_env(:bifrost, :port, 9069)
+  defp port, do: Application.get_env(:exhub, :port, 9069)
 end

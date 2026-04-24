@@ -226,5 +226,92 @@ Uses two strategies:
     (message "[Exhub] Backend not executable, falling back to WebSocket reload")
     (exhub-send "exhub-reload")))
 
+(defcustom exhub-graceful-restart-delay 3000
+  "Default delay in milliseconds before the BEAM VM restarts gracefully.
+The WebSocket reconnect is attempted after this delay plus a 5-second
+buffer to allow the server to finish starting up."
+  :type 'integer)
+
+(defun exhub--graceful-restart-internal (mode delay-ms)
+  "Schedule a graceful BEAM restart via RPC and reconnect the WebSocket.
+MODE is \"soft\" (`:init.restart/0') or \"hard\" (`:init.stop/0').
+DELAY-MS is the milliseconds the BEAM waits before restarting.
+
+Soft restart: OTP applications are stopped and restarted in-process;
+the OS process stays alive.  Only the WebSocket needs to be reconnected.
+
+Hard restart: the VM terminates entirely.  If Emacs owns the OS process
+(started via `exhub-start-elixir'), it is restarted before the WebSocket
+reconnect.  Otherwise an external supervisor (e.g. systemd) must restart
+the process."
+  (if (not (file-executable-p exhub-backend-path))
+      (message "[Exhub] Backend binary not executable; cannot schedule graceful restart")
+    (let* ((rpc-expr (format "Exhub.GracefulRestart.schedule_restart(:%s, %d)" mode delay-ms))
+           ;; Reconnect after the BEAM delay + 5 s startup buffer.
+           ;; Hard restarts need extra time for the OS process to come back up.
+           (reconnect-after (+ (/ delay-ms 1000.0)
+                               (if (string= mode "hard") 8 5))))
+      (message "[Exhub] Scheduling %s restart in %dms (reconnect in ~%.0fs)..."
+               mode delay-ms reconnect-after)
+      ;; Close the WebSocket now to avoid spurious close-error messages.
+      (when (exhub-open-connection)
+        (websocket-close exhub--websocket)
+        (exhub--stop-ping-timer))
+      (let ((proc (start-process "exhub-graceful-restart" nil
+                                 exhub-backend-path "rpc" rpc-expr)))
+        (set-process-sentinel
+         proc
+         (lambda (_proc _event)
+           (run-with-timer reconnect-after nil
+                           (lambda ()
+                             ;; For hard restarts, revive the Emacs-owned OS process if needed.
+                             (when (and (string= mode "hard")
+                                        exhub--elixir-process
+                                        (not (process-live-p exhub--elixir-process)))
+                               (message "[Exhub] Restarting Elixir OS process after hard restart...")
+                               (exhub-start-elixir)
+                               ;; Give the release a moment to bind the port before connecting.
+                               (run-with-timer 3 nil
+                                               (lambda ()
+                                                 (message "[Exhub] Reconnecting WebSocket after hard restart...")
+                                                 (exhub-start))))
+                             ;; Soft restart: process is already up, just reconnect.
+                             (when (string= mode "soft")
+                               (message "[Exhub] Reconnecting WebSocket after soft restart...")
+                               (exhub-start))))))))))
+
+(defun exhub-graceful-restart ()
+  "Gracefully restart the Exhub BEAM VM using a soft restart.
+
+Calls `Exhub.GracefulRestart.schedule_restart(:soft)' via RPC, which
+gracefully stops and restarts all OTP applications without terminating
+the OS process.  In-flight HTTP requests finish before the restart
+begins; downtime is typically under 5 seconds.
+
+The WebSocket connection is automatically re-established once the server
+is back up.  The delay before restart is controlled by
+`exhub-graceful-restart-delay'.
+
+For a hard restart (VM exit + external supervisor), use
+`exhub-graceful-restart-hard'."
+  (interactive)
+  (exhub--graceful-restart-internal "soft" exhub-graceful-restart-delay))
+
+(defun exhub-graceful-restart-hard ()
+  "Hard-restart the Exhub BEAM VM by stopping it entirely.
+
+Calls `Exhub.GracefulRestart.schedule_restart(:hard)' via RPC, which
+terminates the VM with `:init.stop/0'.  If Emacs owns the OS process
+(started via `exhub-start-elixir'), it is restarted automatically.
+Otherwise an external supervisor (e.g. systemd) is expected to bring
+the process back up.
+
+The WebSocket connection is re-established after the server is ready.
+The delay before shutdown is controlled by `exhub-graceful-restart-delay'.
+
+For a zero-downtime soft restart, use `exhub-graceful-restart'."
+  (interactive)
+  (exhub--graceful-restart-internal "hard" exhub-graceful-restart-delay))
+
 (provide 'exhub)
 ;;; exhub.el ends here
