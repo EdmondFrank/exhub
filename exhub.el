@@ -226,6 +226,44 @@ Uses two strategies:
     (message "[Exhub] Backend not executable, falling back to WebSocket reload")
     (exhub-send "exhub-reload")))
 
+(defun exhub-release ()
+  "Run the full Exhub release pipeline via RPC.
+
+Calls `Exhub.MCP.Tools.Exhub.Release.run/0' in the running BEAM VM,
+which executes the following steps in sequence:
+
+  1. mix compile        (MIX_ENV=prod)
+  2. mix release --overwrite
+  3. GracefulRestart.schedule_restart(:soft, 3000)
+
+Progress is written to the server log.  The result summary is
+displayed in the minibuffer and written to the *exhub-release* buffer.
+
+If the backend binary is not executable (e.g. first-time setup before
+any release exists), falls back to running the pipeline directly via
+`mix run' in a shell buffer."
+  (interactive)
+  (message "[Exhub] Starting release pipeline...")
+  (if (file-executable-p exhub-backend-path)
+      (let ((buffer (get-buffer-create "*exhub-release*")))
+        (with-current-buffer buffer
+          (erase-buffer))
+        (let ((proc (start-process "exhub-release" buffer
+                                   exhub-backend-path "rpc"
+                                   "Exhub.MCP.Tools.Exhub.Release.run()")))
+          (set-process-sentinel
+           proc
+           (lambda (proc _event)
+             (when (memq (process-status proc) '(exit signal))
+               (with-current-buffer (process-buffer proc)
+                 (message "%s" (string-trim (buffer-string)))))))))
+    (message "[Exhub] Backend not executable; running pipeline via mix in shell")
+    (let ((default-directory (file-name-directory exhub-backend-path)))
+      (async-shell-command
+       (format "MIX_ENV=%s mix compile && MIX_ENV=%s mix release --overwrite"
+               exhub-mix-env exhub-mix-env)
+       "*exhub-release*"))))
+
 (defcustom exhub-graceful-restart-delay 3000
   "Default delay in milliseconds before the BEAM VM restarts gracefully.
 The WebSocket reconnect is attempted after this delay plus a 5-second
