@@ -9,13 +9,15 @@ defmodule Exhub.MCP.Hub.ClientState do
     server_name: String.t(),
     config: Exhub.MCP.Hub.ServerConfig.t(),
     pid: pid() | nil,
+    supervisor_pid: pid() | nil,
     status: status(),
     tools: [map()] | nil,
     last_error: String.t() | nil,
+    crash_count: non_neg_integer(),
     connected_at: DateTime.t() | nil
   }
 
-  defstruct [:server_name, :config, :pid, :status, :tools, :last_error, :connected_at]
+  defstruct [:server_name, :config, :pid, :supervisor_pid, :status, :tools, :last_error, :crash_count, :connected_at]
 end
 
 defmodule Exhub.MCP.Hub.ClientManager do
@@ -55,12 +57,14 @@ defmodule Exhub.MCP.Hub.ClientManager do
   alias Exhub.MCP.Hub.{ServerConfig, ClientState}
 
   defstruct [
-    :dynamic_supervisor,
     :config_path,
     configs: %{},
     clients: %{},
-    pending_tasks: %{}
+    pending_tasks: %{},
+    supervisors: %{}
   ]
+
+  @max_crashes 3
 
   # Client API
 
@@ -140,12 +144,6 @@ defmodule Exhub.MCP.Hub.ClientManager do
   def init(_opts) do
     Process.flag(:trap_exit, true)
 
-    {:ok, dynamic_supervisor} = DynamicSupervisor.start_link(
-      strategy: :one_for_one,
-      max_restarts: 100,
-      max_seconds: 60
-    )
-
     config_path = Path.join(:code.priv_dir(:exhub), "mcp_servers.json")
     configs = load_configs(config_path)
 
@@ -159,16 +157,17 @@ defmodule Exhub.MCP.Hub.ClientManager do
         Map.put(acc, config.name, %ClientState{
           server_name: config.name,
           config: config,
-          status: :connecting
+          status: :connecting,
+          crash_count: 0
         })
       end)
 
     state = %__MODULE__{
-      dynamic_supervisor: dynamic_supervisor,
       config_path: config_path,
       configs: Map.new(configs, &{&1.name, &1}),
       clients: clients,
-      pending_tasks: %{}
+      pending_tasks: %{},
+      supervisors: %{}
     }
 
     {:ok, state, {:continue, :start_clients}}
@@ -184,18 +183,20 @@ defmodule Exhub.MCP.Hub.ClientManager do
     if Enum.empty?(enabled_configs) do
       {:noreply, state}
     else
+      # Each client gets its own DynamicSupervisor for fault isolation.
       # Launch each client in its own Task for parallel startup.
-      # Each Task spawns the Anubis.Client under the DynamicSupervisor,
-      # performs the MCP handshake, and discovers tools — all without
-      # blocking the GenServer message loop.
-      pending_tasks =
+      {pending_tasks, supervisors} =
         enabled_configs
-        |> Enum.reduce(%{}, fn config, acc ->
-          task = spawn_client_task(state.dynamic_supervisor, config)
-          Map.put(acc, task.ref, config.name)
+        |> Enum.reduce({%{}, state.supervisors}, fn config, {tasks_acc, sups_acc} ->
+          {:ok, sup_pid} = new_dynamic_supervisor()
+          task = spawn_client_task(sup_pid, config)
+          {
+            Map.put(tasks_acc, task.ref, config.name),
+            Map.put(sups_acc, config.name, sup_pid)
+          }
         end)
 
-      {:noreply, %{state | pending_tasks: pending_tasks}}
+      {:noreply, %{state | pending_tasks: pending_tasks, supervisors: supervisors}}
     end
   end
 
@@ -232,67 +233,69 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   @impl true
-  def handle_info({:EXIT, pid, reason}, %{dynamic_supervisor: sup_pid} = state) when pid == sup_pid do
-    Logger.error("DynamicSupervisor crashed: #{inspect(reason)}. Re-creating and scheduling reconnect in 30s.")
+  def handle_info({:EXIT, pid, reason}, state) do
+    # Check if this is a per-client DynamicSupervisor crashing
+    case Enum.find(state.supervisors, fn {_name, sup_pid} -> sup_pid == pid end) do
+      {server_name, _sup_pid} ->
+        crash_count = get_in(state.clients, [server_name, :crash_count]) || 0
+        new_crash_count = crash_count + 1
 
-    {:ok, new_sup} = DynamicSupervisor.start_link(
-      strategy: :one_for_one,
-      max_restarts: 100,
-      max_seconds: 60
-    )
+        Logger.error(
+          "DynamicSupervisor for #{server_name} crashed (#{new_crash_count}/#{@max_crashes}): #{inspect(reason)}"
+        )
 
-    new_clients =
-      state.clients
-      |> Enum.map(fn
-        {name, %{status: :connected} = client} ->
-          {name, %{client | status: :error, pid: nil, last_error: "supervisor_crashed: #{inspect(reason)}"}}
-        {name, client} ->
-          {name, client}
-      end)
-      |> Map.new()
+        if new_crash_count >= @max_crashes do
+          # Permanently disable this client
+          Logger.error("Client #{server_name} exceeded max crashes (#{@max_crashes}), permanently disabling")
 
-    Process.send_after(self(), :reconnect_failed_clients, 30_000)
+          new_clients =
+            Map.update!(state.clients, server_name, fn client ->
+              %{client | status: :error, pid: nil, supervisor_pid: nil,
+                last_error: "max_crashes_reached: #{inspect(reason)}",
+                crash_count: new_crash_count}
+            end)
 
-    {:noreply, %{state | dynamic_supervisor: new_sup, clients: new_clients, pending_tasks: %{}}}
+          {:noreply, %{state | clients: new_clients, supervisors: Map.delete(state.supervisors, server_name)}}
+        else
+          # Schedule reconnect for this specific client after delay
+          new_clients =
+            Map.update!(state.clients, server_name, fn client ->
+              %{client | status: :error, pid: nil, supervisor_pid: nil,
+                last_error: "supervisor_crashed: #{inspect(reason)}",
+                crash_count: new_crash_count}
+            end)
+
+          Process.send_after(self(), {:reconnect_client, server_name}, 30_000)
+
+          {:noreply, %{state | clients: new_clients, supervisors: Map.delete(state.supervisors, server_name)}}
+        end
+
+      nil ->
+        # EXIT from an unrelated process — ignore
+        {:noreply, state}
+    end
   end
 
   @impl true
-  def handle_info({:EXIT, _pid, _reason}, state) do
-    # EXIT from a child process other than the DynamicSupervisor — ignore,
-    # the DynamicSupervisor will handle restarts per its own strategy.
-    {:noreply, state}
-  end
+  def handle_info({:reconnect_client, server_name}, state) do
+    case Map.get(state.clients, server_name) do
+      %{config: %{enabled: true}, crash_count: count} when count < @max_crashes ->
+        {:ok, sup_pid} = new_dynamic_supervisor()
 
-  @impl true
-  def handle_info(:reconnect_failed_clients, state) do
-    if Process.alive?(state.dynamic_supervisor) do
-      failed_clients =
-        state.clients
-        |> Enum.filter(fn
-          {_name, %{status: status, config: %{enabled: true}}} when status in [:error, :disconnected] ->
-            true
-          _ ->
-            false
-        end)
+        task = spawn_client_task(sup_pid, state.clients[server_name].config)
 
-      pending_tasks =
-        Enum.reduce(failed_clients, state.pending_tasks, fn {name, client}, acc ->
-          task = spawn_client_task(state.dynamic_supervisor, client.config)
-          Map.put(acc, task.ref, name)
-        end)
+        new_clients =
+          Map.update!(state.clients, server_name, fn client ->
+            %{client | status: :connecting, supervisor_pid: sup_pid}
+          end)
 
-      # Mark reconnecting clients as :connecting
-      new_clients =
-        Enum.reduce(failed_clients, state.clients, fn {name, _client}, acc ->
-          Map.update!(acc, name, fn c -> %{c | status: :connecting} end)
-        end)
+        new_supervisors = Map.put(state.supervisors, server_name, sup_pid)
+        new_pending = Map.put(state.pending_tasks, task.ref, server_name)
 
-      {:noreply, %{state | clients: new_clients, pending_tasks: pending_tasks}}
-    else
-      # DynamicSupervisor is not alive — schedule another attempt
-      Logger.warning("DynamicSupervisor not alive during reconnect, retrying in 30s")
-      Process.send_after(self(), :reconnect_failed_clients, 30_000)
-      {:noreply, state}
+        {:noreply, %{state | clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -386,18 +389,29 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @impl true
   def handle_call({:remove_server, name}, _from, state) do
+    # Terminate the Anubis.Client child under its DynamicSupervisor
     case Map.get(state.clients, name) do
-      %{pid: pid} when is_pid(pid) ->
-        DynamicSupervisor.terminate_child(state.dynamic_supervisor, pid)
+      %{pid: pid, supervisor_pid: sup_pid} when is_pid(pid) and is_pid(sup_pid) ->
+        DynamicSupervisor.terminate_child(sup_pid, pid)
         Logger.info("Stopped client for server: #{name}")
+
+      %{pid: pid} when is_pid(pid) ->
+        Logger.warning("No supervisor found for #{name}, sending exit to client pid")
+        Process.exit(pid, :normal)
 
       _ ->
         :ok
     end
 
+    # Shut down the per-client DynamicSupervisor
+    if sup_pid = state.supervisors[name] do
+      Process.exit(sup_pid, :normal)
+    end
+
     new_state = %{state |
       configs: Map.delete(state.configs, name),
-      clients: Map.delete(state.clients, name)
+      clients: Map.delete(state.clients, name),
+      supervisors: Map.delete(state.supervisors, name)
     }
 
     save_configs(new_state.configs, new_state.config_path)
@@ -414,44 +428,42 @@ defmodule Exhub.MCP.Hub.ClientManager do
         updated_config = %{config | enabled: enabled, updated_at: DateTime.utc_now()}
         new_configs = Map.put(state.configs, name, updated_config)
 
-        new_clients =
-          if enabled do
-            Map.put(state.clients, name, %ClientState{
-              server_name: name,
-              config: updated_config,
-              status: :connecting
-            })
-          else
-            case Map.get(state.clients, name) do
-              %{pid: pid} when is_pid(pid) ->
-                DynamicSupervisor.terminate_child(state.dynamic_supervisor, pid)
-
-              _ ->
-                :ok
-            end
-
-            Map.put(state.clients, name, %ClientState{
-              server_name: name,
-              config: updated_config,
-              status: :disconnected
-            })
-          end
-
-        # For the enabled=true case, we need to also track the task
         new_state =
           if enabled do
-            task = spawn_client_task(state.dynamic_supervisor, updated_config)
-            new_pending = Map.put(state.pending_tasks, task.ref, name)
+            # Create a new DynamicSupervisor and start client asynchronously
+            {:ok, sup_pid} = new_dynamic_supervisor()
+            task = spawn_client_task(sup_pid, updated_config)
 
-            new_clients_map = Map.put(state.clients, name, %ClientState{
+            new_clients = Map.put(state.clients, name, %ClientState{
               server_name: name,
               config: updated_config,
-              status: :connecting
+              status: :connecting,
+              supervisor_pid: sup_pid,
+              crash_count: 0
             })
 
-            %{state | configs: new_configs, clients: new_clients_map, pending_tasks: new_pending}
+            new_supervisors = Map.put(state.supervisors, name, sup_pid)
+            new_pending = Map.put(state.pending_tasks, task.ref, name)
+
+            %{state | configs: new_configs, clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}
           else
-            %{state | configs: new_configs, clients: new_clients}
+            # Terminate the client and its supervisor
+            client = state.clients[name]
+            if client && client.pid && client.supervisor_pid do
+              DynamicSupervisor.terminate_child(client.supervisor_pid, client.pid)
+            end
+            if sup_pid = state.supervisors[name] do
+              Process.exit(sup_pid, :normal)
+            end
+
+            new_clients = Map.put(state.clients, name, %ClientState{
+              server_name: name,
+              config: updated_config,
+              status: :disconnected,
+              crash_count: 0
+            })
+
+            %{state | configs: new_configs, clients: new_clients, supervisors: Map.delete(state.supervisors, name)}
           end
 
         save_configs(new_state.configs, new_state.config_path)
@@ -529,42 +541,42 @@ defmodule Exhub.MCP.Hub.ClientManager do
         with :ok <- ServerConfig.validate(updated_config) do
           new_configs = Map.put(state.configs, name, updated_config)
 
-          {new_clients, new_pending} =
+          # Stop existing client and supervisor
+          client = state.clients[name]
+          if client && client.pid && client.supervisor_pid do
+            DynamicSupervisor.terminate_child(client.supervisor_pid, client.pid)
+          end
+          if sup_pid = state.supervisors[name] do
+            Process.exit(sup_pid, :normal)
+          end
+
+          {new_clients, new_supervisors, new_pending} =
             if updated_config.enabled do
-              # Stop existing client if running
-              case Map.get(state.clients, name) do
-                %{pid: pid} when is_pid(pid) ->
-                  DynamicSupervisor.terminate_child(state.dynamic_supervisor, pid)
-                _ -> :ok
-              end
-
-              # Start new client asynchronously
-              task = spawn_client_task(state.dynamic_supervisor, updated_config)
+              {:ok, sup_pid} = new_dynamic_supervisor()
+              task = spawn_client_task(sup_pid, updated_config)
 
               new_clients_map = Map.put(state.clients, name, %ClientState{
                 server_name: name,
                 config: updated_config,
-                status: :connecting
+                status: :connecting,
+                supervisor_pid: sup_pid,
+                crash_count: 0
               })
 
-              {new_clients_map, Map.put(state.pending_tasks, task.ref, name)}
+              {new_clients_map, Map.put(state.supervisors, name, sup_pid),
+               Map.put(state.pending_tasks, task.ref, name)}
             else
-              case Map.get(state.clients, name) do
-                %{pid: pid} when is_pid(pid) ->
-                  DynamicSupervisor.terminate_child(state.dynamic_supervisor, pid)
-                _ -> :ok
-              end
-
               new_clients_map = Map.put(state.clients, name, %ClientState{
                 server_name: name,
                 config: updated_config,
-                status: :disconnected
+                status: :disconnected,
+                crash_count: 0
               })
 
-              {new_clients_map, state.pending_tasks}
+              {new_clients_map, Map.delete(state.supervisors, name), state.pending_tasks}
             end
 
-          new_state = %{state | configs: new_configs, clients: new_clients, pending_tasks: new_pending}
+          new_state = %{state | configs: new_configs, clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}
           save_configs(new_state.configs, new_state.config_path)
           {:reply, {:ok, updated_config}, new_state}
         else
@@ -575,9 +587,17 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   # Private functions
 
+  defp new_dynamic_supervisor do
+    DynamicSupervisor.start_link(
+      strategy: :one_for_one,
+      max_restarts: 3,
+      max_seconds: 10
+    )
+  end
+
   defp spawn_client_task(supervisor, config) do
     # Each client is started in a dedicated Task that:
-    # 1. Starts the Anubis.Client under the DynamicSupervisor
+    # 1. Starts the Anubis.Client under its own DynamicSupervisor
     # 2. Waits for MCP handshake (with retries)
     # 3. Discovers available tools
     # The result is sent back as a message to this GenServer.
@@ -615,7 +635,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
         status: :connected,
         tools: tools,
         connected_at: DateTime.utc_now(),
-        last_error: nil
+        last_error: nil,
+        crash_count: 0
       }
     end)
   end
@@ -673,16 +694,21 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   defp start_and_register_client(state, config) do
-    # For dynamically added servers, also start asynchronously via Task
-    task = spawn_client_task(state.dynamic_supervisor, config)
+    # Create a dedicated DynamicSupervisor for this client
+    {:ok, sup_pid} = new_dynamic_supervisor()
+
+    task = spawn_client_task(sup_pid, config)
 
     new_clients = Map.put(state.clients, config.name, %ClientState{
       server_name: config.name,
       config: config,
-      status: :connecting
+      status: :connecting,
+      supervisor_pid: sup_pid,
+      crash_count: 0
     })
 
     new_configs = Map.put(state.configs, config.name, config)
+    new_supervisors = Map.put(state.supervisors, config.name, sup_pid)
     new_pending = Map.put(state.pending_tasks, task.ref, config.name)
 
     save_configs(new_configs, state.config_path)
@@ -690,6 +716,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
     %{state |
       configs: new_configs,
       clients: new_clients,
+      supervisors: new_supervisors,
       pending_tasks: new_pending
     }
   end
