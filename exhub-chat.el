@@ -34,6 +34,7 @@
 (require 'subr-x)
 (require 'markdown-mode)
 (require 'exhub)
+(require 'magit)
 
 (defgroup exhub-chat nil
   "Exhub Chat group."
@@ -452,17 +453,34 @@ Returns the command output as a string, or nil on error."
                 "Generating pull request description..."
                 "Generate pull request description done.")))
 
-(defun exhub-chat-generate-pull-review ()
+;; ─────────────────────────────────────────────────────────
+;; Magit-based Diff Preview & Review
+;; ─────────────────────────────────────────────────────────
+
+(defun exhub-compare-preview (target-branch)
+  "Show a preview of merging the current branch into TARGET-BRANCH.
+Uses `magit-diff-range' for a native Magit diff view with full
+section folding, hunk navigation, and staging integration."
+  (interactive (list (read-string "Enter target branch: ")))
+  (let ((current-branch (magit-get-current-branch)))
+    (magit-diff-range (format "%s...%s" target-branch current-branch))
+    ;; Return the active magit-diff buffer so callers can extract text.
+    (if (derived-mode-p 'magit-diff-mode)
+        (current-buffer)
+      (cl-loop for buf in (buffer-list)
+               when (with-current-buffer buf
+                      (derived-mode-p 'magit-diff-mode))
+               return buf))))
+
+(defun exhub-chat--magit-diff-output ()
+  "Extract the diff text from the current Magit diff buffer."
+  (buffer-substring-no-properties (point-min) (point-max)))
+
+(defun exhub-chat-generate-review-from-magit ()
+  "Generate a code review from the current Magit diff buffer."
   (interactive)
-  (let* ((buffer (generate-new-buffer (format "*exhub-chat-pull-review-buffer*")))
-         (target-branch (read-string "Enter target branch: "))
-         (magit-buffer (magit-merge-preview target-branch))
-         (diff-output (with-current-buffer magit-buffer
-                        (buffer-substring-no-properties (point-min) (point-max))))
-         (content (if (region-active-p)
-                      (string-trim (buffer-substring-no-properties (region-beginning) (region-end)))
-                    (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
-    (kill-buffer magit-buffer)
+  (let* ((buffer (generate-new-buffer "*exhub-chat-magit-review-buffer*"))
+         (diff-output (exhub-chat--magit-diff-output)))
     (split-window-right)
     (other-window 1)
     (switch-to-buffer buffer)
@@ -473,8 +491,54 @@ Returns the command output as a string, or nil on error."
                 (format "Please generate a code review for the following diff:\n%s" diff-output)
                 (buffer-name)
                 ""
-                "Generating pull request review..."
-                "Generate pull request review done.")))
+                "Generating code review from Magit..."
+                "Generate code review done.")))
+
+(with-eval-after-load 'magit-diff
+  (define-key magit-diff-mode-map (kbd "C-c C-r") #'exhub-chat-generate-review-from-magit))
+
+(defun exhub-chat-generate-pull-review ()
+  "Generate a code review from a Magit merge preview."
+  (interactive)
+  (let* ((buffer (generate-new-buffer (format "*exhub-chat-pull-review-buffer*")))
+         (target-branch (read-string "Enter target branch: "))
+         (magit-buffer (magit-merge-preview target-branch)))
+    (let ((diff-output (with-current-buffer magit-buffer
+                         (exhub-chat--magit-diff-output))))
+      (split-window-right)
+      (other-window 1)
+      (switch-to-buffer buffer)
+      (markdown-mode)
+      (delete-region (point-min) (point-max))
+      (exhub-call "exhub-chat"
+                  "You are a software developer responsible for conducting code reviews in the Engineering department of a technology/software company. After reviewing a code submission, generate a comprehensive report summarizing the findings. Include information such as identified issues, recommendations for improvement, areas of strength, and overall code quality assessment. The report should be well-structured, easy to understand, and provide actionable feedback to the developer."
+                  (format "Please generate a code review for the following diff:\n%s" diff-output)
+                  (buffer-name)
+                  ""
+                  "Generating pull request review..."
+                  "Generate pull request review done."))))
+
+(defun exhub-chat-generate-compare-review ()
+  "Generate a code review from a compare preview (current → target).
+Opens a Magit diff buffer and a review buffer side-by-side."
+  (interactive)
+  (let* ((buffer (generate-new-buffer (format "*exhub-chat-compare-review-buffer*")))
+         (target-branch (read-string "Enter target branch: "))
+         (magit-buffer (exhub-compare-preview target-branch)))
+    (let ((diff-output (with-current-buffer magit-buffer
+                         (exhub-chat--magit-diff-output))))
+      (split-window-right)
+      (other-window 1)
+      (switch-to-buffer buffer)
+      (markdown-mode)
+      (delete-region (point-min) (point-max))
+      (exhub-call "exhub-chat"
+                  "You are a software developer responsible for conducting code reviews in the Engineering department of a technology/software company. After reviewing a code submission, generate a comprehensive report summarizing the findings. Include information such as identified issues, recommendations for improvement, areas of strength, and overall code quality assessment. The report should be well-structured, easy to understand, and provide actionable feedback to the developer."
+                  (format "Please generate a code review for the following diff:\n%s" diff-output)
+                  (buffer-name)
+                  ""
+                  "Generating compare review..."
+                  "Generate compare review done."))))
 
 (defun exhub-chat-optimize-prompts ()
   (interactive)
