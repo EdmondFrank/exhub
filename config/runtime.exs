@@ -110,6 +110,16 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
         api_base: "http://127.0.0.1:9069/cohere/v1",
         api_key: fetch_secret.("cohere_api_key"),
         model: "openai/command-a-03-2025"
+      },
+      "openai/mimo-v2.5-pro" => %{
+        api_base: "https://token-plan-sgp.xiaomimimo.com/v1",
+        api_key: fetch_secret.("mimo_api_key"),
+        model: "openai/mimo-v2.5-pro"
+      },
+      "openai/mimo-v2.5" => %{
+        api_base: "https://token-plan-sgp.xiaomimimo.com/v1",
+        api_key: fetch_secret.("mimo_api_key"),
+        model: "openai/mimo-v2.5"
       }
     }
 
@@ -119,6 +129,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       burncloud_api_key: fetch_secret.("burncloud_api_key"),
       infini_api_key: fetch_secret.("infini_api_key"),
       minimax_api_key: fetch_secret.("minimax_api_key"),
+      mimo_api_key: fetch_secret.("mimo_api_key"),
       anthropic_api_key: fetch_secret.("anthropic_api_key"),
       openrouter_api_key: fetch_secret.("openrouter_api_key"),
       llms: llms_config,

@@ -30,6 +30,7 @@ defmodule Exhub.Router.Config do
     giteeai: "https://ai.gitee.com/v1",
     kimi: "https://api.kimi.com/coding/v1",
     minimaxi: "https://api.minimaxi.com/v1",
+    mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
     openai: @default_upstream,
@@ -86,6 +87,9 @@ defmodule Exhub.Router.Config do
 
   @minimax_models ["minimax-m2.7", "minimax-m2-preview"]
 
+  # MiMo AI models
+  @mimo_models ["mimo-v2.5-pro", "mimo-v2.5"]
+
   # Infini AI models (with inf- prefix for distinction)
   @infini_models [
     "inf-glm-5.1",
@@ -126,6 +130,9 @@ defmodule Exhub.Router.Config do
 
       model in @minimax_models ->
         @provider_urls.minimaxi
+
+      model in @mimo_models ->
+        @provider_urls.mimo
 
       model in [
         "tngtech/deepseek-r1t2-chimera:free",
@@ -172,6 +179,9 @@ defmodule Exhub.Router.Config do
 
       model in @minimax_models ->
         Application.get_env(:exhub, :minimax_api_key, "")
+
+      model in @mimo_models ->
+        Application.get_env(:exhub, :mimo_api_key, "")
 
       model in [
         "tngtech/deepseek-r1t2-chimera:free",

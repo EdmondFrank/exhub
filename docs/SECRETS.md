@@ -143,6 +143,7 @@ mix scr.insert dev groq_api_key "your-groq-key"
 mix scr.insert dev gemini_api_key "your-gemini-key"
 mix scr.insert dev cohere_api_key "your-cohere-key"
 mix scr.insert dev samba_api_key "your-samba-key"
+mix scr.insert dev mimo_api_key "your-mimo-key"
 ```
 
 ### Editing Secrets

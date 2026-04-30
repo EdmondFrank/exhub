@@ -80,6 +80,7 @@ create_secret "groq_api_key" "Groq API key"
 create_secret "gemini_api_key" "Google Gemini API key"
 create_secret "cohere_api_key" "Cohere API key"
 create_secret "samba_api_key" "Samba API key"
+create_secret "mimo_api_key" "MiMo API key"
 
 echo "=== Setup Complete ==="
 echo ""

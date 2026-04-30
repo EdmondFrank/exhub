@@ -98,6 +98,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    mix scr.insert dev gemini_api_key       "your-gemini-key"
    mix scr.insert dev cohere_api_key       "your-cohere-key"
    mix scr.insert dev samba_api_key        "your-samba-key"
+   mix scr.insert dev mimo_api_key         "your-mimo-key"
    ```
 
    All LLM configurations and the Gitee Cat cookie are automatically assembled from these secrets at runtime via `config/runtime.exs`. Secrets are encrypted at rest using AES-256-GCM — only the encrypted `.vault_secret` files are committed to Git.

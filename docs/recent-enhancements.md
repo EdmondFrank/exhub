@@ -1,5 +1,16 @@
 # Recent Enhancements
 
+## MiMo AI Models Integration
+- **New Provider**: Added support for Xiaomi MiMo AI models (`mimo-v2.5-pro`, `mimo-v2.5`) via OpenAI-compatible endpoint
+- **Dedicated Endpoint**: Routes to `https://token-plan-sgp.xiaomimimo.com/v1` (Singapore region)
+- **API Key**: Configured via `mimo_api_key` SecretVault entry
+- **OpenAI Proxy**: Requests with `"model": "mimo-v2.5-pro"` or `"model": "mimo-v2.5"` are automatically routed through `/openai/v1/*path`
+- **Setup**:
+  ```bash
+  mix scr.insert dev mimo_api_key "your-mimo-api-key"
+  ```
+- **Configuration**: LLM config entries added to `config/runtime.exs` for LangChain integration
+
 ## Org-mode Password Vault (exhub-vault)
 - **New Feature**: Emacs org-mode password vault integrated with Exhub backend for managing encrypted secrets as org links
 - **AES-256-GCM Encryption**: Secrets encrypted on the Elixir server using AES-256-GCM with the existing `SECRET_VAULT_PASSWORD` (SHA-256 key derivation, random 12-byte IV per encryption)
