@@ -8,7 +8,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
   - Line ending detection & normalization (LF / CRLF / CR)
   - Precise single-occurrence replacement via `global: false`
   - Helpful count-mismatch error with actionable suggestions
-  - Fuzzy-match fallback with Levenshtein similarity and character-level diff
+  - Fuzzy-match fallback with Levenshtein similarity, automatic replacement for ≥98% similarity, and character-level diff
   - Large-edit warning when search/replace text exceeds the recommended line limit
   """
 
@@ -19,6 +19,9 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
 
   # Minimum similarity (0–1) for a fuzzy match to be reported as "close"
   @fuzzy_threshold 0.7
+
+  # Similarity threshold for direct replacement with warning (98%)
+  @direct_replace_threshold 0.98
 
   # Lines above this threshold trigger a warning (mirrors Desktop Commander default)
   @max_lines_warning 50
@@ -34,9 +37,10 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
     `new_string`. The match is exact (case-sensitive). By default, exactly one
     replacement is expected; set `expected_replacements` to allow more.
 
-    When an exact match is not found, a fuzzy search is attempted and the closest
-    match is reported together with a character-level diff so you can correct the
-    search string.
+    When an exact match is not found, a fuzzy search is attempted. If the similarity
+    is 98% or higher, the replacement is applied automatically with a warning. For
+    lower similarities, the closest match is reported together with a character-level
+    diff so you can correct the search string.
 
     Use this tool for surgical edits — prefer it over rewriting the whole file
     when only a small section needs to change.
@@ -103,7 +107,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
       cond do
         count == 0 ->
           # Exact match failed – try fuzzy search as a helpful fallback.
-          handle_fuzzy_fallback(content, old_string, file_path)
+          handle_fuzzy_fallback(content, old_string, new_string, expected, file_path, file_line_ending)
 
         count != expected ->
           {:error,
@@ -162,29 +166,48 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
     end
   end
 
+  defp build_fuzzy_warning(similarity) do
+    "\n\nWARNING: Fuzzy match used (#{round(similarity * 100)}% similarity). The search string was automatically adjusted."
+  end
+
   # ---------------------------------------------------------------------------
   # Fuzzy-match fallback
   # ---------------------------------------------------------------------------
 
-  defp handle_fuzzy_fallback(content, search_string, file_path) do
+  defp handle_fuzzy_fallback(content, search_string, new_string, expected, file_path, file_line_ending) do
     {found_text, similarity} = find_best_fuzzy_match(content, search_string)
 
-    if similarity >= @fuzzy_threshold do
-      diff = highlight_differences(search_string, found_text)
+    cond do
+      similarity >= @direct_replace_threshold ->
+        # Direct replacement with warning
+        normalized_found = normalize_line_endings(found_text, file_line_ending)
+        normalized_replace = normalize_line_endings(new_string, file_line_ending)
+        new_content = apply_replacement(content, normalized_found, normalized_replace, expected)
+        warning = build_fuzzy_warning(similarity) <> build_line_warning(found_text, new_string)
 
-      {:error,
-       "Exact match not found in #{file_path}, but a similar passage was found " <>
-         "with #{round(similarity * 100)}% similarity.\n\n" <>
-         "Character-level diff (searched → found):\n#{diff}\n\n" <>
-         "Copy the exact text shown above as the found passage and use it as old_string."}
-    else
-      preview = String.slice(found_text, 0, 120)
+        case File.write(file_path, new_content) do
+          :ok -> {:ok, expected, warning}
+          {:error, :eacces} -> {:error, "Permission denied: #{file_path}"}
+          {:error, reason} -> {:error, inspect(reason)}
+        end
 
-      {:error,
-       "String not found in #{file_path}. " <>
-         "The closest match (\"#{preview}…\") has only #{round(similarity * 100)}% similarity, " <>
-         "which is below the #{round(@fuzzy_threshold * 100)}% threshold. " <>
-         "old_string must match the file content exactly (case-sensitive, including whitespace)."}
+      similarity >= @fuzzy_threshold ->
+        diff = highlight_differences(search_string, found_text)
+
+        {:error,
+         "Exact match not found in #{file_path}, but a similar passage was found " <>
+           "with #{round(similarity * 100)}% similarity.\n\n" <>
+           "Character-level diff (searched → found):\n#{diff}\n\n" <>
+           "Copy the exact text shown above as the found passage and use it as old_string."}
+
+      true ->
+        preview = String.slice(found_text, 0, 120)
+
+        {:error,
+         "String not found in #{file_path}. " <>
+           "The closest match (\"#{preview}…\") has only #{round(similarity * 100)}% similarity, " <>
+           "which is below the #{round(@fuzzy_threshold * 100)}% threshold. " <>
+           "old_string must match the file content exactly (case-sensitive, including whitespace)."}
     end
   end
 

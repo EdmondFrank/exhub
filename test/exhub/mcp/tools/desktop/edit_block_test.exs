@@ -132,5 +132,32 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
       assert text =~ "% similarity"
     end
+
+    test "fuzzy match: when similarity >= 98%, replacement is applied automatically with warning", %{tmp_dir: tmp_dir} do
+      file_path = Path.join(tmp_dir, "test.txt")
+      # Create a 100-character string
+      original = String.duplicate("a", 100)
+      File.write!(file_path, original)
+
+      frame = %{}
+      # Use a search string that differs by one character (99% similarity)
+      search_string = String.duplicate("a", 50) <> "b" <> String.duplicate("a", 49)
+      new_string = "replacement"
+
+      {:reply, resp, ^frame} =
+        EditBlock.execute(%{
+          file_path: file_path,
+          old_string: search_string,
+          new_string: new_string
+        }, frame)
+
+      # Should succeed with warning
+      assert resp.isError == false
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "WARNING: Fuzzy match used"
+      assert text =~ "99% similarity"
+      # File should contain the replacement
+      assert File.read!(file_path) =~ "replacement"
+    end
   end
 end
