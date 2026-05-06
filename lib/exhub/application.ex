@@ -29,6 +29,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.WebToolsServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Archery Server (SQL audit platform)
       {Exhub.MCP.ArcheryServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # Kuri Daemon — auto-starts the kuri HTTP server (Chrome CDP backend) via Exile
+      Exhub.KuriDaemon,
       # MCP Browser Server
       {Exhub.MCP.BrowserUseServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Image Generation Server
