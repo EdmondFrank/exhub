@@ -98,13 +98,18 @@ defmodule Exhub.Router do
     {"/infini/v1", "https://cloud.infini-ai.com/maas/v1"}
   ]
 
-  for {path, upstream} <- @proxy_routes do
-    post "#{path}/*path" do
+  for {route_path, upstream} <- @proxy_routes do
+    provider = route_path |> String.trim_leading("/") |> String.split("/") |> List.first()
+
+    post "#{route_path}/*path" do
       Logger.info("[Proxy] Forwarding request to #{unquote(upstream)}/#{Enum.join(path, "/")}")
       start = System.monotonic_time(:millisecond)
-      conn = ProxyPlug.forward_upstream(conn, unquote(upstream),
-        client_options: [proxy: RouterConfig.get_proxy()]
-      )
+
+      conn =
+        ProxyPlug.forward_upstream(conn, unquote(upstream),
+          client_options: [proxy: ProxyPlug.proxy_for_provider(unquote(provider))]
+        )
+
       duration = System.monotonic_time(:millisecond) - start
       Logger.info("[Proxy] Forwarded in #{duration}ms")
       conn

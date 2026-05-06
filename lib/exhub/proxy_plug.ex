@@ -10,6 +10,37 @@ defmodule Exhub.ProxyPlug do
   @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"]
 
   @doc """
+  Returns whether proxy should be used for the given provider.
+
+  Configuration via `:exhub, :proxy_providers`:
+  - `:all` — all providers use proxy (default for backward compatibility)
+  - `list(String.t())` — only specified providers use proxy
+  - `:none` or `[]` — no providers use proxy
+  """
+  def proxy_enabled_for_provider?(provider) when is_binary(provider) do
+    providers = Application.get_env(:exhub, :proxy_providers, :all)
+
+    case providers do
+      :all -> true
+      :none -> false
+      list when is_list(list) -> provider in list
+      _ -> true
+    end
+  end
+
+  @doc """
+  Returns the proxy URL to use for a given provider, or an empty string
+  if no proxy should be used.
+  """
+  def proxy_for_provider(provider) when is_binary(provider) do
+    if proxy_enabled_for_provider?(provider) do
+      Application.get_env(:exhub, :proxy, "")
+    else
+      ""
+    end
+  end
+
+  @doc """
   Forward connection to upstream server with proper error handling.
   """
   def forward_upstream(conn, upstream, opts \\ []) do
@@ -185,7 +216,9 @@ defmodule Exhub.ProxyPlug do
     # Normalize model name by stripping prefixes before sending to API
     body_params =
       case Map.get(body_params, "model") do
-        nil -> body_params
+        nil ->
+          body_params
+
         model ->
           normalized_model = Exhub.Router.Config.normalize_model_name(model)
           Map.put(body_params, "model", normalized_model)
@@ -246,7 +279,7 @@ defmodule Exhub.ProxyPlug do
     end
   end
 
-  defp extract_provider(path) do
+  def extract_provider(path) do
     cond do
       String.contains?(path, "openai") -> "openai"
       String.contains?(path, "anthropic") -> "anthropic"

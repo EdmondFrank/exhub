@@ -8,6 +8,8 @@ config :exhub, :shell, "zsh"
 # Override in runtime.exs or environment-specific config.
 config :exhub, :obsidian_vault_path, "~/GTD/PKB"
 
+config :exhub, :proxy_providers, ["openrouter"]
+
 config :exhub, :secret_vault,
   default: [
     password: System.get_env("SECRET_VAULT_PASSWORD", "")

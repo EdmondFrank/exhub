@@ -17,7 +17,7 @@ defmodule Exhub do
   def send_message(message) do
     Registry.dispatch(Exhub.Registry, "socket_handler", fn entries ->
       for {pid, mode} <- entries do
-        Logger.debug("a subscribed is #{inspect mode}")
+        Logger.debug("a subscribed is #{inspect(mode)}")
         Logger.debug("Sending message to emacs #{message}")
         send(pid, {:send_to_emacs, message})
       end
