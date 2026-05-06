@@ -18,7 +18,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Time Tools**: MCP-based timezone-aware time utilities for getting current time and converting between timezones.
 - **Code Completion**: LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
 - **Advanced Configuration Management**: Enhanced LLM configuration server with validation, error handling, and type specifications.
-- **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing.
+- **Browser Automation**: MCP-based Chrome browser automation via `kuri-agent` (CDP), exposing tools for navigation, element interaction, screenshots, security audits, JWT scanning, and IDOR probing. Chrome is auto-managed by `KuriDaemon` — no manual Chrome startup required.
 - **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
 - **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion`, and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
 - **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Supports document extraction (PDF, DOCX, images) via Gitee AI PaddleOCR. Exposes 17 tools at `/desktop/mcp`, including `read_multiple_files` for parallel file reading.
@@ -48,9 +48,10 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    ```
 
    **Note**: For Browser Automation (`browser_*` MCP tools), `kuri-agent` must be
-   installed and available on your `PATH`, and Chrome must be running with remote
-   debugging enabled. See [docs/modules/browser-use.md](docs/modules/browser-use.md)
-   for full setup instructions.
+   installed and available on your `PATH`. Chrome is now **auto-managed** by
+   `KuriDaemon` — no manual Chrome startup required. See
+   [docs/modules/browser-use.md](docs/modules/browser-use.md) for full setup
+   instructions.
 
    **Quick setup for browser automation:**
    ```bash
@@ -59,13 +60,12 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    zig build agent -Doptimize=ReleaseFast
    cp ./zig-out/bin/kuri-agent /usr/local/bin/kuri-agent
 
-   # 2. Launch Chrome with remote debugging
-   # macOS:
-   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-     --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
+   # 2. Verify kuri-agent is on PATH
+   which kuri-agent
 
-   # 3. Verify
-   which kuri-agent && curl -s http://localhost:9222/json/version | head -1
+   # 3. (Optional) Build kuri server for KuriDaemon
+   zig build -Doptimize=ReleaseFast
+   cp ./zig-out/bin/kuri /usr/local/bin/kuri
    ```
 
 3. **Configuration**:

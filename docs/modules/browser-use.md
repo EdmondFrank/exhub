@@ -41,38 +41,40 @@ kuri-agent --help       # must print usage
 > ⚠️ If `kuri-agent` is not on `PATH`, all `browser_*` MCP tools will fail with
 > a "Failed to run kuri-agent" error.
 
-### 2. Start Chrome with remote debugging enabled
+### 2. Chrome is auto-managed by KuriDaemon
 
-`kuri-agent` connects to Chrome via CDP on port 9222 (default). Launch Chrome
-with the `--remote-debugging-port` flag **before** using any browser tools:
+Chrome is now **automatically started and managed** by `KuriDaemon` — no manual
+Chrome startup is required. The daemon:
 
-**macOS:**
+- Auto-detects the `kuri` binary (from PATH, `~/Code/kuri/zig-out/bin/kuri`, or `:kuri_binary` config)
+- Starts Chrome in headless mode on port 18080 (configurable via `:kuri_port`)
+- Performs health checks every 30 seconds and auto-restarts on failure
 
-```bash
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222 \
-  --no-first-run \
-  --no-default-browser-check \
-  --user-data-dir=/tmp/chrome-debug
-```
-
-**Linux:**
+**Optional: Build kuri server for KuriDaemon:**
 
 ```bash
-google-chrome \
-  --remote-debugging-port=9222 \
-  --no-first-run \
-  --no-default-browser-check \
-  --user-data-dir=/tmp/chrome-debug
+# From the kuri repo
+zig build -Doptimize=ReleaseFast
+cp ./zig-out/bin/kuri /usr/local/bin/kuri
 ```
 
-**Verify Chrome is reachable:**
+**Configuration (application env):**
+
+| Key              | Default       | Description                    |
+|------------------|---------------|--------------------------------|
+| `:kuri_enabled`  | `true`        | Enable/disable the daemon      |
+| `:kuri_port`     | `18080`       | HTTP listen port               |
+| `:kuri_host`     | `"127.0.0.1"` | Bind address                  |
+| `:kuri_headless` | `true`        | Run Chrome headless            |
+| `:kuri_binary`   | `nil`         | Explicit path to `kuri` binary |
+
+**Verify KuriDaemon is running:**
 
 ```bash
-curl http://localhost:9222/json/version
+curl http://localhost:18080/health
 ```
 
-You should see a JSON response with Chrome version info.
+You should see a healthy response from the kuri server.
 
 ## Features
 

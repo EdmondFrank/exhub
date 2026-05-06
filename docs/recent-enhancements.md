@@ -1,5 +1,24 @@
 # Recent Enhancements
 
+## KuriDaemon — Auto-managed Chrome CDP Backend
+- **New Daemon**: `Exhub.KuriDaemon` auto-starts and manages the `kuri` HTTP server binary via Exile
+- **Zig-based Kuri Server**: Kuri is a Zig-based browser automation server that manages Chrome via CDP and exposes an HTTP API (tabs, navigate, snapshot, action, etc.)
+- **Auto-detection**: Automatically finds the `kuri` binary from PATH, `~/Code/kuri/zig-out/bin/kuri`, or explicit `:kuri_binary` config
+- **Health Monitoring**: Performs health checks every 30 seconds against the `/health` endpoint with automatic restart on failure
+- **Graceful Shutdown**: Sends SIGTERM to the kuri process on Exhub shutdown for clean cleanup
+- **Configuration**:
+  | Key              | Default       | Description                    |
+  |------------------|---------------|--------------------------------|
+  | `:kuri_enabled`  | `true`        | Enable/disable the daemon      |
+  | `:kuri_port`     | `18080`       | HTTP listen port               |
+  | `:kuri_host`     | `"127.0.0.1"` | Bind address                  |
+  | `:kuri_headless` | `true`        | Run Chrome headless            |
+  | `:kuri_binary`   | `nil`         | Explicit path to `kuri` binary |
+- **No Manual Chrome Startup**: Chrome is now auto-managed — no need to launch Chrome with `--remote-debugging-port` manually
+- **Browser Backend**: Provides the browser backend for `kuri-agent` and BrowserUse MCP tools
+- **Supervisor Integration**: Registered in `Exhub.Application` supervisor for automatic lifecycle management
+- **Full Docs**: [lib/exhub/kuri_daemon.ex](../lib/exhub/kuri_daemon.ex) (moduledoc)
+
 ## MiMo AI Models Integration
 - **New Provider**: Added support for Xiaomi MiMo AI models (`mimo-v2.5-pro`, `mimo-v2.5`) via OpenAI-compatible endpoint
 - **Dedicated Endpoint**: Routes to `https://token-plan-sgp.xiaomimimo.com/v1` (Singapore region)
@@ -113,7 +132,7 @@
   - `browser_auth_headers` — Manage persistent CDP auth headers (`set_header` / `show_headers` / `clear_headers`)
 - **Exile Integration**: Uses `Exile.stream/2` (not `stream!/2`) to tolerate non-zero exit codes from `kuri-agent` without raising
 - **New Dependency**: `{:exile, "~> 0.10"}` added to `mix.exs`
-- **Prerequisites**: `kuri-agent` binary must be on `PATH` and Chrome must be running with `--remote-debugging-port=9222`
+- **Prerequisites**: `kuri-agent` binary must be on `PATH`. Chrome is now auto-managed by `KuriDaemon` — no manual startup required.
 - **Full Docs**: [docs/modules/browser-use.md](docs/modules/browser-use.md)
 
 ## Archery SQL Audit Integration
