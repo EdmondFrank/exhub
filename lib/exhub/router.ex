@@ -522,14 +522,17 @@ defmodule Exhub.Router do
   end
 
   get "/dashboard/data" do
-    days = Helpers.parse_int(conn.params["days"], 30)
+    days = Helpers.parse_int(conn.params["days"], nil)
     start_date = conn.params["start_date"]
     end_date = conn.params["end_date"]
+    model = conn.params["model"]
 
     filters =
-      %{days: days}
+      %{}
+      |> Helpers.maybe_put(:days, days)
       |> Helpers.maybe_put(:start_date, start_date)
       |> Helpers.maybe_put(:end_date, end_date)
+      |> Helpers.maybe_put(:model, model)
 
     case Exhub.TokenUsage.TokenUsageStats.get_dashboard_data(filters) do
       {:ok, data} ->

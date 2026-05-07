@@ -171,6 +171,20 @@ defmodule Exhub.Router.DashboardView do
           border-color: #388bfd;
           color: white;
         }
+        .filter-select {
+          background: #21262d;
+          color: #c9d1d9;
+          border: 1px solid #30363d;
+          padding: 6px 14px;
+          border-radius: 6px;
+          font-size: 13px;
+          cursor: pointer;
+          min-width: 160px;
+        }
+        .filter-select:focus {
+          outline: none;
+          border-color: #1f6feb;
+        }
         .refresh-btn {
           background: #238636;
           color: white;
@@ -285,6 +299,10 @@ defmodule Exhub.Router.DashboardView do
           <button class="filter-btn active" id="filter-30d" onclick="setFilter('30d')">Last 30 Days</button>
           <button class="filter-btn" id="filter-7d" onclick="setFilter('7d')">Last 7 Days</button>
           <button class="filter-btn" id="filter-all" onclick="setFilter('all')">All Time</button>
+          <span class="filter-label">Model:</span>
+          <select class="filter-select" id="model-filter" onchange="setModelFilter(this.value)">
+            <option value="">All Models</option>
+          </select>
         </div>
 
         <div id="error"></div>
@@ -372,6 +390,7 @@ defmodule Exhub.Router.DashboardView do
 
       <script>
         var currentFilter = '30d';
+        var currentModelFilter = '';
 
         function formatNumber(num) {
           if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -408,6 +427,9 @@ defmodule Exhub.Router.DashboardView do
           } else if (filter === '30d') {
             params.days = 30;
           }
+          if (currentModelFilter) {
+            params.model = currentModelFilter;
+          }
           return params;
         }
 
@@ -427,6 +449,24 @@ defmodule Exhub.Router.DashboardView do
           document.getElementById('trends-title').textContent = titles[filter] || 'Usage Trends';
 
           loadDashboard();
+        }
+
+        function setModelFilter(model) {
+          currentModelFilter = model;
+          loadDashboard();
+        }
+
+        function updateModelFilterOptions(models) {
+          var select = document.getElementById('model-filter');
+          var currentValue = select.value;
+          select.innerHTML = '<option value="">All Models</option>';
+          models.forEach(function(model) {
+            var option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            select.appendChild(option);
+          });
+          select.value = currentValue;
         }
 
         async function loadDashboard() {
@@ -455,6 +495,10 @@ defmodule Exhub.Router.DashboardView do
             document.getElementById('output-tokens').textContent = formatNumber(summary.total_output_tokens);
             document.getElementById('total-cost').textContent = formatCurrency(summary.total_cost);
             document.getElementById('unique-models').textContent = summary.unique_models_count;
+
+            if (summary.unique_models) {
+              updateModelFilterOptions(summary.unique_models);
+            }
 
             var trends = data.trends || [];
             if (trends.length === 0) {

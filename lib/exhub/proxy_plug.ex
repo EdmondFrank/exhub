@@ -216,9 +216,7 @@ defmodule Exhub.ProxyPlug do
     # Normalize model name by stripping prefixes before sending to API
     body_params =
       case Map.get(body_params, "model") do
-        nil ->
-          body_params
-
+        nil -> body_params
         model ->
           normalized_model = Exhub.Router.Config.normalize_model_name(model)
           Map.put(body_params, "model", normalized_model)

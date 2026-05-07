@@ -13,6 +13,30 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
   # Default pricing per 1M tokens (in USD).
   # Keys are lowercase, without provider prefix, date suffix, or "-latest" suffix.
   @default_pricing %{
+    # OpenAI GPT-5 family
+    "gpt-5" => %{input: 1.25, output: 10.0},
+    "gpt-5-mini" => %{input: 0.25, output: 2.0},
+    "gpt-5-nano" => %{input: 0.05, output: 0.4},
+    "gpt-5-pro" => %{input: 15.0, output: 120.0},
+    "gpt-5-codex" => %{input: 1.25, output: 10.0},
+    "gpt-5-chat" => %{input: 1.25, output: 10.0},
+    "gpt-5.1" => %{input: 1.25, output: 10.0},
+    "gpt-5.1-chat" => %{input: 1.25, output: 10.0},
+    "gpt-5.1-codex" => %{input: 1.25, output: 10.0},
+    "gpt-5.1-codex-mini" => %{input: 0.25, output: 2.0},
+    "gpt-5.1-codex-max" => %{input: 1.25, output: 10.0},
+    "gpt-5.2" => %{input: 1.75, output: 14.0},
+    "gpt-5.2-chat" => %{input: 1.75, output: 14.0},
+    "gpt-5.2-pro" => %{input: 21.0, output: 168.0},
+    "gpt-5.2-codex" => %{input: 1.75, output: 14.0},
+    "gpt-5.3-chat" => %{input: 1.75, output: 14.0},
+    "gpt-5.3-codex" => %{input: 1.75, output: 14.0},
+    "gpt-5.4" => %{input: 2.5, output: 15.0},
+    "gpt-5.4-pro" => %{input: 30.0, output: 180.0},
+    "gpt-5.4-mini" => %{input: 0.75, output: 4.5},
+    "gpt-5.4-nano" => %{input: 0.2, output: 1.25},
+    "gpt-5.5" => %{input: 5.0, output: 30.0},
+    "gpt-5.5-pro" => %{input: 30.0, output: 180.0},
     # OpenAI GPT-4 family
     "gpt-4" => %{input: 30.0, output: 60.0},
     "gpt-4-32k" => %{input: 60.0, output: 120.0},
@@ -22,50 +46,110 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
     "gpt-4.1" => %{input: 2.0, output: 8.0},
     "gpt-4.1-mini" => %{input: 0.4, output: 1.6},
     "gpt-4.1-nano" => %{input: 0.1, output: 0.4},
-    "gpt-4.5-preview" => %{input: 75.0, output: 150.0},
     # OpenAI reasoning models
     "o1" => %{input: 15.0, output: 60.0},
     "o1-mini" => %{input: 3.0, output: 12.0},
+    "o1-pro" => %{input: 150.0, output: 600.0},
+    "o3" => %{input: 2.0, output: 8.0},
     "o3-mini" => %{input: 1.1, output: 4.4},
-    "o3" => %{input: 10.0, output: 40.0},
+    "o3-pro" => %{input: 20.0, output: 80.0},
+    "o4-mini" => %{input: 1.1, output: 4.4},
     # Legacy
     "gpt-3.5-turbo" => %{input: 0.5, output: 1.5},
+    # Anthropic Claude 4
+    "claude-opus-4" => %{input: 15.0, output: 75.0},
+    "claude-opus-4.1" => %{input: 15.0, output: 75.0},
+    "claude-opus-4.5" => %{input: 15.0, output: 75.0},
+    "claude-opus-4.6" => %{input: 5.0, output: 25.0},
+    "claude-opus-4.7" => %{input: 5.0, output: 25.0},
+    "claude-sonnet-4" => %{input: 3.0, output: 15.0},
+    "claude-sonnet-4.5" => %{input: 3.0, output: 15.0},
+    "claude-sonnet-4.6" => %{input: 3.0, output: 15.0},
+    "claude-haiku-4" => %{input: 1.0, output: 5.0},
+    "claude-haiku-4.5" => %{input: 1.0, output: 5.0},
     # Anthropic Claude 3
     "claude-3-opus" => %{input: 15.0, output: 75.0},
     "claude-3-sonnet" => %{input: 3.0, output: 15.0},
     "claude-3-haiku" => %{input: 0.25, output: 1.25},
     # Anthropic Claude 3.5
     "claude-3-5-sonnet" => %{input: 3.0, output: 15.0},
-    "claude-3-5-haiku" => %{input: 0.8, output: 4.0},
+    "claude-3-5-haiku" => %{input: 1.0, output: 5.0},
     # Anthropic Claude 3.7
     "claude-3-7-sonnet" => %{input: 3.0, output: 15.0},
-    # Anthropic Claude 4
-    "claude-opus-4" => %{input: 15.0, output: 75.0},
-    "claude-sonnet-4" => %{input: 3.0, output: 15.0},
-    "claude-haiku-4" => %{input: 0.8, output: 4.0},
-    # Google Gemini
+    # Google Gemini 3
+    "gemini-3-flash-preview" => %{input: 0.5, output: 3.0},
+    "gemini-3-pro-preview" => %{input: 2.0, output: 12.0},
+    "gemini-3.1-flash-lite-preview" => %{input: 0.25, output: 1.5},
+    "gemini-3.1-pro-preview" => %{input: 2.0, output: 12.0},
+    # Google Gemini 2.5
     "gemini-2.5-pro" => %{input: 1.25, output: 10.0},
-    "gemini-2.5-flash" => %{input: 0.15, output: 0.6},
+    "gemini-2.5-flash" => %{input: 0.3, output: 2.5},
+    "gemini-2.5-flash-lite" => %{input: 0.1, output: 0.4},
+    # Google Gemini 2.0
     "gemini-2.0-flash" => %{input: 0.1, output: 0.4},
+    "gemini-2.0-flash-lite" => %{input: 0.075, output: 0.3},
+    # Google Gemini 1.5
     "gemini-1.5-pro" => %{input: 1.25, output: 5.0},
     "gemini-1.5-flash" => %{input: 0.075, output: 0.3},
+    # xAI Grok
+    "grok-3" => %{input: 3.0, output: 15.0},
+    "grok-3-mini" => %{input: 0.3, output: 0.5},
+    "grok-4" => %{input: 3.0, output: 15.0},
+    "grok-4-fast" => %{input: 0.2, output: 0.5},
+    "grok-4.1-fast" => %{input: 0.2, output: 0.5},
+    "grok-4.20" => %{input: 1.25, output: 2.5},
+    "grok-4.3" => %{input: 1.25, output: 2.5},
     # DeepSeek
-    "deepseek-chat" => %{input: 0.27, output: 1.1},
-    "deepseek-v3" => %{input: 0.27, output: 1.1},
-    "deepseek-v3.2" => %{input: 0.27, output: 1.1},
-    "deepseek-reasoner" => %{input: 0.55, output: 2.19},
-    "deepseek-r1" => %{input: 0.55, output: 2.19},
+    "deepseek-chat" => %{input: 0.32, output: 0.89},
+    "deepseek-v3" => %{input: 0.32, output: 0.89},
+    "deepseek-v3.1" => %{input: 0.15, output: 0.75},
+    "deepseek-v3.2" => %{input: 0.252, output: 0.378},
+    "deepseek-v3.2-speciale" => %{input: 0.287, output: 0.431},
+    "deepseek-v4-pro" => %{input: 0.435, output: 0.87},
+    "deepseek-v4-flash" => %{input: 0.14, output: 0.28},
+    "deepseek-reasoner" => %{input: 0.7, output: 2.5},
+    "deepseek-r1" => %{input: 0.7, output: 2.5},
+    "deepseek-r1-0528" => %{input: 0.5, output: 2.15},
     # Qwen
-    "qwen2.5-72b-instruct" => %{input: 0.4, output: 1.2},
-    "qwen3-235b-a22b" => %{input: 0.6, output: 2.4},
-    "qwen3-coder-480b-a35b-instruct" => %{input: 0.6, output: 2.4},
+    "qwen2.5-72b-instruct" => %{input: 0.36, output: 0.4},
+    "qwen3-235b-a22b" => %{input: 0.455, output: 1.82},
+    "qwen3-coder-480b-a35b-instruct" => %{input: 0.22, output: 1.8},
+    "qwen3-max" => %{input: 0.78, output: 3.9},
+    "qwen3-coder-plus" => %{input: 0.65, output: 3.25},
+    "qwen3-coder-flash" => %{input: 0.195, output: 0.975},
+    "qwen3.5-flash" => %{input: 0.065, output: 0.26},
+    "qwen3.5-plus" => %{input: 0.26, output: 1.56},
+    "qwen3.6-flash" => %{input: 0.25, output: 1.5},
+    "qwen3.6-plus" => %{input: 0.325, output: 1.95},
+    "qwen3.6-max-preview" => %{input: 1.04, output: 6.24},
     # Kimi / Moonshot
-    "kimi-k2.5" => %{input: 0.6, output: 2.5},
-    "kimi-k2-instruct" => %{input: 0.6, output: 2.5},
+    "kimi-k2.5" => %{input: 0.44, output: 2.0},
+    "kimi-k2-instruct" => %{input: 0.57, output: 2.3},
+    "kimi-k2.6" => %{input: 0.75, output: 3.5},
+    "kimi-k2-thinking" => %{input: 0.6, output: 2.5},
+    # Xiaomi MiMo
+    "mimo-v2-flash" => %{input: 0.1, output: 0.3},
+    "mimo-v2-pro" => %{input: 1.0, output: 3.0},
+    "mimo-v2.5" => %{input: 0.5, output: 1.5},
+    "mimo-v2.5-pro" => %{input: 1.0, output: 3.0},
     # Mistral
-    "mistral-small" => %{input: 0.2, output: 0.6},
+    "mistral-small" => %{input: 0.15, output: 0.6},
+    "mistral-small-3.2" => %{input: 0.075, output: 0.2},
+    "mistral-medium-3" => %{input: 0.4, output: 2.0},
+    "mistral-medium-3.5" => %{input: 1.5, output: 7.5},
     "mistral-large" => %{input: 2.0, output: 6.0},
+    "mistral-large-3" => %{input: 0.5, output: 1.5},
     "codestral" => %{input: 0.3, output: 0.9},
+    "devstral-small" => %{input: 0.1, output: 0.3},
+    "devstral-medium" => %{input: 0.4, output: 2.0},
+    # Z.ai / Zhipu
+    "glm-4.5" => %{input: 0.6, output: 2.2},
+    "glm-4.6" => %{input: 0.39, output: 1.9},
+    "glm-4.7" => %{input: 0.38, output: 1.74},
+    "glm-5" => %{input: 0.6, output: 1.92},
+    "glm-5-turbo" => %{input: 1.2, output: 4.0},
+    "glm-5v-turbo" => %{input: 1.2, output: 4.0},
+    "glm-5.1" => %{input: 1.05, output: 3.5},
     # Cohere
     "command-r-plus" => %{input: 2.5, output: 10.0},
     "command-a-03-2025" => %{input: 2.5, output: 10.0},
@@ -83,9 +167,15 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
     "mistral" => %{input: 0.2, output: 0.6},
     "cohere" => %{input: 2.5, output: 10.0},
     "deepseek" => %{input: 0.27, output: 1.1},
-    "qwen" => %{input: 0.4, output: 1.2},
-    "kimi" => %{input: 0.6, output: 2.5},
-    "moonshot" => %{input: 0.6, output: 2.5},
+    "qwen" => %{input: 0.3, output: 1.5},
+    "kimi" => %{input: 0.5, output: 2.2},
+    "moonshot" => %{input: 0.5, output: 2.2},
+    "mimo" => %{input: 0.5, output: 1.5},
+    "x-ai" => %{input: 1.25, output: 2.5},
+    "grok" => %{input: 1.25, output: 2.5},
+    "z-ai" => %{input: 0.6, output: 2.2},
+    "zhipu" => %{input: 0.6, output: 2.2},
+    "glm" => %{input: 0.6, output: 2.2},
     "siliconflow" => %{input: 0.4, output: 1.2},
     "gitee" => %{input: 0.4, output: 1.2}
   }
@@ -242,6 +332,9 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
       String.starts_with?(normalized, "kimi-") or
           String.starts_with?(normalized, "moonshot-") ->
         Map.get(pricing, "kimi-k2.5")
+
+      String.starts_with?(normalized, "mimo-") ->
+        Map.get(pricing, "mimo-v2.5")
 
       String.starts_with?(normalized, "mistral-") or
           String.starts_with?(normalized, "codestral") ->
@@ -407,6 +500,7 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
       %{}
       |> maybe_put_filter(:start_date, Map.get(filters, :start_date))
       |> maybe_put_filter(:end_date, Map.get(filters, :end_date))
+      |> maybe_put_filter(:model, Map.get(filters, :model))
 
     if map_size(base) == 0 and Map.has_key?(filters, :days) do
       days = Map.get(filters, :days)

@@ -343,7 +343,7 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
       state.table
       |> :ets.tab2list()
       |> Enum.map(fn {_key, record} -> record end)
-      |> apply_date_filters(filters)
+      |> apply_filters(filters)
 
     grouped =
       case group_by do
@@ -382,7 +382,7 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
       state.table
       |> :ets.tab2list()
       |> Enum.map(fn {_key, record} -> record end)
-      |> apply_date_filters(filters)
+      |> apply_filters(filters)
 
     summary =
       Enum.reduce(
@@ -572,11 +572,6 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
     |> filter_by_provider(filters[:provider])
     |> filter_by_date_range(filters[:start_date], filters[:end_date])
     |> sort_by_timestamp(:desc)
-  end
-
-  defp apply_date_filters(records, filters) do
-    records
-    |> filter_by_date_range(filters[:start_date], filters[:end_date])
   end
 
   defp apply_pagination(records, filters) do
