@@ -31,7 +31,8 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     Parameters:
     - command: The shell command to execute
     - working_dir: Working directory for the command. Required unless the command
-      uses absolute paths or includes 'cd'. (Current server pwd: #{Helpers.current_pwd()})
+      contains absolute paths (starting with / or ~/) or includes 'cd'.
+      (Current server pwd: #{Helpers.current_pwd()})
     """
   end
 
@@ -56,7 +57,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
         resp =
           Response.tool()
           |> Response.error(
-            "Missing required parameter: working_dir. It must be provided unless the command is absolute or includes 'cd'."
+            "Missing required parameter: working_dir. It must be provided unless the command contains absolute paths (starting with / or ~/) or includes 'cd'."
           )
 
         {:reply, resp, frame}

@@ -135,17 +135,26 @@ defmodule Exhub.MCP.Desktop.Helpers do
 
   @doc """
   Checks if a command likely needs a working directory.
+
+  Returns `false` if the command contains `cd`, `ls`, or any absolute path
+  (starting with `/` or `~/`), since those commands already specify where
+  to operate.
   """
   @spec needs_working_dir?(String.t()) :: boolean()
   def needs_working_dir?(command) do
     trimmed = String.trim(command)
 
-    not (String.starts_with?(trimmed, "cd ") or
-           String.contains?(trimmed, " cd ") or
-           String.starts_with?(trimmed, "ls ") or
-           String.contains?(trimmed, " ls ") or
-           String.starts_with?(trimmed, "/") or
-           String.starts_with?(trimmed, "~/"))
+    has_cd = String.starts_with?(trimmed, "cd ") or String.contains?(trimmed, " cd ")
+    has_ls = String.starts_with?(trimmed, "ls ") or String.contains?(trimmed, " ls ")
+
+    has_absolute_path =
+      trimmed
+      |> String.split()
+      |> Enum.any?(fn word ->
+        String.starts_with?(word, "/") or String.starts_with?(word, "~/")
+      end)
+
+    not (has_cd or has_ls or has_absolute_path)
   end
 
   @doc """
