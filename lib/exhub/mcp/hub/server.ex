@@ -53,6 +53,11 @@ defmodule Exhub.MCP.Hub.Server do
   end
 
   @impl Anubis.Server
+  def handle_request(request, frame) do
+    Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
+  end
+
+  @impl Anubis.Server
   def handle_tool_call(tool_name, arguments, frame) do
     case String.split(tool_name, "__", parts: 2) do
       [server_name, actual_tool_name] ->

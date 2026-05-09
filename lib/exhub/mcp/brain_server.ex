@@ -49,4 +49,9 @@ defmodule Exhub.MCP.BrainServer do
     _ = client_info
     {:ok, frame}
   end
+
+  @impl true
+  def handle_request(request, frame) do
+    Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
+  end
 end
