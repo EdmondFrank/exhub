@@ -398,9 +398,62 @@ All configuration changes (add, update, remove, toggle) are automatically persis
 
 ---
 
+## Tool Filtering
+
+All MCP servers (including the Hub and individual upstream servers) support filtering the `tools/list` response via HTTP headers. This allows clients to include only specific tools or exclude unwanted ones.
+
+### Headers
+
+| Header            | Description                                                                       | Example                       |
+|-------------------|-----------------------------------------------------------------------------------|-------------------------------|
+| `x-include-tools` | Comma-separated list of tool names to include. Only these tools will be returned. | `read_file,write_file`        |
+| `x-exclude-tools` | Comma-separated list of tool names to exclude. Applied after the include filter.  | `delete_file,execute_command` |
+
+### Behavior
+
+1. If `x-include-tools` is provided, only tools whose names appear in the list are returned.
+2. If `x-exclude-tools` is provided, any tools whose names appear in the list are removed from the result.
+3. Both headers can be used together — exclusion is applied after inclusion.
+4. Tool names are trimmed but are **case-sensitive**.
+5. Unknown tool names in either header are silently ignored.
+
+### Examples
+
+**Include only specific tools:**
+```
+POST /desktop/mcp
+x-include-tools: read_file,write_file,list_directory
+
+{"method": "tools/list"}
+```
+
+**Exclude sensitive tools:**
+```
+POST /desktop/mcp
+x-exclude-tools: execute_command,start_process,kill_process
+
+{"method": "tools/list"}
+```
+
+**Combined filtering (Hub):**
+```
+POST /mcp-hub/mcp
+x-include-tools: desktop-commander__read_file,desktop-commander__write_file
+x-exclude-tools: desktop-commander__delete_file
+
+{"method": "tools/list"}
+```
+
+### Implementation
+
+Tool filtering is implemented in `Exhub.MCP.ServerHelpers` and applied automatically to all MCP servers via `handle_request_with_filtered_tools/3`. The filtering wraps the default Anubis `tools/list` handler, so no server-specific changes are required beyond including the helper.
+
+---
+
 ## Security Considerations
 
 - Upstream server failures are isolated — a crashed upstream client does not affect the Hub or other servers.
 - The `DynamicSupervisor` uses `max_restarts: 100` in 60 seconds to handle flaky connections.
 - Virtual route proxy sessions are tracked in an ETS table (`:mcp_hub_proxy_sessions`) with `mcp-session-id` headers.
 - Environment variables in server configs may contain secrets — the config file should be protected accordingly.
+- **Tool filtering headers** (`x-include-tools`, `x-exclude-tools`) are evaluated server-side and do not bypass any underlying tool permissions. They only affect the `tools/list` discovery response.

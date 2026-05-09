@@ -26,6 +26,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **ACP Agent MCP Server**: MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex. Spawn, manage, and interact with AI coding agents via MCP tools at `/agent/mcp`. Supports session management, prompts, permission handling, and multi-agent pipelines.
 - **Vault (Org-mode Password Book)**: Emacs org-mode password vault integrated with Exhub. Encrypts secrets with AES-256-GCM on the backend and stores them as org links (`[[exhub-vault:CIPHERTEXT][description]]`). Supports quick insert (`C-c v i`), decrypt & copy (`C-c v c` / `C-c C-o`), and decrypt & show (`C-c v s`). Reuses the existing `SECRET_VAULT_PASSWORD` — no additional configuration needed.
 - **Brain (Obsidian Vault)**: MCP-based interface to an Obsidian vault as a "second brain". Exposes tools for listing notes and directories (recursive, flat, absolute paths) and searching by content, filename, or tags (including hierarchical tag search) at `/brain/mcp`.
+- **MCP Tool Filtering**: All MCP servers support `x-include-tools` and `x-exclude-tools` headers for filtering the `tools/list` response. Include only specific tools or exclude unwanted ones via comma-separated tool names.
 
 ## Installation
 

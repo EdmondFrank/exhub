@@ -1,5 +1,14 @@
 # Recent Enhancements
 
+## MCP Tool Filtering via Headers
+- **New Feature**: All MCP servers now support filtering the `tools/list` response via `x-include-tools` and `x-exclude-tools` HTTP headers
+- **Include Filter**: `x-include-tools` accepts a comma-separated list of tool names; only matching tools are returned
+- **Exclude Filter**: `x-exclude-tools` accepts a comma-separated list of tool names; matching tools are removed after the include filter
+- **Case-Sensitive**: Tool names are trimmed but matched case-sensitively; unknown names are silently ignored
+- **Combined Usage**: Both headers can be used together — exclusion is applied after inclusion
+- **Universal Coverage**: Applied automatically to all MCP servers via `Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools/3`, including Agent, Archery, Brain, BrowserUse, Desktop, DocExtract, Exhub, Habit, Hub, ImageGen, Look, Think, Time, Todo, and WebTools servers
+- **Full Docs**: [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)
+
 ## KuriDaemon — Auto-managed Chrome CDP Backend
 - **New Daemon**: `Exhub.KuriDaemon` auto-starts and manages the `kuri` HTTP server binary via Exile
 - **Zig-based Kuri Server**: Kuri is a Zig-based browser automation server that manages Chrome via CDP and exposes an HTTP API (tabs, navigate, snapshot, action, etc.)
