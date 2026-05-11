@@ -34,7 +34,8 @@ defmodule Exhub.Router.Config do
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
     openai: @default_upstream,
-    infini: "https://cloud.infini-ai.com/maas/v1"
+    infini: "https://cloud.infini-ai.com/maas/v1",
+    kiro: "http://localhost:8000/v1"
   }
 
   # Model to provider mappings
@@ -98,6 +99,16 @@ defmodule Exhub.Router.Config do
     "inf-deepseek-v3.2"
   ]
 
+  # Kiro Gateway models (local Claude proxy)
+  @kiro_models [
+    "auto-kiro",
+    "claude-3.7-sonnet",
+    "claude-haiku-4.5",
+    "claude-opus-4.5",
+    "claude-sonnet-4",
+    "claude-sonnet-4.5"
+  ]
+
   # Mapping from prefixed model names to actual API model names
   @infini_model_mapping %{
     "inf-glm-5.1" => "glm-5.1",
@@ -147,6 +158,9 @@ defmodule Exhub.Router.Config do
       model in @infini_models ->
         @provider_urls.infini
 
+      model in @kiro_models ->
+        @provider_urls.kiro
+
       true ->
         Logger.debug("No specific target for model #{model}, using default")
         @default_upstream
@@ -195,6 +209,9 @@ defmodule Exhub.Router.Config do
 
       model in @infini_models ->
         Application.get_env(:exhub, :infini_api_key, "")
+
+      model in @kiro_models ->
+        Application.get_env(:exhub, :kiro_api_key, "")
 
       true ->
         Application.get_env(:exhub, :openai_api_key, "")

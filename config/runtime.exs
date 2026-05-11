@@ -130,6 +130,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       infini_api_key: fetch_secret.("infini_api_key"),
       minimax_api_key: fetch_secret.("minimax_api_key"),
       mimo_api_key: fetch_secret.("mimo_api_key"),
+      kiro_api_key: fetch_secret.("kiro_api_key"),
       anthropic_api_key: fetch_secret.("anthropic_api_key"),
       openrouter_api_key: fetch_secret.("openrouter_api_key"),
       llms: llms_config,
