@@ -1,5 +1,45 @@
 # Recent Enhancements
 
+## MCP Hub — Built-in Server Integration & Modularization
+
+- **New Feature**: MCP Hub now auto-registers all 14 built-in MCP servers for direct in-process tool execution, bypassing HTTP loopback
+
+### Built-in Server Registry (`Exhub.MCP.Hub.BuiltInRegistry`)
+- **Zero-latency execution**: Built-in servers (habit, time, think, web-tools, archery, browser-use, image-gen, doc-extract, look, todo, desktop, agent, brain, exhub) are accessed directly via function calls — no HTTP handshake or Anubis.Client connection needed
+- **Auto-registration**: Built-in configs are merged with external configs from `priv/mcp_servers.json` at startup; external configs take precedence on name collision
+- **Protection**: Built-in servers cannot be removed or toggled via the REST API (`:cannot_remove_builtin`, `:cannot_toggle_builtin`)
+- **Config persistence**: Built-in servers are excluded from `priv/mcp_servers.json` — always regenerated from the registry
+
+### Centralized ETS Store (`Exhub.MCP.Hub.Store`)
+- **New GenServer**: Owns and manages ETS tables for the MCP Hub (`:mcp_hub_search_index`, `:mcp_hub_proxy_sessions`)
+- **Startup ordering**: `Hub.Store` starts before `ClientManager` and `Hub.Server` in the supervisor tree
+- **Replaces ad-hoc ETS creation**: `ProxyPlug` no longer creates its own ETS table; all table access goes through `Hub.Store`
+
+### Modular Hub Components
+- **`Exhub.MCP.Tools.Hub.RetrieveTools`**: Extracted from `Hub.Server` into a standalone `Anubis.Server.Component` for TF-IDF tool search
+- **`Exhub.MCP.Tools.Hub.CallTools`**: New `Anubis.Server.Component` for executing tools on upstream servers with automatic prefix-stripping retry
+- **`Hub.Server` simplification**: Removed inline `tools/1` and `do_handle_tool_call("retrieve_tools", ...)` — now uses `component` declarations
+
+### ClientManager Improvements
+- **Search index auto-rebuild**: Index rebuilds after each successful upstream client connection
+- **Improved error handling**: `extract_error_text/1` parses MCP response content for cleaner error messages
+- **Built-in server tool counts**: Server status API correctly reports tool counts for built-in servers via `BuiltInRegistry`
+
+### Files Changed
+- `lib/exhub/mcp/hub/built_in_registry.ex` — NEW: Built-in server registry
+- `lib/exhub/mcp/hub/store.ex` — NEW: Centralized ETS table owner
+- `lib/exhub/mcp/tools/hub/retrieve_tools.ex` — NEW: Component extracted from Hub.Server
+- `lib/exhub/mcp/tools/hub/call_tools.ex` — NEW: Tool execution component
+- `lib/exhub/mcp/hub/client_manager.ex` — Built-in integration, search index rebuild, error handling
+- `lib/exhub/mcp/hub/server.ex` — Component registration, removed inline handlers
+- `lib/exhub/mcp/hub/server_config.ex` — Added `builtin` field
+- `lib/exhub/mcp/hub/proxy_plug.ex` — Uses Hub.Store for session management
+- `lib/exhub/application.ex` — Hub.Store in supervision tree
+
+- **Full Docs**: [docs/modules/mcp-hub.md](modules/mcp-hub.md)
+
+---
+
 ## MCP Hub Enhancement — Tool Search & Health Monitoring
 
 - **New Feature**: MCP Hub now includes intelligent tool search, health monitoring, and auto-reconnect capabilities inspired by [mcpproxy-go](https://github.com/smart-mcp-proxy/mcpproxy-go)

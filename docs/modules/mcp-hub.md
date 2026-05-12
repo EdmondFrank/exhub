@@ -8,7 +8,7 @@ The Hub also provides **virtual route proxying** — each upstream server can op
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      MCP Client (Claude Code, Zed, etc.)                    │
 └──────────────┬──────────────────────────────────────────────┬───────────────┘
@@ -18,8 +18,9 @@ The Hub also provides **virtual route proxying** — each upstream server can op
 ┌──────────────────────────┐              ┌────────────────────────────────────┐
 │  Exhub.MCP.Hub.Server    │              │  Exhub.MCP.Hub.ProxyPlug           │
 │  (Anubis.Server)         │              │  (Plug — streamable HTTP proxy)    │
-│  Tool: server__tool      │              │  Tool: tool (no prefix)            │
-└──────────────┬───────────┘              └──────────────┬─────────────────────┘
+│  component: RetrieveTools│              │  Tool: tool (no prefix)            │
+│  component: CallTools    │              └──────────────┬─────────────────────┘
+└──────────────┬───────────┘                             │
                │                                         │
                ▼                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -28,13 +29,21 @@ The Hub also provides **virtual route proxying** — each upstream server can op
 │  │ DynamicSupervisor│  │  Config Store    │  │  Tool Aggregation        │   │
 │  │  (Anubis.Client) │  │  (JSON file)     │  │  (namespaced listing)    │   │
 │  └──────────────────┘  └──────────────────┘  └──────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-               │              │              │
-               ▼              ▼              ▼
-        ┌──────────┐  ┌──────────┐  ┌──────────────┐
-        │  probe   │  │  skills  │  │  deepwiki    │  ... (any MCP server)
-        │  (stdio) │  │  (stdio) │  │  (HTTP)      │
-        └──────────┘  └──────────┘  └──────────────┘
+└───────────┬──────────────────────────────────────────────┬──────────────────┘
+            │                                              │
+            ▼                                              ▼
+┌──────────────────────────┐              ┌────────────────────────────────────┐
+│  BuiltInRegistry         │              │  Exhub.MCP.Hub.Store               │
+│  (in-process tools)      │              │  (ETS table owner)                 │
+│  14 built-in servers     │              │  :mcp_hub_search_index             │
+│  direct function calls   │              │  :mcp_hub_proxy_sessions           │
+└──────────────────────────┘              └────────────────────────────────────┘
+            │
+            ▼
+     ┌──────────┐  ┌──────────┐  ┌──────────────┐
+     │  probe   │  │  skills  │  │  deepwiki    │  ... (any external MCP server)
+     │  (stdio) │  │  (stdio) │  │  (HTTP)      │
+     └──────────┘  └──────────┘  └──────────────┘
 ```
 
 ### Components
@@ -46,12 +55,17 @@ The Hub also provides **virtual route proxying** — each upstream server can op
 | `Exhub.MCP.Hub.ServerConfig`         | Configuration struct with transport options, validation, and serialization         |
 | `Exhub.MCP.Hub.Server`               | Anubis.Server exposing the unified `{server}__{tool}` namespace                    |
 | `Exhub.MCP.Hub.ProxyPlug`            | Plug for virtual route proxying to individual upstream servers                     |
+| `Exhub.MCP.Hub.BuiltInRegistry`      | Maps 14 built-in MCP servers to their modules for direct in-process tool calls     |
+| `Exhub.MCP.Hub.Store`                | GenServer owning ETS tables for search index and proxy sessions                    |
+| `Exhub.MCP.Tools.Hub.RetrieveTools`  | Anubis.Server.Component: TF-IDF tool search across all servers                     |
+| `Exhub.MCP.Tools.Hub.CallTools`      | Anubis.Server.Component: execute tools on upstream servers via the hub             |
 | `Exhub.Controllers.MCPHubController` | REST API controller for management operations                                      |
 
 ### Application Supervision
 
-```
+```text
 Exhub.Supervisor
+  └── Exhub.MCP.Hub.Store              (GenServer — ETS table owner, starts first)
   └── Exhub.MCP.Hub.TaskSupervisor     (Task.Supervisor — async client startup)
   └── Exhub.MCP.Hub.ClientManager      (GenServer — connection lifecycle)
   └── Exhub.MCP.Hub.Server             (Anubis.Server — unified MCP endpoint)
@@ -114,6 +128,7 @@ Servers are configured in `priv/mcp_servers.json`:
 | `name`         | string  | yes      | —         | Unique server identifier (used in tool namespace)               |
 | `transport`    | string  | yes      | `"stdio"` | One of: `stdio`, `sse`, `streamable_http`/`http`, `websocket`   |
 | `enabled`      | boolean | no       | `true`    | Whether the server is active                                    |
+| `builtin`      | boolean | no       | `false`   | Whether this is a built-in server (auto-registered, protected)  |
 | `command`      | string  | yes*     | —         | Executable command (required for `stdio`)                       |
 | `args`         | array   | no       | `[]`      | Arguments passed to the command                                 |
 | `env`          | object  | no       | `{}`      | Environment variables for the process                           |
@@ -126,6 +141,43 @@ Servers are configured in `priv/mcp_servers.json`:
 - `name` is required and must be unique
 - `command` is required when `transport` is `stdio`
 - `url` is required when `transport` is `sse`, `streamable_http`, or `websocket`
+
+---
+
+## Built-in Server Integration
+
+The Hub automatically registers all **built-in MCP servers** that run in the same BEAM VM. These servers are managed by `Exhub.MCP.Hub.BuiltInRegistry` and are accessed directly via in-process function calls, bypassing the Anubis.Client → HTTP → Anubis.Server indirection.
+
+### Built-in Servers
+
+| Server Name   | Module                       | Route              | Description                       |
+|---------------|------------------------------|--------------------|-----------------------------------|
+| `habit`       | `Exhub.MCP.HabitServer`      | `/mcp`             | Habit/environment config storage  |
+| `time`        | `Exhub.MCP.TimeServer`       | `/time/mcp`        | Timezone-aware time utilities     |
+| `think`       | `Exhub.MCP.ThinkServer`      | `/think/mcp`       | Reasoning scratchpad              |
+| `web-tools`   | `Exhub.MCP.WebToolsServer`   | `/web-tools/mcp`   | Web search and URL fetch          |
+| `archery`     | `Exhub.MCP.ArcheryServer`    | `/archery/mcp`     | SQL audit platform                |
+| `browser-use` | `Exhub.MCP.BrowserUseServer` | `/browser-use/mcp` | Chrome browser automation         |
+| `image-gen`   | `Exhub.MCP.ImageGenServer`   | `/image-gen/mcp`   | AI image generation               |
+| `doc-extract` | `Exhub.MCP.DocExtractServer` | `/doc-extract/mcp` | Document text extraction          |
+| `look`        | `Exhub.MCP.LookServer`       | `/look/mcp`        | Image analysis via vision models  |
+| `todo`        | `Exhub.MCP.TodoServer`       | `/todo/mcp`        | Multi-tenant todo list management |
+| `desktop`     | `Exhub.MCP.DesktopServer`    | `/desktop/mcp`     | Filesystem and process management |
+| `agent`       | `Exhub.MCP.AgentServer`      | `/agent/mcp`       | ACP agent bridge                  |
+| `brain`       | `Exhub.MCP.BrainServer`      | `/brain/mcp`       | Obsidian vault interface          |
+| `exhub`       | `Exhub.MCP.ExhubServer`      | `/exhub/mcp`       | Exhub management tools            |
+
+### How Built-in Servers Work
+
+1. **Auto-registration**: On startup, `ClientManager` merges built-in configs (from `builtin_server_configs/0`) with external configs from `priv/mcp_servers.json`. External configs take precedence if names collide.
+
+2. **Zero-latency execution**: Built-in servers start with status `:connected` immediately — no HTTP handshake or tool discovery is needed. Tool calls are routed directly to the server module via `BuiltInRegistry.call_tool/3`.
+
+3. **Tool aggregation**: Built-in server tools are included in both `list_all_tools` and `search_tools` responses, merged with upstream tools.
+
+4. **Protection**: Built-in servers cannot be removed (`DELETE`) or toggled (`POST /toggle`) via the REST API. These operations return `{:error, :cannot_remove_builtin}` or `{:error, :cannot_toggle_builtin}`.
+
+5. **Config persistence**: Built-in servers are excluded from `priv/mcp_servers.json` persistence — they are always regenerated from the registry at startup.
 
 ---
 
@@ -292,6 +344,8 @@ Stops the client process and removes the configuration.
 }
 ```
 
+**Error (400)** — `cannot_remove_builtin`: Built-in servers cannot be removed.
+
 ### Toggle Server
 
 ```
@@ -302,6 +356,8 @@ Content-Type: application/json
 ```
 
 **Response (200)** — Same format as Add Server.
+
+**Error (400)** — `cannot_toggle_builtin`: Built-in servers cannot be toggled.
 
 ### List All Tools
 
@@ -326,40 +382,24 @@ GET /mcp-hub/tools
 
 ---
 
-## Tool Search & Discovery
+## Hub Meta-Tools
 
-The MCP Hub now supports **intelligent tool search** via the `retrieve_tools` meta-tool and the `/mcp-hub/tools/search` HTTP endpoint. Instead of returning all tools (which can overwhelm clients), the search feature uses TF-IDF scoring to return only the most relevant tools for a given natural language query.
+The Hub Server exposes two meta-tools as `Anubis.Server.Component` modules:
 
-### Search Endpoint
+### `retrieve_tools` — Tool Search & Discovery
 
-```
-GET /mcp-hub/tools/search?query=<query>&limit=<limit>
-```
+Search for relevant tools across all connected servers (both upstream and built-in) using TF-IDF scoring. Instead of returning all tools (which can overwhelm clients), the search returns only the most relevant tools for a given natural language query.
+
+**Module**: `Exhub.MCP.Tools.Hub.RetrieveTools`
+
+**Parameters**:
 
 | Parameter | Type    | Required | Default | Description                          |
 |-----------|---------|----------|---------|--------------------------------------|
 | `query`   | string  | yes      | —       | Natural language search query        |
 | `limit`   | integer | no       | 5       | Maximum number of results to return  |
 
-**Response (200)**
-
-```json
-{
-  "tools": [
-    {
-      "name": "desktop-commander__read_file",
-      "description": "[desktop-commander] Read file contents",
-      "server": "desktop-commander",
-      "inputSchema": { ... }
-    }
-  ],
-  "query": "read file"
-}
-```
-
-### `retrieve_tools` Meta-Tool
-
-When connected to the unified MCP endpoint (`/mcp-hub/mcp`), a `retrieve_tools` tool is automatically exposed. Use it to discover relevant tools before calling them:
+**Example**:
 
 ```json
 {
@@ -390,18 +430,89 @@ When connected to the unified MCP endpoint (`/mcp-hub/mcp`), a `retrieve_tools` 
 }
 ```
 
+### `call_tools` — Execute Tool on Upstream Server
+
+Execute a tool on a specific upstream MCP server through the hub. Use this to call any tool from any connected server (upstream or built-in) by specifying the server name and tool name explicitly.
+
+**Module**: `Exhub.MCP.Tools.Hub.CallTools`
+
+**Parameters**:
+
+| Parameter     | Type    | Required | Default | Description                                    |
+|---------------|---------|----------|---------|------------------------------------------------|
+| `server_name` | string  | yes      | —       | Name of the upstream server to call the tool on|
+| `tool_name`   | string  | yes      | —       | Name of the tool to execute (without prefix)   |
+| `arguments`   | map     | no       | `{}`    | Arguments to pass to the tool                  |
+
+**Example**:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "call_tools",
+    "arguments": {
+      "server_name": "desktop",
+      "tool_name": "read_file",
+      "arguments": {"path": "/tmp/test.txt"}
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "result": { ... }
+}
+```
+
+**Note**: If the initial tool call fails and the `tool_name` contains a `__` prefix (e.g., `desktop__read_file`), the tool will automatically retry with the prefix stripped.
+
+---
+
+## Search Endpoint (HTTP)
+
+The MCP Hub also exposes tool search via an HTTP endpoint:
+
+```
+GET /mcp-hub/tools/search?query=<query>&limit=<limit>
+```
+
+| Parameter | Type    | Required | Default | Description                          |
+|-----------|---------|----------|---------|--------------------------------------|
+| `query`   | string  | yes      | —       | Natural language search query        |
+| `limit`   | integer | no       | 5       | Maximum number of results to return  |
+
+**Response (200)**
+
+```json
+{
+  "tools": [
+    {
+      "name": "desktop-commander__read_file",
+      "description": "[desktop-commander] Read file contents",
+      "server": "desktop-commander",
+      "inputSchema": { ... }
+    }
+  ],
+  "query": "read file"
+}
+```
+
 ### How Search Works
 
-The search uses an in-memory **TF-IDF (Term Frequency-Inverse Document Frequency)** index:
+The search uses an in-memory **TF-IDF (Term Frequency-Inverse Document Frequency)** index stored in `Exhub.MCP.Hub.Store`:
 
 1. **Tokenization**: Query and tool descriptions are tokenized (lowercased, punctuation removed, stop words filtered)
 2. **Scoring**: Each tool is scored based on term frequency matches between the query and tool name/description
 3. **Ranking**: Results are sorted by score and the top-k are returned
 
 The index is rebuilt automatically when:
-- A new upstream server connects
-- Tools are discovered from an upstream server
-- The server list changes (add/remove/toggle)
+- A new upstream server connects (via `ClientManager.rebuild_search_index/1`)
+- The Hub Server initializes (in `init/2`)
+- The `retrieve_tools` component finds no index and falls back to rebuilding
 
 ---
 
@@ -453,12 +564,13 @@ The MCP Hub includes built-in health monitoring and automatic reconnection for u
 
 The ClientManager uses a **non-blocking startup** pattern to avoid delaying the Exhub application supervisor tree:
 
-1. **`init/1`** — Loads config from `priv/mcp_servers.json`, creates the `DynamicSupervisor`, and marks all enabled servers as `:connecting`. Returns immediately.
-2. **`handle_continue(:start_clients)`** — Spawns a `Task` for each enabled server under `Exhub.MCP.Hub.TaskSupervisor`. Each task:
+1. **`init/1`** — Loads config from `priv/mcp_servers.json`, merges with built-in server configs (from `BuiltInRegistry`), creates the `DynamicSupervisor`, and marks all enabled servers as `:connecting` (external) or `:connected` (built-in). Returns immediately.
+2. **`handle_continue(:start_clients)`** — Spawns a `Task` for each enabled **external** server under `Exhub.MCP.Hub.TaskSupervisor`. Built-in servers are skipped since they run in the same BEAM VM. Each task:
    - Starts the `Anubis.Client` under the `DynamicSupervisor`
    - Performs the MCP handshake (initialize)
    - Discovers available tools (with retry, up to 5 attempts with 1s backoff)
    - Reports the result back to the `ClientManager`
+   - On success, triggers `rebuild_search_index/1` to update the TF-IDF index
 3. Tasks complete independently — one server failing does not block others.
 
 ### Reconnection
@@ -519,6 +631,8 @@ Tools appear with their original names (no prefix).
 
 All configuration changes (add, update, remove, toggle) are automatically persisted to `priv/mcp_servers.json`. The file is rewritten on every modification, so manual edits to the file are picked up on the next application restart.
 
+Built-in servers are **excluded** from persistence — they are always regenerated from `BuiltInRegistry` at startup. External configs that override a built-in server name take precedence.
+
 ---
 
 ## Tool Filtering
@@ -576,7 +690,9 @@ Tool filtering is implemented in `Exhub.MCP.ServerHelpers` and applied automatic
 ## Security Considerations
 
 - Upstream server failures are isolated — a crashed upstream client does not affect the Hub or other servers.
+- Built-in servers run in-process and cannot be removed or toggled via the REST API.
 - The `DynamicSupervisor` uses `max_restarts: 100` in 60 seconds to handle flaky connections.
-- Virtual route proxy sessions are tracked in an ETS table (`:mcp_hub_proxy_sessions`) with `mcp-session-id` headers.
+- Virtual route proxy sessions are tracked in `Exhub.MCP.Hub.Store` (`:mcp_hub_proxy_sessions` ETS table) with `mcp-session-id` headers.
+- ETS tables are owned by `Exhub.MCP.Hub.Store` GenServer, ensuring proper cleanup on shutdown.
 - Environment variables in server configs may contain secrets — the config file should be protected accordingly.
 - **Tool filtering headers** (`x-include-tools`, `x-exclude-tools`) are evaluated server-side and do not bypass any underlying tool permissions. They only affect the `tools/list` discovery response.

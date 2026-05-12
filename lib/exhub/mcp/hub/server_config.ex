@@ -49,6 +49,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
     url: String.t() | nil,
     headers: map() | nil,
     expose_route: String.t() | nil,
+    builtin: boolean(),
     created_at: DateTime.t(),
     updated_at: DateTime.t()
   }
@@ -57,6 +58,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
     :name, :transport, :enabled,
     :command, :args, :env,
     :url, :headers, :expose_route,
+    :builtin, false,
     :created_at, :updated_at
   ]
 
@@ -77,6 +79,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       url: data["url"] || data[:url],
       headers: data["headers"] || data[:headers] || %{},
       expose_route: data["expose_route"] || data[:expose_route],
+      builtin: parse_boolean(data["builtin"]) || parse_boolean(data[:builtin]) || false,
       created_at: parse_datetime(data["created_at"]),
       updated_at: parse_datetime(data["updated_at"])
     )
@@ -156,6 +159,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       "url" => config.url,
       "headers" => config.headers,
       "expose_route" => config.expose_route,
+      "builtin" => config.builtin,
       "created_at" => DateTime.to_iso8601(config.created_at),
       "updated_at" => DateTime.to_iso8601(config.updated_at)
     }

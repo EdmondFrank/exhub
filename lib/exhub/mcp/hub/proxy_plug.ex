@@ -35,7 +35,6 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   require Logger
 
   @session_header "mcp-session-id"
-  @session_table :mcp_hub_proxy_sessions
 
   @impl Plug
   def init(opts), do: opts
@@ -43,8 +42,6 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   @impl Plug
   def call(conn, opts) do
     group = Keyword.fetch!(opts, :group)
-
-    ensure_session_table()
 
     case Exhub.MCP.Hub.ClientManager.get_client_pid(group) do
       {:ok, client_pid} ->
@@ -203,16 +200,10 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 
-  defp ensure_session_table do
-    try do
-      :ets.new(@session_table, [:named_table, :public, :set, read_concurrency: true])
-    rescue
-      ArgumentError -> :ok
-    end
-  end
+
 
   defp store_session(session_id, client_ref, group) do
-    :ets.insert(@session_table, {session_id, %{client_pid: client_ref, group: group, created_at: DateTime.utc_now()}})
+    Exhub.MCP.Hub.Store.store_session(session_id, %{client_pid: client_ref, group: group, created_at: DateTime.utc_now()})
   end
 
   defp fetch_server_info(client_ref, default_name) do

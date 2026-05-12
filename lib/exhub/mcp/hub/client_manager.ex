@@ -165,17 +165,26 @@ defmodule Exhub.MCP.Hub.ClientManager do
     config_path = Path.join(:code.priv_dir(:exhub), "mcp_servers.json")
     configs = load_configs(config_path)
 
+    # Merge built-in server configs with external configs from mcp_servers.json
+    builtin_configs = builtin_server_configs()
+    all_configs = merge_configs(configs, builtin_configs)
+
     # Initialize all enabled clients as :connecting — actual startup is deferred
     # to handle_continue so that init/1 returns immediately and does not block
     # the ExHub supervisor tree (and the Cowboy WebSocket server startup).
+    # Built-in servers are marked as :connected immediately since they run
+    # in the same BEAM VM and don't need Anubis.Client connections.
     clients =
-      configs
+      all_configs
       |> Enum.filter(& &1.enabled)
       |> Enum.reduce(%{}, fn config, acc ->
+        # Built-in servers are always available (no HTTP connection needed)
+        initial_status = if config.builtin, do: :connected, else: :connecting
+
         Map.put(acc, config.name, %ClientState{
           server_name: config.name,
           config: config,
-          status: :connecting,
+          status: initial_status,
           crash_count: 0,
           health_status: :healthy,
           reconnect_attempts: 0
@@ -184,7 +193,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
     state = %__MODULE__{
       config_path: config_path,
-      configs: Map.new(configs, &{&1.name, &1}),
+      configs: Map.new(all_configs, &{&1.name, &1}),
       clients: clients,
       pending_tasks: %{},
       supervisors: %{}
@@ -208,8 +217,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
     else
       # Each client gets its own DynamicSupervisor for fault isolation.
       # Launch each client in its own Task for parallel startup.
+      # Built-in servers are skipped since they run in the same BEAM VM
+      # and are accessed directly via BuiltInRegistry.
       {pending_tasks, supervisors} =
         enabled_configs
+        |> Enum.reject(& &1.builtin)
         |> Enum.reduce({%{}, state.supervisors}, fn config, {tasks_acc, sups_acc} ->
           {:ok, sup_pid} = new_dynamic_supervisor()
           task = spawn_client_task(sup_pid, config)
@@ -233,6 +245,13 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
       {server_name, new_pending} ->
         new_clients = apply_client_result(state.clients, server_name, result)
+
+        # Rebuild search index after a client connects successfully
+        case result do
+          {:ok, _pid, _tools} -> rebuild_search_index(new_clients)
+          _ -> :ok
+        end
+
         {:noreply, %{state | clients: new_clients, pending_tasks: new_pending}}
     end
   end
@@ -349,12 +368,20 @@ defmodule Exhub.MCP.Hub.ClientManager do
       |> Enum.map(fn config ->
         client = Map.get(state.clients, config.name)
 
+        # For built-in servers, get tool count from BuiltInRegistry
+        tool_count =
+          if config.builtin do
+            length(Exhub.MCP.Hub.BuiltInRegistry.list_tools(config.name))
+          else
+            if(client && client.tools, do: length(client.tools), else: 0)
+          end
+
         %{
           name: config.name,
           transport: config.transport,
           enabled: config.enabled,
           status: if(client, do: client.status, else: :disconnected),
-          tool_count: if(client && client.tools, do: length(client.tools), else: 0),
+          tool_count: tool_count,
           last_error: if(client, do: client.last_error),
           expose_route: config.expose_route
         }
@@ -365,7 +392,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @impl true
   def handle_call(:list_all_tools, _from, state) do
-    tools =
+    upstream_tools =
       state.clients
       |> Enum.flat_map(fn
         {name, %{status: :connected, tools: tools, pid: pid}} when is_list(tools) ->
@@ -379,12 +406,15 @@ defmodule Exhub.MCP.Hub.ClientManager do
           []
       end)
 
-    {:reply, {:ok, tools}, state}
+    # Merge with built-in server tools (always available, no HTTP overhead)
+    builtin_tools = Exhub.MCP.Hub.BuiltInRegistry.list_all_tools()
+
+    {:reply, {:ok, upstream_tools ++ builtin_tools}, state}
   end
 
   @impl true
   def handle_call({:search_tools, query, limit}, _from, state) do
-    tools =
+    upstream_tools =
       state.clients
       |> Enum.flat_map(fn
         {name, %{status: :connected, tools: tools}} when is_list(tools) ->
@@ -394,7 +424,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
           []
       end)
 
-    index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
+    # Include built-in server tools in search
+    builtin_tools = Exhub.MCP.Hub.BuiltInRegistry.list_all_tools()
+    all_tools = upstream_tools ++ builtin_tools
+
+    index = Exhub.MCP.Hub.ToolSearch.build_index(all_tools)
     results = Exhub.MCP.Hub.ToolSearch.search(index, query, limit: limit)
 
     {:reply, {:ok, results}, state}
@@ -405,31 +439,47 @@ defmodule Exhub.MCP.Hub.ClientManager do
     Logger.info("[MCP Hub] Calling tool on #{server_name}: #{tool_name}")
     start_time = System.monotonic_time(:millisecond)
 
-    result = case Map.get(state.clients, server_name) do
-      %{status: :connecting} ->
-        {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
+    result =
+      # Check if this is a built-in server first (direct execution, no HTTP)
+      if Exhub.MCP.Hub.BuiltInRegistry.built_in?(server_name) do
+        case Exhub.MCP.Hub.BuiltInRegistry.call_tool(server_name, tool_name, arguments) do
+          {:ok, result} ->
+            {:reply, {:ok, result}, state}
 
-      %{status: :connected, pid: pid} ->
-        if Process.alive?(pid) do
-          client_reg_name = ServerConfig.client_name(server_name)
-
-          case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 120_000) do
-            {:ok, response} ->
-              {:reply, {:ok, response}, state}
-
-            {:error, reason} ->
-              {:reply, {:error, reason}, state}
-          end
-        else
-          {:reply, {:error, :server_not_running}, state}
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
         end
+      else
+        case Map.get(state.clients, server_name) do
+          %{status: :connecting} ->
+            {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
 
-      %{status: :error, last_error: error} ->
-        {:reply, {:error, {:upstream_error, error}}, state}
+          %{status: :connected, pid: pid} ->
+            if Process.alive?(pid) do
+              client_reg_name = ServerConfig.client_name(server_name)
 
-      nil ->
-        {:reply, {:error, :server_not_found}, state}
-    end
+              case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 120_000) do
+                {:ok, %{is_error: true} = response} ->
+                  error_text = extract_error_text(response)
+                  {:reply, {:error, error_text}, state}
+
+                {:ok, response} ->
+                  {:reply, {:ok, response.result}, state}
+
+                {:error, reason} ->
+                  {:reply, {:error, reason}, state}
+              end
+            else
+              {:reply, {:error, :server_not_running}, state}
+            end
+
+          %{status: :error, last_error: error} ->
+            {:reply, {:error, {:upstream_error, error}}, state}
+
+          nil ->
+            {:reply, {:error, :server_not_found}, state}
+        end
+      end
 
     duration = System.monotonic_time(:millisecond) - start_time
     Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
@@ -452,33 +502,14 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @impl true
   def handle_call({:remove_server, name}, _from, state) do
-    # Terminate the Anubis.Client child under its DynamicSupervisor
-    case Map.get(state.clients, name) do
-      %{pid: pid, supervisor_pid: sup_pid} when is_pid(pid) and is_pid(sup_pid) ->
-        DynamicSupervisor.terminate_child(sup_pid, pid)
-        Logger.info("Stopped client for server: #{name}")
-
-      %{pid: pid} when is_pid(pid) ->
-        Logger.warning("No supervisor found for #{name}, sending exit to client pid")
-        Process.exit(pid, :normal)
+    # Prevent removal of built-in servers
+    case Map.get(state.configs, name) do
+      %{builtin: true} ->
+        {:reply, {:error, :cannot_remove_builtin}, state}
 
       _ ->
-        :ok
+        do_remove_server(name, state)
     end
-
-    # Shut down the per-client DynamicSupervisor
-    if sup_pid = state.supervisors[name] do
-      Process.exit(sup_pid, :normal)
-    end
-
-    new_state = %{state |
-      configs: Map.delete(state.configs, name),
-      clients: Map.delete(state.clients, name),
-      supervisors: Map.delete(state.supervisors, name)
-    }
-
-    save_configs(new_state.configs, new_state.config_path)
-    {:reply, :ok, new_state}
   end
 
   @impl true
@@ -486,6 +517,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
     case Map.get(state.configs, name) do
       nil ->
         {:reply, {:error, :server_not_found}, state}
+
+      %{builtin: true} ->
+        {:reply, {:error, :cannot_toggle_builtin}, state}
 
       config ->
         updated_config = %{config | enabled: enabled, updated_at: DateTime.utc_now()}
@@ -545,12 +579,20 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
     result =
       if config do
+        # For built-in servers, get tool count from BuiltInRegistry
+        tool_count =
+          if config.builtin do
+            length(Exhub.MCP.Hub.BuiltInRegistry.list_tools(config.name))
+          else
+            if(client && client.tools, do: length(client.tools), else: 0)
+          end
+
         %{
           name: config.name,
           transport: config.transport,
           enabled: config.enabled,
           status: if(client, do: client.status, else: :disconnected),
-          tool_count: if(client && client.tools, do: length(client.tools), else: 0),
+          tool_count: tool_count,
           last_error: if(client, do: client.last_error),
           expose_route: config.expose_route
         }
@@ -654,6 +696,106 @@ defmodule Exhub.MCP.Hub.ClientManager do
           {:error, reason} -> {:reply, {:error, reason}, state}
         end
     end
+  end
+
+  defp do_remove_server(name, state) do
+    # Terminate the Anubis.Client child under its DynamicSupervisor
+    case Map.get(state.clients, name) do
+      %{pid: pid, supervisor_pid: sup_pid} when is_pid(pid) and is_pid(sup_pid) ->
+        DynamicSupervisor.terminate_child(sup_pid, pid)
+        Logger.info("Stopped client for server: #{name}")
+
+      %{pid: pid} when is_pid(pid) ->
+        Logger.warning("No supervisor found for #{name}, sending exit to client pid")
+        Process.exit(pid, :normal)
+
+      _ ->
+        :ok
+    end
+
+    # Shut down the per-client DynamicSupervisor
+    if sup_pid = state.supervisors[name] do
+      Process.exit(sup_pid, :normal)
+    end
+
+    new_state = %{state |
+      configs: Map.delete(state.configs, name),
+      clients: Map.delete(state.clients, name),
+      supervisors: Map.delete(state.supervisors, name)
+    }
+
+    save_configs(new_state.configs, new_state.config_path)
+    {:reply, :ok, new_state}
+  end
+
+  # Built-in server configurations
+  # These are auto-registered as upstream servers via localhost HTTP
+  defp builtin_server_configs do
+    port = Application.get_env(:exhub, :port, 9069)
+    base_url = "http://localhost:#{port}"
+
+    [
+      %{name: "habit", route: "/mcp"},
+      %{name: "time", route: "/time/mcp"},
+      %{name: "think", route: "/think/mcp"},
+      %{name: "web-tools", route: "/web-tools/mcp"},
+      %{name: "archery", route: "/archery/mcp"},
+      %{name: "browser-use", route: "/browser-use/mcp"},
+      %{name: "image-gen", route: "/image-gen/mcp"},
+      %{name: "doc-extract", route: "/doc-extract/mcp"},
+      %{name: "look", route: "/look/mcp"},
+      %{name: "todo", route: "/todo/mcp"},
+      %{name: "desktop", route: "/desktop/mcp"},
+      %{name: "agent", route: "/agent/mcp"},
+      %{name: "brain", route: "/brain/mcp"},
+      %{name: "exhub", route: "/exhub/mcp"}
+    ]
+    |> Enum.map(fn %{name: name, route: route} ->
+      %ServerConfig{
+        name: name,
+        transport: :streamable_http,
+        enabled: true,
+        url: "#{base_url}#{route}",
+        headers: %{},
+        args: [],
+        env: %{},
+        builtin: true,
+        created_at: DateTime.utc_now(),
+        updated_at: DateTime.utc_now()
+      }
+    end)
+  end
+
+  # Merge external configs with built-in configs.
+  # External configs take precedence (can override built-in).
+  defp merge_configs(external_configs, builtin_configs) do
+    external_map = Map.new(external_configs, &{&1.name, &1})
+
+    # Only include built-in configs that aren't overridden by external configs
+    builtin_filtered = Enum.reject(builtin_configs, &Map.has_key?(external_map, &1.name))
+
+    external_configs ++ builtin_filtered
+  end
+
+  # Rebuild the TF-IDF search index from all connected clients.
+  # Called after a client successfully connects to keep the index fresh.
+  defp rebuild_search_index(clients) do
+    tools =
+      clients
+      |> Enum.flat_map(fn
+        {name, %{status: :connected, tools: tools, pid: pid}} when is_list(tools) ->
+          if Process.alive?(pid) do
+            Enum.map(tools, &Map.put(&1, "server", name))
+          else
+            []
+          end
+
+        _ ->
+          []
+      end)
+
+    index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
+    Exhub.MCP.Hub.Store.put_search_index(index)
   end
 
   # Private functions
@@ -813,6 +955,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
       "servers" =>
         configs
         |> Map.values()
+        |> Enum.reject(& &1.builtin)
         |> Enum.map(&ServerConfig.to_json/1)
     }
 
@@ -871,4 +1014,13 @@ defmodule Exhub.MCP.Hub.ClientManager do
   defp calculate_backoff(attempt) do
     [5_000, 10_000, 20_000, 40_000, 60_000] |> Enum.at(attempt, 60_000)
   end
+
+  defp extract_error_text(%{result: %{"content" => content}}) when is_list(content) do
+    content
+    |> Enum.filter(&(&1["type"] == "text"))
+    |> Enum.map_join("\n", &(&1["text"] || ""))
+  end
+
+  defp extract_error_text(%{result: result}), do: inspect(result)
+  defp extract_error_text(other), do: inspect(other)
 end

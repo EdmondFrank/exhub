@@ -54,6 +54,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.ExhubServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Hub - TaskSupervisor for non-blocking parallel client startup
       {Task.Supervisor, name: Exhub.MCP.Hub.TaskSupervisor},
+      # MCP Hub - Store for ETS tables (must start before ClientManager and Hub.Server)
+      {Exhub.MCP.Hub.Store, name: Exhub.MCP.Hub.Store},
       # MCP Hub - ClientManager for upstream server management
       {Exhub.MCP.Hub.ClientManager, name: Exhub.MCP.Hub.ClientManager},
       # MCP Hub Server - unified endpoint for all upstream MCP servers
