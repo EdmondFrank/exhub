@@ -355,6 +355,10 @@ defmodule Exhub.Router do
     Exhub.Controllers.MCPHubController.list_tools(conn)
   end
 
+  get "/mcp-hub/tools/search" do
+    Exhub.Controllers.MCPHubController.search_tools(conn)
+  end
+
   # ============================================================================
   # MCP Endpoint
   # ============================================================================

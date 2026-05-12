@@ -99,6 +99,14 @@ defmodule Exhub.MCP.Hub.ClientManager do
   def list_all_tools, do: GenServer.call(__MODULE__, :list_all_tools, 60_000)
 
   @doc """
+  Searches for tools matching the given query.
+  """
+  @spec search_tools(String.t(), integer()) :: {:ok, [map()]} | {:error, term()}
+  def search_tools(query, limit) do
+    GenServer.call(__MODULE__, {:search_tools, query, limit}, 30_000)
+  end
+
+  @doc """
   Calls a tool on a specific upstream server.
   """
   @spec call_tool(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
@@ -372,6 +380,24 @@ defmodule Exhub.MCP.Hub.ClientManager do
       end)
 
     {:reply, {:ok, tools}, state}
+  end
+
+  @impl true
+  def handle_call({:search_tools, query, limit}, _from, state) do
+    tools =
+      state.clients
+      |> Enum.flat_map(fn
+        {name, %{status: :connected, tools: tools}} when is_list(tools) ->
+          Enum.map(tools, &Map.put(&1, "server", name))
+
+        _ ->
+          []
+      end)
+
+    index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
+    results = Exhub.MCP.Hub.ToolSearch.search(index, query, limit: limit)
+
+    {:reply, {:ok, results}, state}
   end
 
   @impl true

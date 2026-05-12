@@ -197,6 +197,30 @@ defmodule Exhub.Controllers.MCPHubController do
 
   # Private functions
 
+  @doc """
+  Searches for tools across all connected MCP servers.
+
+  GET /mcp-hub/tools/search?query=<q>&limit=<n>
+  """
+  def search_tools(conn) do
+    query = conn.query_params["query"] || ""
+    limit = String.to_integer(conn.query_params["limit"] || "5")
+
+    if query == "" do
+      send_error(conn, 400, "Missing 'query' parameter")
+    else
+      case Exhub.MCP.Hub.ClientManager.search_tools(query, limit) do
+        {:ok, results} ->
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(200, Jason.encode!(%{tools: results, query: query}))
+
+        {:error, reason} ->
+          send_error(conn, 500, "Search failed: #{inspect(reason)}")
+      end
+    end
+  end
+
   defp send_error(conn, status, message) do
     conn
     |> put_resp_content_type("application/json")
