@@ -3,7 +3,8 @@ defmodule Exhub.MCP.Hub.ClientState do
   Client state struct for tracking upstream MCP server connections.
   """
 
-  @type status :: :connecting | :connected | :disconnected | :error
+  @type status :: :connecting | :connected | :disconnected | :error | :degraded
+  @type health_status :: :healthy | :degraded | :unhealthy
 
   @type t :: %__MODULE__{
     server_name: String.t(),
@@ -14,10 +15,19 @@ defmodule Exhub.MCP.Hub.ClientState do
     tools: [map()] | nil,
     last_error: String.t() | nil,
     crash_count: non_neg_integer(),
-    connected_at: DateTime.t() | nil
+    connected_at: DateTime.t() | nil,
+    # Health monitoring fields
+    last_health_check: DateTime.t() | nil,
+    health_status: health_status(),
+    reconnect_attempts: non_neg_integer(),
+    last_reconnect_at: DateTime.t() | nil
   }
 
-  defstruct [:server_name, :config, :pid, :supervisor_pid, :status, :tools, :last_error, :crash_count, :connected_at]
+  defstruct [
+    :server_name, :config, :pid, :supervisor_pid, :status, :tools,
+    :last_error, :crash_count, :connected_at,
+    :last_health_check, :health_status, :reconnect_attempts, :last_reconnect_at
+  ]
 end
 
 defmodule Exhub.MCP.Hub.ClientManager do
@@ -158,7 +168,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
           server_name: config.name,
           config: config,
           status: :connecting,
-          crash_count: 0
+          crash_count: 0,
+          health_status: :healthy,
+          reconnect_attempts: 0
         })
       end)
 
@@ -439,7 +451,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
               config: updated_config,
               status: :connecting,
               supervisor_pid: sup_pid,
-              crash_count: 0
+              crash_count: 0,
+              health_status: :healthy,
+              reconnect_attempts: 0
             })
 
             new_supervisors = Map.put(state.supervisors, name, sup_pid)
@@ -460,7 +474,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
               server_name: name,
               config: updated_config,
               status: :disconnected,
-              crash_count: 0
+              crash_count: 0,
+              health_status: :healthy,
+              reconnect_attempts: 0
             })
 
             %{state | configs: new_configs, clients: new_clients, supervisors: Map.delete(state.supervisors, name)}
@@ -560,7 +576,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
                 config: updated_config,
                 status: :connecting,
                 supervisor_pid: sup_pid,
-                crash_count: 0
+                crash_count: 0,
+                health_status: :healthy,
+                reconnect_attempts: 0
               })
 
               {new_clients_map, Map.put(state.supervisors, name, sup_pid),
@@ -570,7 +588,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
                 server_name: name,
                 config: updated_config,
                 status: :disconnected,
-                crash_count: 0
+                crash_count: 0,
+                health_status: :healthy,
+                reconnect_attempts: 0
               })
 
               {new_clients_map, Map.delete(state.supervisors, name), state.pending_tasks}
@@ -704,7 +724,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
       config: config,
       status: :connecting,
       supervisor_pid: sup_pid,
-      crash_count: 0
+      crash_count: 0,
+      health_status: :healthy,
+      reconnect_attempts: 0
     })
 
     new_configs = Map.put(state.configs, config.name, config)
