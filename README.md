@@ -27,6 +27,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Vault (Org-mode Password Book)**: Emacs org-mode password vault integrated with Exhub. Encrypts secrets with AES-256-GCM on the backend and stores them as org links (`[[exhub-vault:CIPHERTEXT][description]]`). Supports quick insert (`C-c v i`), decrypt & copy (`C-c v c` / `C-c C-o`), and decrypt & show (`C-c v s`). Reuses the existing `SECRET_VAULT_PASSWORD` — no additional configuration needed.
 - **Brain (Obsidian Vault)**: MCP-based interface to an Obsidian vault as a "second brain". Exposes tools for listing notes and directories (recursive, flat, absolute paths) and searching by content, filename, or tags (including hierarchical tag search) at `/brain/mcp`.
 - **MCP Tool Filtering**: All MCP servers support `x-include-tools` and `x-exclude-tools` headers for filtering the `tools/list` response. Include only specific tools or exclude unwanted ones via comma-separated tool names.
+- **MCP Hub (Unified Gateway)**: Aggregates multiple upstream MCP servers into a single endpoint with `{server}__{tool}` namespacing. Supports virtual route proxying for direct 1:1 server access. Now includes **TF-IDF tool search** (`retrieve_tools`) for intelligent discovery, **health monitoring** with auto-reconnect and exponential backoff, and structured logging for all tool calls.
 
 ## Installation
 
@@ -206,6 +207,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration          | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
 | exhub-vault        | Org-mode password vault (AES-256-GCM encrypted org links)     | [docs/modules/vault.md](docs/modules/vault.md)               |
 | exhub-brain        | MCP Obsidian vault "second brain" (list & search notes)        | [docs/modules/brain.md](docs/modules/brain.md)               |
+| exhub-mcp-hub      | MCP Hub — unified gateway with search, health, auto-reconnect  | [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)           |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

@@ -1,5 +1,33 @@
 # Recent Enhancements
 
+## MCP Hub Enhancement — Tool Search & Health Monitoring
+
+- **New Feature**: MCP Hub now includes intelligent tool search, health monitoring, and auto-reconnect capabilities inspired by [mcpproxy-go](https://github.com/smart-mcp-proxy/mcpproxy-go)
+
+### Tool Search & Discovery (`retrieve_tools`)
+- **TF-IDF Search**: In-memory TF-IDF search index built from tool names and descriptions
+- **Natural Language Queries**: Search with natural language (e.g., "read file", "search web") instead of browsing all tools
+- **HTTP Endpoint**: `GET /mcp-hub/tools/search?query=<q>&limit=<n>` returns ranked results
+- **Meta-Tool**: `retrieve_tools` is automatically exposed at the unified MCP endpoint for client-side discovery
+- **Auto-Rebuild**: Index rebuilds automatically when servers connect/disconnect or tools change
+
+### Health Monitoring & Auto-Reconnect
+- **Periodic Health Checks**: Every 30 seconds, all connected clients are checked
+- **Health Status Tracking**: Each client tracks `:healthy`, `:degraded`, or `:unhealthy` status
+- **Auto-Reconnect**: Failed clients are automatically reconnected with exponential backoff (5s → 10s → 20s → 40s)
+- **Max 3 Attempts**: After 3 failed reconnects, manual intervention is required
+- **Structured Logging**: All tool calls are logged with timing information in both `Hub.Server` and `ClientManager`
+
+### Files Changed
+- `lib/exhub/mcp/hub/tool_search.ex` — NEW: TF-IDF search module
+- `lib/exhub/mcp/hub/client_manager.ex` — Health checks, auto-reconnect, search API, logging
+- `lib/exhub/mcp/hub/server.ex` — `retrieve_tools` meta-tool, tool call logging
+- `lib/exhub/controllers/mcp_hub_controller.ex` — Search endpoint
+- `lib/exhub/router.ex` — Route for `/mcp-hub/tools/search`
+- `test/exhub/mcp/hub/tool_search_test.exs` — Search tests
+
+- **Full Docs**: [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)
+
 ## MCP Tool Filtering via Headers
 - **New Feature**: All MCP servers now support filtering the `tools/list` response via `x-include-tools` and `x-exclude-tools` HTTP headers
 - **Include Filter**: `x-include-tools` accepts a comma-separated list of tool names; only matching tools are returned

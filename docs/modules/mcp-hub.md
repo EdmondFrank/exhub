@@ -326,6 +326,129 @@ GET /mcp-hub/tools
 
 ---
 
+## Tool Search & Discovery
+
+The MCP Hub now supports **intelligent tool search** via the `retrieve_tools` meta-tool and the `/mcp-hub/tools/search` HTTP endpoint. Instead of returning all tools (which can overwhelm clients), the search feature uses TF-IDF scoring to return only the most relevant tools for a given natural language query.
+
+### Search Endpoint
+
+```
+GET /mcp-hub/tools/search?query=<query>&limit=<limit>
+```
+
+| Parameter | Type    | Required | Default | Description                          |
+|-----------|---------|----------|---------|--------------------------------------|
+| `query`   | string  | yes      | —       | Natural language search query        |
+| `limit`   | integer | no       | 5       | Maximum number of results to return  |
+
+**Response (200)**
+
+```json
+{
+  "tools": [
+    {
+      "name": "desktop-commander__read_file",
+      "description": "[desktop-commander] Read file contents",
+      "server": "desktop-commander",
+      "inputSchema": { ... }
+    }
+  ],
+  "query": "read file"
+}
+```
+
+### `retrieve_tools` Meta-Tool
+
+When connected to the unified MCP endpoint (`/mcp-hub/mcp`), a `retrieve_tools` tool is automatically exposed. Use it to discover relevant tools before calling them:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "retrieve_tools",
+    "arguments": {
+      "query": "read file contents",
+      "limit": 3
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "tools": [
+    {
+      "name": "desktop-commander__read_file",
+      "description": "[desktop-commander] Read file contents",
+      "server": "desktop-commander",
+      "inputSchema": { ... }
+    }
+  ],
+  "count": 1
+}
+```
+
+### How Search Works
+
+The search uses an in-memory **TF-IDF (Term Frequency-Inverse Document Frequency)** index:
+
+1. **Tokenization**: Query and tool descriptions are tokenized (lowercased, punctuation removed, stop words filtered)
+2. **Scoring**: Each tool is scored based on term frequency matches between the query and tool name/description
+3. **Ranking**: Results are sorted by score and the top-k are returned
+
+The index is rebuilt automatically when:
+- A new upstream server connects
+- Tools are discovered from an upstream server
+- The server list changes (add/remove/toggle)
+
+---
+
+## Health Monitoring & Auto-Reconnect
+
+The MCP Hub includes built-in health monitoring and automatic reconnection for upstream servers.
+
+### Health Check Behavior
+
+- **Periodic checks**: Every 30 seconds, all connected clients are checked
+- **Health status**: Each client tracks `:healthy`, `:degraded`, or `:unhealthy` status
+- **Auto-reconnect**: Clients in `:error` state are automatically reconnected with exponential backoff
+
+### Reconnect Strategy
+
+| Attempt | Delay  |
+|---------|--------|
+| 1st     | 5s     |
+| 2nd     | 10s    |
+| 3rd     | 20s    |
+| 4th+    | 40s    |
+
+- Maximum 3 reconnect attempts before requiring manual intervention
+- Reconnects are staggered to avoid thundering herd
+- Health status is exposed in the server list API
+
+### Health Fields in Server Response
+
+```json
+{
+  "servers": [
+    {
+      "name": "probe",
+      "status": "connected",
+      "health_status": "healthy",
+      "tool_count": 12,
+      "last_error": null,
+      "connected_at": "2025-01-15T10:30:00Z",
+      "last_health_check": "2025-01-15T10:35:00Z",
+      "reconnect_attempts": 0
+    }
+  ]
+}
+```
+
+---
+
 ## Startup Behavior
 
 The ClientManager uses a **non-blocking startup** pattern to avoid delaying the Exhub application supervisor tree:
