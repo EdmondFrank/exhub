@@ -402,7 +402,10 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @impl true
   def handle_call({:call_tool, server_name, tool_name, arguments}, _from, state) do
-    case Map.get(state.clients, server_name) do
+    Logger.info("[MCP Hub] Calling tool on #{server_name}: #{tool_name}")
+    start_time = System.monotonic_time(:millisecond)
+
+    result = case Map.get(state.clients, server_name) do
       %{status: :connecting} ->
         {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
 
@@ -427,6 +430,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
       nil ->
         {:reply, {:error, :server_not_found}, state}
     end
+
+    duration = System.monotonic_time(:millisecond) - start_time
+    Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
+
+    result
   end
 
   @impl true
