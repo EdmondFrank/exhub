@@ -182,6 +182,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
       supervisors: %{}
     }
 
+    # Schedule first health check
+    schedule_health_check()
+
     {:ok, state, {:continue, :start_clients}}
   end
 
@@ -286,6 +289,20 @@ defmodule Exhub.MCP.Hub.ClientManager do
         # EXIT from an unrelated process — ignore
         {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_info(:health_check, state) do
+    {new_clients, reconnects} = check_health(state.clients)
+
+    # Schedule reconnects with backoff
+    Enum.each(reconnects, fn {server_name, attempt} ->
+      delay = calculate_backoff(attempt)
+      Process.send_after(self(), {:reconnect_client, server_name}, delay)
+    end)
+
+    schedule_health_check()
+    {:noreply, %{state | clients: new_clients}}
   end
 
   @impl true
@@ -771,5 +788,53 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   defp check_name_unique(name, configs) do
     if Map.has_key?(configs, name), do: {:error, :server_already_exists}, else: :ok
+  end
+
+  # --- Health Check Functions ---
+
+  defp schedule_health_check do
+    Process.send_after(self(), :health_check, 30_000)
+  end
+
+  defp check_health(clients) do
+    Enum.reduce(clients, {clients, []}, fn {name, client}, {acc, reconnects} ->
+      now = DateTime.utc_now()
+
+      case client.status do
+        :connected ->
+          # For connected clients, just update health check timestamp
+          new_client = %{client |
+            last_health_check: now,
+            health_status: :healthy
+          }
+          {Map.put(acc, name, new_client), reconnects}
+
+        :error ->
+          if should_reconnect?(client) do
+            new_client = %{client |
+              last_health_check: now,
+              reconnect_attempts: client.reconnect_attempts + 1,
+              last_reconnect_at: now
+            }
+            {Map.put(acc, name, new_client), [{name, client.reconnect_attempts} | reconnects]}
+          else
+            new_client = %{client | last_health_check: now}
+            {Map.put(acc, name, new_client), reconnects}
+          end
+
+        _ ->
+          {acc, reconnects}
+      end
+    end)
+  end
+
+  defp should_reconnect?(client) do
+    client.reconnect_attempts < 3 and
+      (is_nil(client.last_reconnect_at) or
+       DateTime.diff(DateTime.utc_now(), client.last_reconnect_at, :second) > 60)
+  end
+
+  defp calculate_backoff(attempt) do
+    [5_000, 10_000, 20_000, 40_000, 60_000] |> Enum.at(attempt, 60_000)
   end
 end
