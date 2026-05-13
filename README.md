@@ -22,6 +22,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Image Generation**: MCP-based AI image generation from text descriptions using Gitee AI, supporting Qwen-Image, Kolors, GLM-Image, FLUX.2-dev, and HunyuanDiT models.
 - **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion`, and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
 - **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Supports document extraction (PDF, DOCX, images) via Gitee AI PaddleOCR. Exposes 17 tools at `/desktop/mcp`, including `read_multiple_files` for parallel file reading.
+- **Mac-use (Native macOS Automation)**: MCP-based automation of any native macOS application via the Accessibility API, powered by [axcli](https://github.com/andelf/axcli). Explore accessibility trees, click buttons, type text, press keys, scroll, take occlusion-proof screenshots, and control mouse/keyboard — all background-safe (no focus steal). Exposes 17 tools at `/mac-use/mcp`.
 - **Document Extraction**: MCP-based document text extraction (PDF, DOCX, images, etc.) via Gitee AI PaddleOCR-VL-1.5, supporting both local files and remote URLs. Returns extracted content in Markdown format at `/doc-extract/mcp`.
 - **ACP Agent MCP Server**: MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex. Spawn, manage, and interact with AI coding agents via MCP tools at `/agent/mcp`. Supports session management, prompts, permission handling, and multi-agent pipelines.
 - **Vault (Org-mode Password Book)**: Emacs org-mode password vault integrated with Exhub. Encrypts secrets with AES-256-GCM on the backend and stores them as org links (`[[exhub-vault:CIPHERTEXT][description]]`). Supports quick insert (`C-c v i`), decrypt & copy (`C-c v c` / `C-c C-o`), and decrypt & show (`C-c v s`). Reuses the existing `SECRET_VAULT_PASSWORD` — no additional configuration needed.
@@ -54,6 +55,13 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    `KuriDaemon` — no manual Chrome startup required. See
    [docs/modules/browser-use.md](docs/modules/browser-use.md) for full setup
    instructions.
+
+   **Note**: For Mac-use (`mac_*` MCP tools), `axcli` must be installed and the
+   terminal app must have Accessibility and Screen Recording permissions:
+   ```bash
+   cargo install axcli
+   ```
+   See [docs/modules/mac-use.md](docs/modules/mac-use.md) for full setup instructions.
 
    **Quick setup for browser automation:**
    ```bash
@@ -203,6 +211,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)                | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
 | exhub-todo         | MCP multi-tenant todo list management with TTL expiry          | [docs/modules/todo.md](docs/modules/todo.md)                 |
 | exhub-desktop      | MCP desktop commander (filesystem, search, process management) | [docs/modules/desktop.md](docs/modules/desktop.md)           |
+| exhub-mac-use      | MCP macOS native app automation (accessibility via axcli)      | [docs/modules/mac-use.md](docs/modules/mac-use.md)           |
 | exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI  | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
 | exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration          | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
 | exhub-vault        | Org-mode password vault (AES-256-GCM encrypted org links)     | [docs/modules/vault.md](docs/modules/vault.md)               |

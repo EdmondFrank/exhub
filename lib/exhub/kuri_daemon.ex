@@ -7,6 +7,16 @@ defmodule Exhub.KuriDaemon do
   This GenServer ensures kuri is running whenever Exhub boots, providing the
   browser backend for `kuri-agent` and the BrowserUse MCP tools.
 
+  ## Duplicate Server Prevention
+
+  Before starting a new kuri server, the daemon checks if a server is already
+  running on the configured host:port. If a healthy kuri server is detected,
+  the daemon will skip starting a new process and use the existing one instead.
+  This prevents:
+  - Port conflicts when kuri is already running
+  - Multiple kuri processes running simultaneously
+  - Resource waste and potential conflicts
+
   ## Configuration (application env)
 
   | Key                 | Default                         | Description                        |
@@ -119,31 +129,22 @@ defmodule Exhub.KuriDaemon do
   def handle_info(:start_daemon, state) do
     Logger.info("[KuriDaemon] Starting kuri server on #{state.host}:#{state.port}...")
 
-    env = build_env(state)
-
-    {pid, ref} =
-      spawn_monitor(fn ->
-        run_kuri(state.binary, env)
-      end)
-
-    # Wait for kuri to become healthy
-    case wait_for_startup(state.host, state.port) do
-      :ok ->
-        Logger.info("[KuriDaemon] ✓ kuri server is healthy at http://#{state.host}:#{state.port}")
+    # Check if a server is already running on this port
+    case check_existing_server(state.host, state.port) do
+      {:ok, _body} ->
+        Logger.info("[KuriDaemon] ✓ kuri server already running at http://#{state.host}:#{state.port}")
         timer = schedule_health_check()
+        {:noreply, %{state | status: :healthy, health_timer: timer}}
 
-        {:noreply,
-         %{state | status: :healthy, daemon_ref: ref, daemon_pid: pid, health_timer: timer}}
-
-      :timeout ->
+      {:error, {:port_in_use, status}} ->
         Logger.warning(
-          "[KuriDaemon] kuri started but health check timed out after #{@startup_timeout_ms}ms"
+          "[KuriDaemon] Port #{state.port} is in use but returned status #{status}. " <>
+            "Proceeding with caution — may conflict with existing service."
         )
+        start_new_daemon(state)
 
-        timer = schedule_health_check()
-
-        {:noreply,
-         %{state | status: :unhealthy, daemon_ref: ref, daemon_pid: pid, health_timer: timer}}
+      {:error, :no_server} ->
+        start_new_daemon(state)
     end
   end
 
@@ -180,6 +181,35 @@ defmodule Exhub.KuriDaemon do
 
     timer = schedule_health_check()
     {:noreply, %{state | status: new_status, health_timer: timer}}
+  end
+
+  defp start_new_daemon(state) do
+    env = build_env(state)
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        run_kuri(state.binary, env)
+      end)
+
+    # Wait for kuri to become healthy
+    case wait_for_startup(state.host, state.port) do
+      :ok ->
+        Logger.info("[KuriDaemon] ✓ kuri server is healthy at http://#{state.host}:#{state.port}")
+        timer = schedule_health_check()
+
+        {:noreply,
+         %{state | status: :healthy, daemon_ref: ref, daemon_pid: pid, health_timer: timer}}
+
+      :timeout ->
+        Logger.warning(
+          "[KuriDaemon] kuri started but health check timed out after #{@startup_timeout_ms}ms"
+        )
+
+        timer = schedule_health_check()
+
+        {:noreply,
+         %{state | status: :unhealthy, daemon_ref: ref, daemon_pid: pid, health_timer: timer}}
+    end
   end
 
   @impl true
@@ -304,4 +334,22 @@ defmodule Exhub.KuriDaemon do
 
   defp cancel_timer(nil), do: :ok
   defp cancel_timer(ref), do: Process.cancel_timer(ref)
+
+  defp check_existing_server(host, port) do
+    url = "http://#{host}:#{port}/health"
+
+    case :httpc.request(:get, {to_charlist(url), []}, [timeout: 2_000], body_format: :binary) do
+      {:ok, {{_, 200, _}, _headers, body}} ->
+        # Server is already running and healthy
+        {:ok, body}
+
+      {:ok, {{_, status, _}, _headers, _body}} ->
+        # Port is in use but not healthy
+        {:error, {:port_in_use, status}}
+
+      {:error, _reason} ->
+        # No server running on this port
+        {:error, :no_server}
+    end
+  end
 end

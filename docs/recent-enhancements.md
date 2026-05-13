@@ -1,5 +1,29 @@
 # Recent Enhancements
 
+## Mac-use MCP Server (Native macOS App Automation)
+
+- **New MCP Server**: `Exhub.MCP.MacUseServer` provides Playwright/Puppeteer-style control over native macOS applications via the Accessibility API
+- **Powered by axcli**: Uses the [axcli](https://github.com/andelf/axcli) Rust CLI (installed via `cargo install axcli`) which wraps Apple's Accessibility and ScreenCaptureKit frameworks
+- **17 MCP Tools** across six categories:
+  - **App Discovery (1)**: `list_apps` — list running macOS applications
+  - **Inspection (2)**: `snapshot` (accessibility tree), `get_attribute` (element attribute values)
+  - **Interaction (6)**: `click`, `dblclick`, `input`, `fill`, `press`, `hover`, `focus` — all background-safe by default (no focus steal, no cursor movement)
+  - **Scrolling (2)**: `scroll_to` (scroll element into view), `scroll` (scroll within element)
+  - **Screenshots (1)**: `screenshot` — occlusion-proof capture via ScreenCaptureKit with optional OCR
+  - **Utility (2)**: `wait` (element polling or sleep), `activate` (bring app to foreground)
+  - **Global Input (2)**: `mouse` (pos/move/click/scroll), `keyboard` (type/press)
+- **CSS-like Locator Syntax**: Supports selectors like `.SearchButton`, `AXButton[title="Send"]`, `text~="partial"`, chaining with `>>`, pseudo-classes `:has-text()`, `:visible`, `:nth-child()`
+- **Background-safe by default**: Uses `CGEventPostToPid` to deliver events directly to the target process — no focus steal, no real cursor movement
+- **Exile Integration**: Uses `Exile.stream/2` for robust process execution with timeout and error handling
+- **TOON Encoding**: All responses are TOON-encoded for 30–60% token reduction vs JSON
+- **Prerequisites**: `axcli` binary on PATH, terminal app granted Accessibility + Screen Recording permissions
+- **Supervisor Integration**: `Exhub.MCP.MacUseServer` registered in the application supervisor with streamable HTTP transport
+- **HTTP Endpoint**: Exposed at `/mac-use/mcp`
+- **Unit Tests**: 79 tests across 3 test files in `test/exhub/mcp/mac_use/`
+- **Full Docs**: [docs/modules/mac-use.md](docs/modules/mac-use.md)
+
+---
+
 ## MCP Hub — Built-in Server Integration & Modularization
 
 - **New Feature**: MCP Hub now auto-registers all 14 built-in MCP servers for direct in-process tool execution, bypassing HTTP loopback

@@ -41,6 +41,7 @@ defmodule Exhub.Router do
   - `POST /image-gen/mcp` - MCP image generation server endpoint
   - `POST /todo/mcp` - MCP multi-tenant todo list server endpoint
   - `POST /desktop/mcp` - MCP desktop commander server endpoint (filesystem, process, search)
+  - `POST /mac-use/mcp` - MCP macOS native app automation (accessibility, screenshots via axcli)
   - `POST /doc-extract/mcp` - MCP document extraction server endpoint (PDF, DOCX, images via Gitee AI)
   - `POST /look/mcp` - MCP image understanding server endpoint (vision models via Gitee AI)
   - `POST /agent/mcp` - MCP agent control server endpoint (ACP bridge for coding agents)
@@ -431,6 +432,11 @@ defmodule Exhub.Router do
   forward("/exhub/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.ExhubServer, request_timeout: 120_000]
+  )
+
+  forward("/mac-use/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.MacUseServer, request_timeout: 120_000]
   )
 
   # MCP Hub - unified endpoint for all upstream MCP servers

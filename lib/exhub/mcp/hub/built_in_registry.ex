@@ -35,7 +35,8 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "desktop" => Exhub.MCP.DesktopServer,
     "agent" => Exhub.MCP.AgentServer,
     "brain" => Exhub.MCP.BrainServer,
-    "exhub" => Exhub.MCP.ExhubServer
+    "exhub" => Exhub.MCP.ExhubServer,
+    "mac-use" => Exhub.MCP.MacUseServer
   }
 
   @doc """
