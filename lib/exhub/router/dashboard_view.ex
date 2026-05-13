@@ -199,7 +199,8 @@ defmodule Exhub.Router.DashboardView do
           background: #2ea043;
         }
         .chart-container {
-          height: 260px;
+          min-height: 260px;
+          height: auto;
           position: relative;
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
@@ -209,6 +210,7 @@ defmodule Exhub.Router.DashboardView do
           align-items: flex-end;
           justify-content: flex-start;
           gap: 4px;
+          min-height: 200px;
           height: 200px;
           padding: 20px 0 30px;
           border-bottom: 2px solid #30363d;
@@ -504,10 +506,12 @@ defmodule Exhub.Router.DashboardView do
             if (trends.length === 0) {
               document.getElementById('trends-chart').innerHTML = '<div class="loading">No data</div>';
             } else {
+              var chartEl = document.getElementById('trends-chart');
+              var maxBarHeight = Math.max(160, chartEl.clientHeight - 50);
               var maxTokens = Math.max.apply(null, trends.map(function(d) { return d.total_tokens; }));
               maxTokens = maxTokens || 1;
               var trendsHtml = trends.map(function(day) {
-                var height = Math.max(4, (day.total_tokens / maxTokens * 160));
+                var height = Math.max(4, (day.total_tokens / maxTokens * maxBarHeight));
                 return '<div class="bar-item">' +
                   '<div class="bar-value">' + formatNumber(day.total_tokens) + '</div>' +
                   '<div class="bar" style="height:' + height + 'px" title="' + day.date + ': ' + formatNumber(day.total_tokens) + ' tokens"></div>' +
