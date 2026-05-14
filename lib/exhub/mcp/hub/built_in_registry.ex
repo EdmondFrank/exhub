@@ -54,6 +54,64 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
   end
 
   @doc """
+  Returns the server info map for a built-in server.
+
+  Delegates to the server module's `server_info/0` callback (auto-generated
+  by `use Anubis.Server`). Falls back to a sensible default if the module
+  does not implement the callback.
+
+  ## Example
+
+      iex> Exhub.MCP.Hub.BuiltInRegistry.server_info("desktop")
+      %{"name" => "exhub-desktop-server", "version" => "1.1.0"}
+  """
+  @spec server_info(String.t()) :: map()
+  def server_info(name) do
+    case Map.get(@built_in_servers, name) do
+      nil ->
+        %{"name" => name, "version" => "1.0.0"}
+
+      server_module ->
+        try do
+          server_module.server_info()
+        rescue
+          _ -> %{"name" => name, "version" => "1.0.0"}
+        catch
+          _, _ -> %{"name" => name, "version" => "1.0.0"}
+        end
+    end
+  end
+
+  @doc """
+  Returns the server capabilities map for a built-in server.
+
+  Delegates to the server module's `server_capabilities/0` callback (auto-generated
+  by `use Anubis.Server`). Falls back to `%{}` if the module does not implement
+  the callback.
+
+  ## Example
+
+      iex> Exhub.MCP.Hub.BuiltInRegistry.server_capabilities("desktop")
+      %{"tools" => %{}}
+  """
+  @spec server_capabilities(String.t()) :: map()
+  def server_capabilities(name) do
+    case Map.get(@built_in_servers, name) do
+      nil ->
+        %{}
+
+      server_module ->
+        try do
+          server_module.server_capabilities()
+        rescue
+          _ -> %{}
+        catch
+          _, _ -> %{}
+        end
+    end
+  end
+
+  @doc """
   Checks if a server name is a built-in server.
   """
   @spec built_in?(String.t()) :: boolean()

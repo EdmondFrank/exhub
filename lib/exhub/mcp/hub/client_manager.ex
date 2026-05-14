@@ -748,7 +748,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
       %{name: "desktop", route: "/desktop/mcp"},
       %{name: "agent", route: "/agent/mcp"},
       %{name: "brain", route: "/brain/mcp"},
-      %{name: "exhub", route: "/exhub/mcp"}
+      %{name: "exhub", route: "/exhub/mcp"},
+      %{name: "mac-use", route: "/mac-use/mcp"}
     ]
     |> Enum.map(fn %{name: name, route: route} ->
       %ServerConfig{

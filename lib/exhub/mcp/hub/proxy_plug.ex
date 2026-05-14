@@ -43,16 +43,21 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   def call(conn, opts) do
     group = Keyword.fetch!(opts, :group)
 
-    case Exhub.MCP.Hub.ClientManager.get_client_pid(group) do
-      {:ok, client_pid} ->
-        handle_request(conn, client_pid, group)
+    # Check built-in servers first (direct in-process, no HTTP overhead)
+    if Exhub.MCP.Hub.BuiltInRegistry.built_in?(group) do
+      handle_builtin_request(conn, group)
+    else
+      case Exhub.MCP.Hub.ClientManager.get_client_pid(group) do
+        {:ok, client_pid} ->
+          handle_request(conn, client_pid, group)
 
-      {:error, reason} ->
-        Logger.warning("[ProxyPlug] No client for group '#{group}': #{inspect(reason)}")
+        {:error, reason} ->
+          Logger.warning("[ProxyPlug] No client for group '#{group}': #{inspect(reason)}")
 
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(404, Jason.encode!(%{error: "Upstream server '#{group}' not available", reason: inspect(reason)}))
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(404, Jason.encode!(%{error: "Upstream server '#{group}' not available", reason: inspect(reason)}))
+      end
     end
   end
 
@@ -64,6 +69,127 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
       "DELETE" -> handle_delete(conn, group)
       _ -> send_method_not_allowed(conn)
     end
+  end
+
+  # --- Built-in server handlers ---
+  # These handle MCP requests for servers that run in the same BEAM VM,
+  # bypassing Anubis.Client and going directly through BuiltInRegistry.
+
+  defp handle_builtin_request(conn, group) do
+    case conn.method do
+      "POST" -> handle_builtin_post(conn, group)
+      "GET" -> handle_get(conn, nil, group)
+      "DELETE" -> handle_delete(conn, group)
+      _ -> send_method_not_allowed(conn)
+    end
+  end
+
+  defp handle_builtin_post(conn, group) do
+    message = conn.body_params
+
+    if message == %{} or is_nil(message) do
+      send_jsonrpc_error(conn, -32700, "Parse error: empty or invalid body", nil)
+    else
+      session_id = get_or_create_session_id(conn)
+      store_session(session_id, nil, group)
+
+      case message do
+        %{"method" => "initialize"} = req ->
+          handle_builtin_initialize(conn, req, session_id, group)
+
+        %{"method" => "notifications/initialized"} ->
+          conn
+          |> put_resp_content_type("application/json")
+          |> put_resp_header(@session_header, session_id)
+          |> send_resp(202, "{}")
+
+        %{"method" => "ping"} ->
+          handle_builtin_ping(conn, message, session_id)
+
+        %{"method" => "tools/list"} = req ->
+          handle_builtin_tools_list(conn, req, session_id, group)
+
+        %{"method" => "tools/call"} = req ->
+          handle_builtin_tools_call(conn, req, session_id, group)
+
+        _ ->
+          send_jsonrpc_error(conn, -32601, "Method not found", message["id"])
+      end
+    end
+  end
+
+  defp handle_builtin_initialize(conn, req, session_id, group) do
+    server_info = Exhub.MCP.Hub.BuiltInRegistry.server_info(group)
+    capabilities = Exhub.MCP.Hub.BuiltInRegistry.server_capabilities(group)
+
+    result = %{
+      "protocolVersion" => "2024-11-05",
+      "serverInfo" => server_info,
+      "capabilities" => capabilities
+    }
+
+    response = %{
+      "jsonrpc" => "2.0",
+      "id" => req["id"],
+      "result" => result
+    }
+
+    Logger.info("[ProxyPlug] #{group}: initialize (builtin), server_info: #{inspect(server_info)}")
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header(@session_header, session_id)
+    |> send_resp(200, Jason.encode!(response))
+  end
+
+  defp handle_builtin_ping(conn, req, session_id) do
+    response = %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{}}
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header(@session_header, session_id)
+    |> send_resp(200, Jason.encode!(response))
+  end
+
+  defp handle_builtin_tools_list(conn, req, session_id, group) do
+    tools =
+      Exhub.MCP.Hub.BuiltInRegistry.list_tools(group)
+      |> Enum.map(fn tool ->
+        Map.drop(tool, ["server"])
+      end)
+
+    response = %{
+      "jsonrpc" => "2.0",
+      "id" => req["id"],
+      "result" => %{"tools" => tools}
+    }
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header(@session_header, session_id)
+    |> send_resp(200, Jason.encode!(response))
+  end
+
+  defp handle_builtin_tools_call(conn, req, session_id, group) do
+    tool_name = get_in(req, ["params", "name"])
+    arguments = get_in(req, ["params", "arguments"]) || %{}
+
+    response =
+      case Exhub.MCP.Hub.BuiltInRegistry.call_tool(group, tool_name, arguments) do
+        {:ok, result} ->
+          %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
+
+        {:error, %Anubis.MCP.Error{} = error} ->
+          %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => error.message}}
+
+        {:error, reason} ->
+          %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => inspect(reason)}}
+      end
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header(@session_header, session_id)
+    |> send_resp(200, Jason.encode!(response))
   end
 
   defp handle_post(conn, client_ref, group) do
