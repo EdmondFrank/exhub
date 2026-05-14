@@ -71,6 +71,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
     configs: %{},
     clients: %{},
     pending_tasks: %{},
+    pending_tool_calls: %{},
     supervisors: %{}
   ]
 
@@ -196,6 +197,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
       configs: Map.new(all_configs, &{&1.name, &1}),
       clients: clients,
       pending_tasks: %{},
+      pending_tool_calls: %{},
       supervisors: %{}
     }
 
@@ -236,12 +238,23 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   @impl true
-  def handle_info({ref, result}, %{pending_tasks: pending} = state) do
+  def handle_info({ref, result}, state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
 
-    case Map.pop(pending, ref) do
-      {nil, _pending} ->
-        {:noreply, state}
+    # Check if this is a client startup task
+    case Map.pop(state.pending_tasks, ref) do
+      {nil, _} ->
+        # Check if this is a tool call task
+        case Map.pop(state.pending_tool_calls, ref) do
+          {nil, _} ->
+            {:noreply, state}
+
+          {{from, server_name, tool_name, start_time}, new_pending_calls} ->
+            duration = System.monotonic_time(:millisecond) - start_time
+            Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
+            GenServer.reply(from, result)
+            {:noreply, %{state | pending_tool_calls: new_pending_calls}}
+        end
 
       {server_name, new_pending} ->
         new_clients = apply_client_result(state.clients, server_name, result)
@@ -257,10 +270,21 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{pending_tasks: pending} = state) do
-    case Map.pop(pending, ref) do
-      {nil, _pending} ->
-        {:noreply, state}
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    # Check if this is a client startup task
+    case Map.pop(state.pending_tasks, ref) do
+      {nil, _} ->
+        # Check if this is a tool call task
+        case Map.pop(state.pending_tool_calls, ref) do
+          {nil, _} ->
+            {:noreply, state}
+
+          {{from, server_name, tool_name, start_time}, new_pending_calls} ->
+            duration = System.monotonic_time(:millisecond) - start_time
+            Logger.error("[MCP Hub] Tool call task crashed: #{server_name}:#{tool_name} in #{duration}ms: #{inspect(reason)}")
+            GenServer.reply(from, {:error, {:task_crashed, reason}})
+            {:noreply, %{state | pending_tool_calls: new_pending_calls}}
+        end
 
       {server_name, new_pending} ->
         Logger.error("Client startup task for #{server_name} crashed: #{inspect(reason)}")
@@ -435,56 +459,71 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   @impl true
-  def handle_call({:call_tool, server_name, tool_name, arguments}, _from, state) do
+  def handle_call({:call_tool, server_name, tool_name, arguments}, from, state) do
     Logger.info("[MCP Hub] Calling tool on #{server_name}: #{tool_name}")
-    start_time = System.monotonic_time(:millisecond)
 
-    result =
-      # Check if this is a built-in server first (direct execution, no HTTP)
-      if Exhub.MCP.Hub.BuiltInRegistry.built_in?(server_name) do
+    # Check if this is a built-in server first (direct execution, no HTTP)
+    if Exhub.MCP.Hub.BuiltInRegistry.built_in?(server_name) do
+      result =
         case Exhub.MCP.Hub.BuiltInRegistry.call_tool(server_name, tool_name, arguments) do
-          {:ok, result} ->
-            {:reply, {:ok, result}, state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
+          {:ok, result} -> {:reply, {:ok, result}, state}
+          {:error, reason} -> {:reply, {:error, reason}, state}
         end
-      else
-        case Map.get(state.clients, server_name) do
-          %{status: :connecting} ->
-            {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
 
-          %{status: :connected, pid: pid} ->
-            if Process.alive?(pid) do
-              client_reg_name = ServerConfig.client_name(server_name)
+      duration = 0
+      Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
+      result
+    else
+      case Map.get(state.clients, server_name) do
+        %{status: :connecting} ->
+          {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
 
-              case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 120_000) do
-                {:ok, %{is_error: true} = response} ->
-                  error_text = extract_error_text(response)
-                  {:reply, {:error, error_text}, state}
+        %{status: :connected, pid: pid} ->
+          if Process.alive?(pid) do
+            # Spawn async task to avoid blocking the GenServer during upstream call
+            start_time = System.monotonic_time(:millisecond)
+            client_reg_name = ServerConfig.client_name(server_name)
 
-                {:ok, response} ->
-                  {:reply, {:ok, response.result}, state}
+            task =
+              Task.Supervisor.async_nolink(
+                Exhub.MCP.Hub.TaskSupervisor,
+                fn ->
+                  result =
+                    try do
+                      case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 120_000) do
+                        {:ok, %{is_error: true} = response} ->
+                          error_text = extract_error_text(response)
+                          {:error, error_text}
 
-                {:error, reason} ->
-                  {:reply, {:error, reason}, state}
-              end
-            else
-              {:reply, {:error, :server_not_running}, state}
-            end
+                        {:ok, response} ->
+                          {:ok, response.result}
 
-          %{status: :error, last_error: error} ->
-            {:reply, {:error, {:upstream_error, error}}, state}
+                        {:error, reason} ->
+                          {:error, reason}
+                      end
+                    rescue
+                      e -> {:error, {:exception, inspect(e)}}
+                    catch
+                      kind, reason -> {:error, {kind, reason}}
+                    end
 
-          nil ->
-            {:reply, {:error, :server_not_found}, state}
-        end
+                  {server_name, tool_name, start_time, result}
+                end
+              )
+
+            new_pending = Map.put(state.pending_tool_calls, task.ref, {from, server_name, tool_name, start_time})
+            {:noreply, %{state | pending_tool_calls: new_pending}}
+          else
+            {:reply, {:error, :server_not_running}, state}
+          end
+
+        %{status: :error, last_error: error} ->
+          {:reply, {:error, {:upstream_error, error}}, state}
+
+        nil ->
+          {:reply, {:error, :server_not_found}, state}
       end
-
-    duration = System.monotonic_time(:millisecond) - start_time
-    Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
-
-    result
+    end
   end
 
   @impl true

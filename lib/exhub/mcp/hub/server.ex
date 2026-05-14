@@ -33,15 +33,23 @@ defmodule Exhub.MCP.Hub.Server do
   def init(client_info, frame) do
     Logger.info("MCP Hub client connected: #{inspect(client_info)}")
 
-    # Build search index for retrieve_tools (lightweight, no registration)
-    case Exhub.MCP.Hub.ClientManager.list_all_tools() do
-      {:ok, tools} ->
-        index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
-        Exhub.MCP.Hub.Store.put_search_index(index)
+    # Build search index for retrieve_tools asynchronously so we don't block init
+    # if ClientManager is busy connecting to upstream servers
+    Task.start(fn ->
+      try do
+        case Exhub.MCP.Hub.ClientManager.list_all_tools() do
+          {:ok, tools} ->
+            index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
+            Exhub.MCP.Hub.Store.put_search_index(index)
+            Logger.info("MCP Hub search index built with #{length(tools)} tools")
 
-      {:error, reason} ->
-        Logger.error("Failed to build search index: #{inspect(reason)}")
-    end
+          {:error, reason} ->
+            Logger.error("Failed to build search index: #{inspect(reason)}")
+        end
+      rescue
+        e -> Logger.error("Search index build crashed: #{inspect(e)}")
+      end
+    end)
 
     {:ok, frame}
   end
