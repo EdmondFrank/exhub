@@ -7,7 +7,7 @@ defmodule Exhub.ProxyPlug do
   require Logger
 
   # Models that require reasoning_content to be preserved across turns.
-  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"]
+  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"]
 
   @doc """
   Returns whether proxy should be used for the given provider.
@@ -243,7 +243,7 @@ defmodule Exhub.ProxyPlug do
 
         Jason.encode!(Map.put(body_params, "messages", transformed_messages))
 
-      %{"model" => model} when model in ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"] ->
+      %{"model" => model} when model in ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"] ->
         body_params
         |> Map.put("temperature", 1)
         |> Exhub.Router.Config.transform_request_body(model)

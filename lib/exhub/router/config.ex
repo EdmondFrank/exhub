@@ -343,12 +343,12 @@ defmodule Exhub.Router.Config do
   end
 
   # Models that require reasoning_content to be present in assistant tool-call
-  # messages when thinking is enabled (Moonshot AI requirement).
-  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5"]
+  # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
+  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"]
 
   @doc """
   Transforms request body for model-specific requirements.
-  For kimi-k2.5/kimi-k2.6/inf-kimi-k2.5, injects a placeholder `reasoning_content`
+  For kimi-k2.5/kimi-k2.6/inf-kimi-k2.5/mimo-v2.5-pro/mimo-v2.5, injects a placeholder `reasoning_content`
   into assistant messages that have tool_calls but are missing the field.
   This prevents the Moonshot API error:
   "thinking is enabled but reasoning_content is missing in assistant tool call message"

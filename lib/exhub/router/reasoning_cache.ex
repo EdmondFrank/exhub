@@ -1,8 +1,8 @@
 defmodule Exhub.Router.ReasoningCache do
   @moduledoc """
-  ETS-backed cache for Kimi `reasoning_content`, keyed by tool_call ID.
+  ETS-backed cache for Kimi/MiMo `reasoning_content`, keyed by tool_call ID.
 
-  Moonshot (kimi-k2.5/k2.6) requires that every assistant message containing
+  Moonshot (kimi-k2.5/k2.6) and Xiaomi MiMo (mimo-v2.5/mimo-v2.5-pro) require that every assistant message containing
   `tool_calls` also carries the original `reasoning_content` from when the model
   produced those calls. Clients (Claude Code, etc.) typically strip this field
   when replaying conversation history, so the proxy must re-inject it.
