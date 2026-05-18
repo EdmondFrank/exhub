@@ -39,14 +39,53 @@ defmodule Exhub.MCP.Desktop.Helpers do
   @doc """
   Resolves `~` and `~/...` paths to the user home directory.
 
-  Passes through absolute and relative paths unchanged. Returns `nil` for `nil`,
+  Passes through absolute paths unchanged. Returns `nil` for `nil`,
   useful for optional path parameters like `working_dir`.
+
+  **Note:** For path validation that rejects relative paths, use
+  `validate_absolute_path/1` instead.
   """
   @spec expand_path(String.t() | nil) :: String.t() | nil
   def expand_path(nil), do: nil
   def expand_path("~"), do: System.user_home!()
   def expand_path("~/" <> rest), do: Path.join(System.user_home!(), rest)
   def expand_path(path), do: path
+
+  @doc """
+  Validates that a path is absolute or tilde-based, and expands `~` to the user home directory.
+
+  Only accepts:
+  - `nil` (for optional path parameters) → returns `{:ok, nil}`
+  - `~` → expands to user home directory
+  - `~/...` → expands to `$HOME/...`
+  - `/...` → absolute path, returned as-is
+
+  Returns `{:error, message}` for relative paths (e.g. `foo/bar`, `../file`).
+
+  ## Examples
+
+      iex> validate_absolute_path("/tmp/file")
+      {:ok, "/tmp/file"}
+
+      iex> validate_absolute_path("~/Documents")
+      {:ok, "/Users/me/Documents"}
+
+      iex> validate_absolute_path(nil)
+      {:ok, nil}
+
+      iex> validate_absolute_path("relative/path")
+      {:error, "Relative paths are not supported: ..."}
+  """
+  @spec validate_absolute_path(String.t() | nil) :: {:ok, String.t() | nil} | {:error, String.t()}
+  def validate_absolute_path(nil), do: {:ok, nil}
+  def validate_absolute_path("~"), do: {:ok, System.user_home!()}
+  def validate_absolute_path("~/" <> rest), do: {:ok, Path.join(System.user_home!(), rest)}
+  def validate_absolute_path("/" <> _ = path), do: {:ok, path}
+
+  def validate_absolute_path(path) when is_binary(path) do
+    {:error,
+     "Relative paths are not supported: '#{path}'. Use an absolute path (e.g. /path/to/file) or ~ shorthand (e.g. ~/path/to/file)."}
+  end
 
   @doc """
   Returns a clean environment variable list suitable for spawning child processes.

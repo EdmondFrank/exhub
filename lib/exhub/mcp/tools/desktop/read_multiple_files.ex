@@ -47,14 +47,18 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
   end
 
   defp read_single_file(path, offset, length, extract) do
-    expanded_path = Helpers.expand_path(path)
+    case Helpers.validate_absolute_path(path) do
+      {:ok, expanded_path} ->
+        cond do
+          extract and Client.document_type?(expanded_path) ->
+            read_document(expanded_path, path)
 
-    cond do
-      extract and Client.document_type?(expanded_path) ->
-        read_document(expanded_path, path)
+          true ->
+            read_text_file(expanded_path, path, offset, length)
+        end
 
-      true ->
-        read_text_file(expanded_path, path, offset, length)
+      {:error, reason} ->
+        %{path: path, success: false, error: reason}
     end
   end
 

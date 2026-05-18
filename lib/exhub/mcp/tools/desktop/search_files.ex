@@ -49,30 +49,35 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
-    pattern = Map.get(params, :pattern)
-    search_type = Map.get(params, :search_type, "files")
-    file_pattern = Map.get(params, :file_pattern)
-    ignore_case = Map.get(params, :ignore_case, true)
-    max_results = Map.get(params, :max_results, 50)
-    context_lines = Map.get(params, :context_lines, 2)
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      pattern = Map.get(params, :pattern)
+      search_type = Map.get(params, :search_type, "files")
+      file_pattern = Map.get(params, :file_pattern)
+      ignore_case = Map.get(params, :ignore_case, true)
+      max_results = Map.get(params, :max_results, 50)
+      context_lines = Map.get(params, :context_lines, 2)
 
-    case do_search(path, pattern, search_type, file_pattern, ignore_case, max_results, context_lines) do
-      {:ok, results} ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "path" => path,
-            "pattern" => pattern,
-            "search_type" => search_type,
-            "results" => results,
-            "count" => length(results)
-          })
+      case do_search(path, pattern, search_type, file_pattern, ignore_case, max_results, context_lines) do
+        {:ok, results} ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "path" => path,
+              "pattern" => pattern,
+              "search_type" => search_type,
+              "results" => results,
+              "count" => length(results)
+            })
 
-        {:reply, resp, frame}
+          {:reply, resp, frame}
 
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Search failed: #{reason}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Search failed: #{reason}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

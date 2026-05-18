@@ -63,19 +63,24 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
         {:reply, resp, frame}
 
       true ->
-        working_dir = Helpers.expand_path(working_dir)
-        process_id = generate_process_id()
+        with {:ok, working_dir} <- Helpers.validate_absolute_path(working_dir) do
+          process_id = generate_process_id()
 
-        case start_managed_process(process_id, command, working_dir, interactive) do
-          {:ok, entry} ->
-            resp =
-              Response.tool()
-              |> Helpers.toon_response(%{
-                "process_id" => process_id,
-                "pid" => entry.pid,
-                "interactive" => entry.interactive
-              })
+          case start_managed_process(process_id, command, working_dir, interactive) do
+            {:ok, entry} ->
+              resp =
+                Response.tool()
+                |> Helpers.toon_response(%{
+                  "process_id" => process_id,
+                  "pid" => entry.pid,
+                  "interactive" => entry.interactive
+                })
 
+              {:reply, resp, frame}
+          end
+        else
+          {:error, reason} ->
+            resp = Response.tool() |> Response.error(reason)
             {:reply, resp, frame}
         end
     end

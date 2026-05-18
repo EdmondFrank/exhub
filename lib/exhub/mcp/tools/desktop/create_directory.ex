@@ -31,25 +31,29 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      case File.mkdir_p(path) do
+        :ok ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "message" => "Directory created successfully.",
+              "path" => path
+            })
 
-    case File.mkdir_p(path) do
-      :ok ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "message" => "Directory created successfully.",
-            "path" => path
-          })
+          {:reply, resp, frame}
 
-        {:reply, resp, frame}
+        {:error, :eacces} ->
+          resp = Response.tool() |> Response.error("Permission denied: #{path}")
+          {:reply, resp, frame}
 
-      {:error, :eacces} ->
-        resp = Response.tool() |> Response.error("Permission denied: #{path}")
-        {:reply, resp, frame}
-
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Failed to create directory: #{inspect(reason)}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to create directory: #{inspect(reason)}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

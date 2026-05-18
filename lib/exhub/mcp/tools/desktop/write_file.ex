@@ -38,23 +38,28 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
-    content = Map.get(params, :content)
-    mode = Map.get(params, :mode, "overwrite")
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      content = Map.get(params, :content)
+      mode = Map.get(params, :mode, "overwrite")
 
-    case write_file(path, content, mode) do
-      :ok ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "path" => path,
-            "bytes_written" => byte_size(content)
-          })
+      case write_file(path, content, mode) do
+        :ok ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "path" => path,
+              "bytes_written" => byte_size(content)
+            })
 
-        {:reply, resp, frame}
+          {:reply, resp, frame}
 
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Failed to write file: #{reason}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to write file: #{reason}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

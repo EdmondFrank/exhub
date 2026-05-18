@@ -86,26 +86,31 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
 
   @impl true
   def execute(params, frame) do
-    file_path = Map.get(params, :file_path) |> Helpers.expand_path()
-    old_string = Map.get(params, :old_string)
-    new_string = Map.get(params, :new_string)
-    expected = Map.get(params, :expected_replacements, 1)
+    with {:ok, file_path} <- Map.get(params, :file_path) |> Helpers.validate_absolute_path() do
+      old_string = Map.get(params, :old_string)
+      new_string = Map.get(params, :new_string)
+      expected = Map.get(params, :expected_replacements, 1)
 
-    case perform_edit(file_path, old_string, new_string, expected) do
-      {:ok, replacements, warning} ->
-        message =
-          "Successfully applied #{replacements} edit(s) to #{file_path}" <> warning
+      case perform_edit(file_path, old_string, new_string, expected) do
+        {:ok, replacements, warning} ->
+          message =
+            "Successfully applied #{replacements} edit(s) to #{file_path}" <> warning
 
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "message" => message
-          })
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "message" => message
+            })
 
-        {:reply, resp, frame}
+          {:reply, resp, frame}
 
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Edit failed: #{reason}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Edit failed: #{reason}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

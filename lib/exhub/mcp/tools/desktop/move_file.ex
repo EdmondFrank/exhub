@@ -33,23 +33,27 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
 
   @impl true
   def execute(params, frame) do
-    source = Map.get(params, :source) |> Helpers.expand_path()
-    destination = Map.get(params, :destination) |> Helpers.expand_path()
+    with {:ok, source} <- Map.get(params, :source) |> Helpers.validate_absolute_path(),
+         {:ok, destination} <- Map.get(params, :destination) |> Helpers.validate_absolute_path() do
+      case move_file(source, destination) do
+        :ok ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "source" => source,
+              "destination" => destination,
+              "message" => "Moved successfully."
+            })
 
-    case move_file(source, destination) do
-      :ok ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "source" => source,
-            "destination" => destination,
-            "message" => "Moved successfully."
-          })
+          {:reply, resp, frame}
 
-        {:reply, resp, frame}
-
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Failed to move file: #{reason}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to move file: #{reason}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

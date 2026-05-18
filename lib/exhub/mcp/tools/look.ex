@@ -138,26 +138,37 @@ defmodule Exhub.MCP.Tools.Look do
       String.starts_with?(image, ["http://", "https://"]) ->
         {:ok, %{type: "image_url", image_url: %{url: image}}}
 
-      File.exists?(image) ->
-        ext = Path.extname(image) |> String.downcase()
+      String.starts_with?(image, ["/", "~"]) ->
+        # Absolute or tilde-based path - validate and expand
+        case Exhub.MCP.Desktop.Helpers.validate_absolute_path(image) do
+          {:ok, expanded_path} ->
+            if File.exists?(expanded_path) do
+              ext = Path.extname(expanded_path) |> String.downcase()
 
-        if ext in @supported_image_exts do
-          case File.read(image) do
-            {:ok, binary} ->
-              b64 = Base.encode64(binary)
-              mime = ext_to_mime(ext)
-              data_uri = "data:#{mime};base64,#{b64}"
-              {:ok, %{type: "image_url", image_url: %{url: data_uri}}}
+              if ext in @supported_image_exts do
+                case File.read(expanded_path) do
+                  {:ok, binary} ->
+                    b64 = Base.encode64(binary)
+                    mime = ext_to_mime(ext)
+                    data_uri = "data:#{mime};base64,#{b64}"
+                    {:ok, %{type: "image_url", image_url: %{url: data_uri}}}
 
-            {:error, reason} ->
-              {:error, "Cannot read file #{image}: #{inspect(reason)}"}
-          end
-        else
-          {:error, "Unsupported image format: #{ext}. Supported: #{Enum.join(@supported_image_exts, ", ")}"}
+                  {:error, reason} ->
+                    {:error, "Cannot read file #{expanded_path}: #{inspect(reason)}"}
+                end
+              else
+                {:error, "Unsupported image format: #{ext}. Supported: #{Enum.join(@supported_image_exts, ", ")}"}
+              end
+            else
+              {:error, "File not found: #{expanded_path}"}
+            end
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       true ->
-        {:error, "File not found: #{image}"}
+        {:error, "Relative paths are not supported: '#{image}'. Use an absolute path (e.g. /path/to/image.png), ~ shorthand (e.g. ~/path/to/image.png), or a URL (https://...)."}
     end
   end
 

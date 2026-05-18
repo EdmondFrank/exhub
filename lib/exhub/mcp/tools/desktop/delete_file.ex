@@ -33,22 +33,27 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
-    recursive = Map.get(params, :recursive, false)
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      recursive = Map.get(params, :recursive, false)
 
-    case delete_path(path, recursive) do
-      :ok ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "path" => path,
-            "message" => "Deleted successfully."
-          })
+      case delete_path(path, recursive) do
+        :ok ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "path" => path,
+              "message" => "Deleted successfully."
+            })
 
-        {:reply, resp, frame}
+          {:reply, resp, frame}
 
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Failed to delete: #{reason}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to delete: #{reason}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

@@ -60,18 +60,22 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
         {:reply, resp, frame}
 
       true ->
-        working_dir = Helpers.expand_path(working_dir)
+        with {:ok, working_dir} <- Helpers.validate_absolute_path(working_dir) do
+          case run_command(command, timeout_ms, working_dir) do
+            {:ok, result} ->
+              resp =
+                Response.tool()
+                |> Helpers.toon_response(result)
 
-        case run_command(command, timeout_ms, working_dir) do
-          {:ok, result} ->
-            resp =
-              Response.tool()
-              |> Helpers.toon_response(result)
+              {:reply, resp, frame}
 
-            {:reply, resp, frame}
-
+            {:error, reason} ->
+              resp = Response.tool() |> Response.error("Command execution failed: #{reason}")
+              {:reply, resp, frame}
+          end
+        else
           {:error, reason} ->
-            resp = Response.tool() |> Response.error("Command execution failed: #{reason}")
+            resp = Response.tool() |> Response.error(reason)
             {:reply, resp, frame}
         end
     end

@@ -40,21 +40,26 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
-    depth = Map.get(params, :depth, 0)
-    show_modified = Map.get(params, :show_modified, false)
-    pattern = Map.get(params, :pattern)
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      depth = Map.get(params, :depth, 0)
+      show_modified = Map.get(params, :show_modified, false)
+      pattern = Map.get(params, :pattern)
 
-    case list_directory(path, depth, show_modified, pattern) do
-      {:ok, entries} ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{"entries" => entries})
+      case list_directory(path, depth, show_modified, pattern) do
+        {:ok, entries} ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{"entries" => entries})
 
-        {:reply, resp, frame}
+          {:reply, resp, frame}
 
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Failed to list directory: #{reason}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to list directory: #{reason}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

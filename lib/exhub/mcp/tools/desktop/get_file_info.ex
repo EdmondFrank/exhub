@@ -30,35 +30,39 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      case File.stat(path) do
+        {:ok, stat} ->
+          resp =
+            Response.tool()
+            |> Helpers.toon_response(%{
+              "path" => path,
+              "type" => stat_type(stat.type),
+              "size" => humanize_size(stat.size),
+              "access" => to_string(stat.access),
+              "atime" => format_time(stat.atime),
+              "mtime" => format_time(stat.mtime),
+              "ctime" => format_time(stat.ctime),
+              "mode" => format_mode(stat.mode)
+            })
 
-    case File.stat(path) do
-      {:ok, stat} ->
-        resp =
-          Response.tool()
-          |> Helpers.toon_response(%{
-            "path" => path,
-            "type" => stat_type(stat.type),
-            "size" => humanize_size(stat.size),
-            "access" => to_string(stat.access),
-            "atime" => format_time(stat.atime),
-            "mtime" => format_time(stat.mtime),
-            "ctime" => format_time(stat.ctime),
-            "mode" => format_mode(stat.mode)
-          })
+          {:reply, resp, frame}
 
-        {:reply, resp, frame}
+        {:error, :enoent} ->
+          resp = Response.tool() |> Response.error("Path not found: #{path}")
+          {:reply, resp, frame}
 
-      {:error, :enoent} ->
-        resp = Response.tool() |> Response.error("Path not found: #{path}")
-        {:reply, resp, frame}
+        {:error, :eacces} ->
+          resp = Response.tool() |> Response.error("Permission denied: #{path}")
+          {:reply, resp, frame}
 
-      {:error, :eacces} ->
-        resp = Response.tool() |> Response.error("Permission denied: #{path}")
-        {:reply, resp, frame}
-
+        {:error, reason} ->
+          resp = Response.tool() |> Response.error("Failed to get file info: #{inspect(reason)}")
+          {:reply, resp, frame}
+      end
+    else
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to get file info: #{inspect(reason)}")
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
     end
   end

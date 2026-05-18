@@ -45,55 +45,60 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
 
   @impl true
   def execute(params, frame) do
-    path = Map.get(params, :path) |> Helpers.expand_path()
-    offset = Map.get(params, :offset, 0)
-    length = Map.get(params, :length, 1000)
-    extract = Map.get(params, :extract, true)
+    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+      offset = Map.get(params, :offset, 0)
+      length = Map.get(params, :length, 1000)
+      extract = Map.get(params, :extract, true)
 
-    cond do
-      is_nil(path) or path == "" ->
-        resp = Response.tool() |> Response.error("`path` is required")
+      cond do
+        is_nil(path) or path == "" ->
+          resp = Response.tool() |> Response.error("`path` is required")
+          {:reply, resp, frame}
+
+        extract and Client.document_type?(path) ->
+          # Document file - use extraction
+          case Client.extract(path) do
+            {:ok, content} ->
+              resp =
+                Response.tool()
+                |> Helpers.toon_response(%{
+                  "path" => path,
+                  "extraction" => true,
+                  "content" => content
+                })
+
+              {:reply, resp, frame}
+
+            {:error, reason} ->
+              resp = Response.tool() |> Response.error("Document extraction failed: #{reason}")
+              {:reply, resp, frame}
+          end
+
+        true ->
+          # Plain text file - use line-based reading
+          case read_file(path, offset, length) do
+            {:ok, content, lines_read, total_lines} ->
+              resp =
+                Response.tool()
+                |> Helpers.toon_response(%{
+                  "path" => path,
+                  "offset" => offset,
+                  "lines_read" => lines_read,
+                  "total_lines" => total_lines,
+                  "content" => content
+                })
+
+              {:reply, resp, frame}
+
+            {:error, reason} ->
+              resp = Response.tool() |> Response.error("Failed to read file: #{reason}")
+              {:reply, resp, frame}
+          end
+      end
+    else
+      {:error, reason} ->
+        resp = Response.tool() |> Response.error(reason)
         {:reply, resp, frame}
-
-      extract and Client.document_type?(path) ->
-        # Document file - use extraction
-        case Client.extract(path) do
-          {:ok, content} ->
-            resp =
-              Response.tool()
-              |> Helpers.toon_response(%{
-                "path" => path,
-                "extraction" => true,
-                "content" => content
-              })
-
-            {:reply, resp, frame}
-
-          {:error, reason} ->
-            resp = Response.tool() |> Response.error("Document extraction failed: #{reason}")
-            {:reply, resp, frame}
-        end
-
-      true ->
-        # Plain text file - use line-based reading
-        case read_file(path, offset, length) do
-          {:ok, content, lines_read, total_lines} ->
-            resp =
-              Response.tool()
-              |> Helpers.toon_response(%{
-                "path" => path,
-                "offset" => offset,
-                "lines_read" => lines_read,
-                "total_lines" => total_lines,
-                "content" => content
-              })
-
-            {:reply, resp, frame}
-
-          {:error, reason} ->
-            resp = Response.tool() |> Response.error("Failed to read file: #{reason}")
-            {:reply, resp, frame}
-        end
     end
   end
 
