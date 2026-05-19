@@ -29,6 +29,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Brain (Obsidian Vault)**: MCP-based interface to an Obsidian vault as a "second brain". Exposes tools for listing notes and directories (recursive, flat, absolute paths) and searching by content, filename, or tags (including hierarchical tag search) at `/brain/mcp`.
 - **MCP Tool Filtering**: All MCP servers support `x-include-tools` and `x-exclude-tools` headers for filtering the `tools/list` response. Include only specific tools or exclude unwanted ones via comma-separated tool names.
 - **MCP Hub (Unified Gateway)**: Aggregates multiple upstream MCP servers into a single endpoint with `{server}__{tool}` namespacing. Supports virtual route proxying for direct 1:1 server access. Now includes **TF-IDF tool search** (`retrieve_tools`) for intelligent discovery, **health monitoring** with auto-reconnect and exponential backoff, and structured logging for all tool calls. Features **built-in server integration** — all 14 local MCP servers are auto-registered and accessed directly in-process via `BuiltInRegistry`, bypassing HTTP loopback for zero-latency tool calls. Hub tools are now modular `Anubis.Server.Component` modules (`retrieve_tools`, `call_tools`), and ETS ownership is centralized in `Hub.Store`.
+- **Agent Hub (Sagents Integration)**: MCP-based agent orchestration platform powered by `sagents`. Manage multiple LLM-backed agents with middleware, tools, and conversation state. Exposes agents via HTTP REST chat API (`POST /agent-hub/agents/{name}/chat` with SSE streaming) and MCP server (`/agent-hub/mcp`). Each agent can selectively use exhub's MCP tools (desktop, web-tools, brain, etc.). Default agents: coder, researcher, assistant. See [docs/modules/agent-hub.md](docs/modules/agent-hub.md).
 
 ## Installation
 
@@ -217,6 +218,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-vault        | Org-mode password vault (AES-256-GCM encrypted org links)     | [docs/modules/vault.md](docs/modules/vault.md)               |
 | exhub-brain        | MCP Obsidian vault "second brain" (list & search notes)        | [docs/modules/brain.md](docs/modules/brain.md)               |
 | exhub-mcp-hub      | MCP Hub — unified gateway with search, health, auto-reconnect  | [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)           |
+| exhub-agent-hub    | Agent Hub — sagents-based agent orchestration platform         | [docs/modules/agent-hub.md](docs/modules/agent-hub.md)       |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).
