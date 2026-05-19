@@ -41,14 +41,15 @@ defmodule Exhub.MixProject do
       {:instructor,
        git: "https://github.com/thmsmlr/instructor_ex",
        ref: "2c89b1cd52e0125562c8c5cb2eb99d2324261cfa"},
-      {:langchain, "~> 0.4.1"},
+      {:langchain, "~> 0.8.0"},
       {:tzdata, "~> 1.1"},
       {:req, "~> 0.5.8", override: true},
       {:quantum, "~> 3.0"},
       {:secret_vault, "~> 1.0"},
       {:exile, "~> 0.10"},
       {:toon, "~> 0.3.0"},
-      {:ex_mcp, "~> 0.9.0"}
+      {:ex_mcp, "~> 0.9.0"},
+      {:sagents, "~> 0.7.0"}
     ]
   end
 end
