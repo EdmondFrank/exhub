@@ -445,6 +445,91 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.Hub.Server, request_timeout: 120_000]
   )
 
+  # Agent Hub MCP server
+  forward("/agent-hub/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.Sagents.AgentHubServer, request_timeout: 300_000]
+  )
+
+  # ============================================================================
+  # Agent Hub REST API
+  # ============================================================================
+
+  get "/agent-hub/agents" do
+    agents = Exhub.Sagents.Hub.list_agents()
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(%{agents: agents}))
+  end
+
+  post "/agent-hub/agents/:name/chat" do
+    message = conn.body_params["message"]
+
+    if is_nil(message) or message == "" do
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(400, Jason.encode!(%{error: "message is required"}))
+    else
+      conn =
+        conn
+        |> put_resp_header("content-type", "text/event-stream")
+        |> put_resp_header("cache-control", "no-cache")
+        |> put_resp_header("connection", "keep-alive")
+        |> send_chunked(200)
+
+      case Exhub.Sagents.Hub.chat_stream(name, message) do
+        {:ok, stream} ->
+          Enum.reduce_while(stream, conn, fn event, conn ->
+            case Jason.encode(event) do
+              {:ok, json} ->
+                case Plug.Conn.chunk(conn, "data: #{json}\n\n") do
+                  {:ok, conn} -> {:cont, conn}
+                  {:error, :closed} -> {:halt, conn}
+                end
+
+              _ ->
+                {:cont, conn}
+            end
+          end)
+          |> then(fn conn ->
+            {:ok, conn} = Plug.Conn.chunk(conn, "data: [DONE]\n\n")
+            conn
+          end)
+
+        {:error, reason} ->
+          {:ok, conn} =
+            Plug.Conn.chunk(conn, "data: #{Jason.encode!(%{type: "error", error: inspect(reason)})}\n\n")
+
+          conn
+      end
+    end
+  end
+
+  get "/agent-hub/agents/:name/status" do
+    status = Exhub.Sagents.Hub.get_status(name)
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(status))
+  end
+
+  post "/agent-hub/agents/:name/reset" do
+    Exhub.Sagents.Hub.reset(name)
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(%{status: "reset", name: name}))
+  end
+
+  post "/agent-hub/agents/:name/stop" do
+    Exhub.Sagents.Hub.stop_agent(name)
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(%{status: "stopped", name: name}))
+  end
+
   # ============================================================================
   # Dashboard Routes
   # ============================================================================

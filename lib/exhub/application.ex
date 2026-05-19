@@ -13,6 +13,8 @@ defmodule Exhub.Application do
       {Registry, keys: :unique, name: Exhub.Registry},
       # Sagents — agent orchestration framework (must start after Registry)
       Sagents.Supervisor,
+      # Agent Hub — manages sagents agent lifecycle
+      {Exhub.Sagents.Hub, name: Exhub.Sagents.Hub},
       {Exhub.Router.ReasoningCache, []},
       {Exhub.Llm.World, name: Exhub.Llm.World},
       {Exhub.Llm.LlmConfigServer, name: Exhub.Llm.LlmConfigServer},
