@@ -11,6 +11,8 @@ defmodule Exhub.Application do
 
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
+      # Sagents — agent orchestration framework (must start after Registry)
+      Sagents.Supervisor,
       {Exhub.Router.ReasoningCache, []},
       {Exhub.Llm.World, name: Exhub.Llm.World},
       {Exhub.Llm.LlmConfigServer, name: Exhub.Llm.LlmConfigServer},
