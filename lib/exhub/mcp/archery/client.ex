@@ -864,16 +864,13 @@ defmodule Exhub.MCP.Archery.Client do
     # Convert headers to list format
     header_list = Enum.map(cookie_header, fn {k, v} -> {k, v} end)
 
-    proxy_opts = case System.get_env("HTTPS_PROXY") || System.get_env("HTTP_PROXY") do
-      nil -> []
-      proxy -> [proxy: proxy]
-    end
-
+    # Explicitly ignore HTTPS_PROXY and HTTP_PROXY environment variables
     options = [
       recv_timeout: 30_000,
       follow_redirect: true,
-      max_redirect: 10
-    ] ++ proxy_opts
+      max_redirect: 10,
+      proxy: nil
+    ]
 
     case HTTPoison.request(method, url, body, header_list, options) do
       {:ok, %HTTPoison.Response{status_code: status, body: resp_body, headers: resp_headers}} ->
