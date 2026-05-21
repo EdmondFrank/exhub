@@ -242,22 +242,13 @@ defmodule Exhub.Router.Config do
       iex> Exhub.Router.Config.get_auth_headers("deepseek-v3", :openai)
       [{"authorization", "Bearer <giteeai_api_key>"}]
 
-      iex> Exhub.Router.Config.get_auth_headers("kimi-k2.5", :openai)
-      [{"authorization", "Bearer <giteeai_api_key>"}, {"x-package", "6609"}]
-
       iex> Exhub.Router.Config.get_auth_headers("minimax-m2.1", :anthropic)
       [{"x-api-key", "<minimax_api_key>"}]
   """
   @spec get_auth_headers(model(), :openai | :anthropic) :: [{String.t(), String.t()}]
   def get_auth_headers(model, :openai) do
     token = get_model_api_key(model)
-    headers = [{"authorization", "Bearer #{token}"}]
-
-    if model == "kimi-k2.5" || model == "kimi-k2.6" do
-      headers ++ [{"X-Package", "6609"}]
-    else
-      headers
-    end
+    [{"authorization", "Bearer #{token}"}]
   end
 
   def get_auth_headers(model, :anthropic) do
