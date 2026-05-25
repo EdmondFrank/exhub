@@ -294,13 +294,45 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
       {best_window, best_sim} =
         0..max_start//step
         |> Enum.reduce({<<>>, 0.0}, fn start, {best_w, best_s} ->
-          <<_::binary-size(start), window::binary-size(search_bytes), _::binary>> = content
+          window = extract_utf8_window(content, start, search_bytes)
           sim = String.jaro_distance(window, search_string)
           if sim > best_s, do: {window, sim}, else: {best_w, best_s}
         end)
 
-      # best_window is already a binary (= valid UTF-8 string in Elixir)
       {best_window, best_sim}
+    end
+  end
+
+  # Extract a UTF-8 safe window from content starting at byte position `start`
+  # with approximate size `size`. Adjusts boundaries to avoid splitting UTF-8 characters.
+  defp extract_utf8_window(content, start, size) do
+    content_bytes = byte_size(content)
+
+    # Clamp the window to content boundaries
+    actual_size = min(size, content_bytes - start)
+
+    # Extract the raw window
+    <<_::binary-size(start), window::binary-size(actual_size), _::binary>> = content
+
+    # Check if it's valid UTF-8
+    case :unicode.characters_to_binary(window, :utf8, :utf8) do
+      ^window ->
+        # Already valid UTF-8
+        window
+
+      _ ->
+        # Invalid UTF-8, need to adjust boundaries
+        # Try to find valid UTF-8 by trimming from the end
+        trim_to_valid_utf8(window)
+    end
+  end
+
+  # Trim bytes from the end until we have valid UTF-8
+  defp trim_to_valid_utf8(<<>>), do: <<>>
+  defp trim_to_valid_utf8(binary) do
+    case String.valid?(binary) do
+      true -> binary
+      false -> trim_to_valid_utf8(binary_part(binary, 0, byte_size(binary) - 1))
     end
   end
 
