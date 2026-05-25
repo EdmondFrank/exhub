@@ -49,9 +49,16 @@ defmodule Exhub.SocketHandler do
   def websocket_handle({:text, message}, state) do
     Logger.debug("Received message #{inspect message}")
     dispatch_message(message)
-    case response_handler().call(message) do
-      response when is_binary(response) -> {:reply, {:text, response}, state}
-      nil -> {:reply, {:text, "nil"}, state}
+    # Check if this is an emacs_response message
+    case parse_emacs_response(message) do
+      {:ok, request_id, response} ->
+        dispatch_emacs_response(request_id, response)
+        {:reply, {:text, "nil"}, state}
+      :not_response ->
+        case response_handler().call(message) do
+          response when is_binary(response) -> {:reply, {:text, response}, state}
+          nil -> {:reply, {:text, "nil"}, state}
+        end
     end
   end
 
@@ -72,6 +79,25 @@ defmodule Exhub.SocketHandler do
     Registry.dispatch(Exhub.Registry, "consumer", fn entries ->
       for {pid, _mode} <- entries do
         send(pid, {:message, message})
+      end
+    end)
+  end
+
+  defp parse_emacs_response(message) do
+    case Jason.decode(message) do
+      {:ok, ["emacs_response", request_id, response]} ->
+        {:ok, request_id, response}
+      _ ->
+        :not_response
+    end
+  rescue
+    _ -> :not_response
+  end
+
+  defp dispatch_emacs_response(request_id, response) do
+    Registry.dispatch(Exhub.Registry, "emacs_response_#{request_id}", fn entries ->
+      for {pid, _mode} <- entries do
+        send(pid, {:emacs_response, request_id, response})
       end
     end)
   end

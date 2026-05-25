@@ -120,6 +120,11 @@ If nil or empty, the environment variable will not be set."
   "Evaluate elisp code stored in STRING."
   (eval (car (read-from-string string))))
 
+(defun exhub-send-response (request-id response)
+  "Send a RESPONSE back to Elixir for a specific REQUEST-ID.
+This is used by the Emacs MCP server to return command results."
+  (exhub-send (json-encode (list "emacs_response" request-id response))))
+
 (defun exhub-pong ()
   "A no-operation function that does nothing."
   nil)

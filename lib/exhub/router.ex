@@ -46,6 +46,7 @@ defmodule Exhub.Router do
   - `POST /look/mcp` - MCP image understanding server endpoint (vision models via Gitee AI)
   - `POST /agent/mcp` - MCP agent control server endpoint (ACP bridge for coding agents)
   - `POST /brain/mcp` - MCP brain server endpoint (Obsidian vault as second brain)
+  - `POST /emacs/mcp` - MCP Emacs buffer operations server endpoint
   """
 
   use Plug.Router
@@ -437,6 +438,11 @@ defmodule Exhub.Router do
   forward("/mac-use/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.MacUseServer, request_timeout: 120_000]
+  )
+
+  forward("/emacs/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.EmacsServer, request_timeout: 120_000]
   )
 
   # ============================================================================

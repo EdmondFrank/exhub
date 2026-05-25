@@ -58,6 +58,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.ExhubServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Mac-use Server (macOS native app automation via axcli / Accessibility API)
       {Exhub.MCP.MacUseServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
+      # MCP Emacs Server (buffer operations via WebSocket)
+      {Exhub.MCP.EmacsServer, transport: :streamable_http, request_timeout: 120_000, session_idle_timeout: 86_400_000 * 365},
       # MCP Hub - TaskSupervisor for non-blocking parallel client startup
       {Task.Supervisor, name: Exhub.MCP.Hub.TaskSupervisor},
       # MCP Hub - Store for ETS tables (must start before ClientManager and Hub.Server)
