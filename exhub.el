@@ -226,6 +226,30 @@ Uses two strategies:
     (message "[Exhub] Backend not executable, falling back to WebSocket reload")
     (exhub-send "exhub-reload")))
 
+(defun exhub-reload-keys ()
+  "Reload all API keys from SecretVault without restarting.
+
+Re-reads secrets from the configured SecretVault and updates the
+application environment. This allows key rotation without downtime.
+
+Uses two strategies:
+1. RPC via the Exhub backend binary (preferred)
+2. WebSocket fallback"
+  (interactive)
+  (message "[Exhub] Triggering API key reload from SecretVault...")
+  (if (file-executable-p exhub-backend-path)
+      (let ((buffer (get-buffer-create "*exhub-reload-keys*")))
+        (with-current-buffer buffer
+          (erase-buffer))
+        (let ((proc (start-process "exhub-reload-keys" buffer exhub-backend-path "rpc" "Exhub.Router.Config.reload_from_scr()")))
+          (set-process-sentinel proc
+                                (lambda (proc _event)
+                                  (when (memq (process-status proc) '(exit signal))
+                                    (with-current-buffer (process-buffer proc)
+                                      (message "%s" (buffer-string))))))))
+    (message "[Exhub] Backend not executable, falling back to WebSocket reload")
+    (exhub-send "exhub-reload-keys")))
+
 (defun exhub--source-dir ()
   "Derive the Exhub source tree root from `exhub-backend-path'.
 

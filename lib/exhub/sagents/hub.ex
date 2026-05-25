@@ -133,9 +133,9 @@ defmodule Exhub.Sagents.Hub do
           if Process.alive?(pid) do
             try do
               info = Sagents.AgentServer.get_info(name)
-              %{name: name, status: info.status, pid: pid}
+              %{name: name, status: info.status, pid: inspect(pid)}
             rescue
-              _ -> %{name: name, status: :unknown, pid: pid}
+              _ -> %{name: name, status: :unknown, pid: inspect(pid)}
             end
           else
             %{name: name, status: :not_running}
@@ -183,11 +183,21 @@ defmodule Exhub.Sagents.Hub do
   # --- Private Functions ---
 
   defp do_start_agent(name, state) do
+    case start_agent_internal(name, state) do
+      {:ok, pid, new_state} ->
+        {:reply, {:ok, pid}, new_state}
+
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
+    end
+  end
+
+  defp start_agent_internal(name, state) do
     agents = Factory.agents()
 
     case Map.get(agents, name) do
       nil ->
-        {:reply, {:error, :not_found}, state}
+        {:error, :not_found, state}
 
       config ->
         case Factory.create_agent(name, config) do
@@ -204,15 +214,15 @@ defmodule Exhub.Sagents.Hub do
               {:ok, pid} ->
                 Sagents.AgentServer.subscribe(name)
                 Logger.info("[Sagents.Hub] Started agent: #{name}")
-                {:reply, {:ok, pid}, %{state | running: Map.put(state.running, name, pid)}}
+                {:ok, pid, %{state | running: Map.put(state.running, name, pid)}}
 
               {:error, reason} ->
                 Logger.error("[Sagents.Hub] Failed to start agent #{name}: #{inspect(reason)}")
-                {:reply, {:error, reason}, state}
+                {:error, reason, state}
             end
 
           {:error, reason} ->
-            {:reply, {:error, reason}, state}
+            {:error, reason, state}
         end
     end
   end
@@ -224,11 +234,11 @@ defmodule Exhub.Sagents.Hub do
           {:ok, pid, state}
         else
           new_state = %{state | running: Map.delete(state.running, name)}
-          do_start_agent(name, new_state)
+          start_agent_internal(name, new_state)
         end
 
       nil ->
-        do_start_agent(name, state)
+        start_agent_internal(name, state)
     end
   end
 
@@ -291,6 +301,9 @@ defmodule Exhub.Sagents.Hub do
       fn ->
         task =
           Task.async(fn ->
+            # Subscribe this task process to agent events
+            Sagents.AgentServer.subscribe(name)
+            
             user_message = LangChain.Message.new_user!(message)
             Sagents.AgentServer.add_message(name, user_message)
             collect_events(name, 120_000)

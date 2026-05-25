@@ -32,6 +32,20 @@ defmodule Exhub.SocketHandler do
     {:reply, {:text, "(message \"[Exhub] Hot reload started...\")"}, state}
   end
 
+  def websocket_handle({:text, "exhub-reload-keys"}, state) do
+    Task.start(fn ->
+      case Exhub.Router.Config.reload_from_scr() do
+        :ok ->
+          Exhub.send_message("(message \"[Exhub] API keys reloaded from SecretVault successfully.\")")
+
+        {:error, reason} ->
+          Exhub.send_message("(message \"[Exhub] Failed to reload API keys: #{inspect(reason)}\")")
+      end
+    end)
+
+    {:reply, {:text, "(message \"[Exhub] API key reload from SecretVault started...\")"}, state}
+  end
+
   def websocket_handle({:text, message}, state) do
     Logger.debug("Received message #{inspect message}")
     dispatch_message(message)

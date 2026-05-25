@@ -10,12 +10,40 @@ LLM-backed agents with middleware, tools, and conversation state.
 - **MCP Server** — Single hub endpoint at `/agent-hub/mcp` with tools for agent management
 - **Selective MCP Tool Injection** — Each agent can use specific exhub MCP tool groups (desktop, web-tools, brain, etc.)
 - **Optional Persistence** — File-based state persistence per agent
+- **Web UI** — Browser-based interface for managing and chatting with agents
+
+## Web UI
+
+The Agent Hub provides web pages for managing and interacting with agents:
+
+### Agent Overview
+
+URL: `http://localhost:9069/agent-hub`
+
+Displays all registered agents with their running status. Provides buttons to:
+- **Start** — Start a stopped agent
+- **Stop** — Stop a running agent
+- **Chat** — Open chat interface for a running agent
+- **Reset** — Reset agent conversation state
+
+### Agent Chat
+
+URL: `http://localhost:9069/agent-hub/agents/{name}/chat`
+
+Real-time chat interface for a specific agent. Features:
+- Server-Sent Events (SSE) for streaming responses
+- Typing indicators
+- Tool call notifications
+- Message formatting (code blocks, inline code)
+- Auto-resizing input
+- Keyboard shortcuts (Enter to send, Shift+Enter for newline)
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/agent-hub/agents` | List all agents |
+| `POST` | `/agent-hub/agents/{name}/start` | Start an agent |
 | `POST` | `/agent-hub/agents/{name}/chat` | Chat with agent (SSE stream) |
 | `GET` | `/agent-hub/agents/{name}/status` | Agent status |
 | `POST` | `/agent-hub/agents/{name}/reset` | Reset agent state |

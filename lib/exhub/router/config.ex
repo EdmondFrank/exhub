@@ -30,7 +30,7 @@ defmodule Exhub.Router.Config do
     giteeai: "https://ai.gitee.com/v1",
     kimi: "https://api.kimi.com/coding/v1",
     minimaxi: "https://api.minimaxi.com/v1",
-    mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
+    mimo: "https://token-plan-cn.xiaomimimo.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
     openai: @default_upstream,
@@ -362,6 +362,56 @@ defmodule Exhub.Router.Config do
     else
       body
     end
+  end
+
+  @doc """
+  Reload all API keys from SecretVault at runtime.
+
+  Re-reads secrets from the configured SecretVault and updates the
+  application environment. This allows key rotation without restarting
+  the Exhub application.
+
+  ## Returns
+  - `:ok` on success
+  - `{:error, reason}` if SecretVault is not available
+
+  ## Examples
+
+      iex> Exhub.Router.Config.reload_from_scr()
+      :ok
+  """
+  @spec reload_from_scr() :: :ok | {:error, term()}
+  def reload_from_scr do
+    case SecretVault.Config.fetch_from_current_env(:exhub) do
+      {:ok, vault_config} ->
+        update_from_vault(vault_config)
+        Logger.info("[Router.Config] Reloaded API keys from SecretVault")
+        :ok
+
+      {:error, reason} ->
+        Logger.error("[Router.Config] Failed to access SecretVault: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp update_from_vault(vault_config) do
+    fetch_secret = fn name ->
+      case SecretVault.fetch(vault_config, name) do
+        {:ok, value} -> String.trim(value)
+        _ -> ""
+      end
+    end
+
+    # Update all API keys in application environment
+    Application.put_env(:exhub, :giteeai_api_key, fetch_secret.("gitee_api_key"))
+    Application.put_env(:exhub, :openai_api_key, fetch_secret.("openai_api_key"))
+    Application.put_env(:exhub, :burncloud_api_key, fetch_secret.("burncloud_api_key"))
+    Application.put_env(:exhub, :infini_api_key, fetch_secret.("infini_api_key"))
+    Application.put_env(:exhub, :minimax_api_key, fetch_secret.("minimax_api_key"))
+    Application.put_env(:exhub, :mimo_api_key, fetch_secret.("mimo_api_key"))
+    Application.put_env(:exhub, :kiro_api_key, fetch_secret.("kiro_api_key"))
+    Application.put_env(:exhub, :anthropic_api_key, fetch_secret.("anthropic_api_key"))
+    Application.put_env(:exhub, :openrouter_api_key, fetch_secret.("openrouter_api_key"))
   end
 
   defp transform_kimi_reasoning_body(body) do

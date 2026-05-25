@@ -439,6 +439,22 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.MacUseServer, request_timeout: 120_000]
   )
 
+  # ============================================================================
+  # Agent Hub UI Pages
+  # ============================================================================
+
+  get "/agent-hub" do
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(200, Exhub.Router.AgentHubView.render())
+  end
+
+  get "/agent-hub/agents/:name/chat" do
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(200, Exhub.Router.AgentHubChatView.render(name))
+  end
+
   # MCP Hub - unified endpoint for all upstream MCP servers
   forward("/mcp-hub",
     to: Exhub.MCP.LazyPlug,
@@ -520,6 +536,20 @@ defmodule Exhub.Router do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(200, Jason.encode!(%{status: "reset", name: name}))
+  end
+
+  post "/agent-hub/agents/:name/start" do
+    case Exhub.Sagents.Hub.start_agent(name) do
+      {:ok, _pid} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(%{status: "started", name: name}))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{error: inspect(reason), name: name}))
+    end
   end
 
   post "/agent-hub/agents/:name/stop" do
