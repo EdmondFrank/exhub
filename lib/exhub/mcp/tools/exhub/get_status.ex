@@ -17,8 +17,21 @@ defmodule Exhub.MCP.Tools.Exhub.GetStatus do
     """
     Get runtime statistics for the running Exhub BEAM VM.
 
-    Returns uptime, memory usage, process count, atom count, and port count.
-    Useful for health checks and capacity monitoring.
+    Use this tool for health checks, capacity monitoring, or debugging performance
+    issues. Returns key metrics about the VM's current state.
+
+    Returns:
+    - uptime_ms: How long the VM has been running (in milliseconds)
+    - memory_bytes: Total memory used by the VM (in bytes)
+    - process_count: Number of Erlang processes currently alive
+    - atom_count: Number of atoms currently allocated
+    - port_count: Number of open ports (file descriptors, sockets, etc.)
+
+    High process counts may indicate process leaks. High memory usage could
+    suggest large data structures or memory leaks. Atom count approaching the
+    limit (default 1M) is a critical warning.
+
+    No parameters required.
     """
   end
 

@@ -17,8 +17,20 @@ defmodule Exhub.MCP.Tools.Exhub.GetVersion do
     """
     Get version information for Exhub and its runtime platform.
 
-    Returns the Exhub application version, Elixir version, OTP release version,
-    and ERTS (Erlang Runtime System) version.
+    Use this tool to verify the deployed version, check compatibility, or
+    include version info in diagnostics and bug reports.
+
+    Returns:
+    - exhub_version: The Exhub application version (from mix.exs)
+    - elixir_version: The Elixir language version
+    - otp_version: The OTP release version (e.g., "27")
+    - erts_version: The Erlang Runtime System version
+
+    Useful for confirming a deployment succeeded or debugging version-specific
+    issues. Compare with expected versions after running exhub_hot_reload or
+    exhub_restart.
+
+    No parameters required.
     """
   end
 

@@ -17,13 +17,22 @@ defmodule Exhub.MCP.Tools.Emacs.WriteBuffer do
     """
     Write content to a specific Emacs buffer.
 
-    This tool can replace the entire buffer content or insert at a specific position.
-    Use with caution as it modifies the editor state.
+    Use this tool to insert, replace, or append text in an Emacs buffer.
+    This modifies the editor state directly — use with caution on important buffers.
+
+    Parameters:
+    - buffer_name: Name of the target buffer (required). The buffer must already exist.
+    - content: The text content to write (required)
+    - mode: Write operation mode (default: "replace"):
+      - "replace": Erases entire buffer content, then inserts new content
+      - "insert": Inserts content at a specific line position (preserves existing content)
+      - "append": Adds content at the end of the buffer
+    - position: Line number for insert mode (1-based, default: 1). Ignored for other modes.
 
     Examples:
-    - Replace entire buffer: {"buffer_name": "*scratch*", "content": "New content"}
-    - Insert at position: {"buffer_name": "myfile.el", "content": "inserted text", "position": 100}
-    - Append to buffer: {"buffer_name": "*scratch*", "content": "appended text", "mode": "append"}
+    - Replace buffer content: {"buffer_name": "*scratch*", "content": "New content"}
+    - Insert at line 5: {"buffer_name": "notes.txt", "content": "Inserted text", "mode": "insert", "position": 5}
+    - Append to buffer: {"buffer_name": "*Messages*", "content": "\nNew log entry", "mode": "append"}
     """
   end
 

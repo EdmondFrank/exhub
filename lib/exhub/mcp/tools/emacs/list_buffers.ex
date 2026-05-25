@@ -21,17 +21,25 @@ defmodule Exhub.MCP.Tools.Emacs.ListBuffers do
   @impl true
   def description do
     """
-    List open buffers in Emacs with filtering and pagination.
+    List open buffers in the connected Emacs session with optional filtering and pagination.
 
-    Returns a list of buffer names currently open in the Emacs editor.
-    By default, returns the 20 most recently active buffers with total count.
-    Supports keyword filtering and custom limits.
+    Use this tool when you need to discover what buffers are currently open in Emacs,
+    find a specific buffer by name pattern, or get an overview of the editor state.
+
+    Returns buffer names sorted by recent activity (most recent first). By default,
+    returns the 20 most recently active buffers with a total count.
+
+    Parameters:
+    - keyword: Filter buffers by name (case-insensitive substring match). Example: "el" matches "*Messages*", "init.el"
+    - limit: Maximum buffers to return (default: 20, use 0 for all buffers)
+    - include_details: When true, includes buffer size in bytes and major mode for each buffer
+    - include_total: When true, prepends total buffer count to the response (default: true)
 
     Examples:
     - List recent buffers: {}
-    - List buffers with details: {"include_details": true}
-    - List specific buffers: {"keyword": "el", "limit": 5}
-    - List all buffers: {"limit": 0}
+    - Find Python buffers: {"keyword": ".py", "limit": 10}
+    - List all buffers with details: {"limit": 0, "include_details": true}
+    - Quick count check: {"limit": 1, "include_details": false}
     """
   end
 

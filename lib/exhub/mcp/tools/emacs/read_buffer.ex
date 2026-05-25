@@ -17,14 +17,25 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
     """
     Read the content of a specific Emacs buffer.
 
-    Returns the entire content of the specified buffer as a string.
-    This is useful for agents that need to examine the current state
-    of an Emacs buffer.
+    Use this tool to examine the current state of an Emacs buffer, inspect file
+    contents loaded in the editor, or extract text for analysis. Returns the
+    buffer content as a string.
+
+    Parameters:
+    - buffer_name: Name of the buffer to read (required). Use emacs_list_buffers
+      to discover available buffer names. Common names: "*scratch*", "*Messages*",
+      or the filename for file-visiting buffers.
+    - start_line: Optional 1-based line number to start reading from
+    - end_line: Optional 1-based line number to stop reading at (inclusive)
+
+    When start_line/end_line are omitted, returns the entire buffer content.
+    Character count is included in the response header.
 
     Examples:
-    - Read buffer: {"buffer_name": "*scratch*"}
+    - Read entire buffer: {"buffer_name": "*scratch*"}
     - Read file buffer: {"buffer_name": "myfile.el"}
-    - Read with line range: {"buffer_name": "myfile.el", "start_line": 10, "end_line": 20}
+    - Read specific lines: {"buffer_name": "myfile.el", "start_line": 10, "end_line": 20}
+    - Read from line to end: {"buffer_name": "config.el", "start_line": 50}
     """
   end
 

@@ -18,13 +18,24 @@ defmodule Exhub.MCP.Tools.Exhub.Restart do
     """
     Schedule a graceful restart of the Exhub BEAM VM.
 
-    The restart is deferred by a few seconds so the current MCP response can
-    be sent before shutdown begins.
+    Use this tool when you need to restart the application after deploying a new
+    release, or to recover from a degraded state. The restart is deferred so the
+    current MCP response can be delivered before shutdown begins.
 
     Parameters:
-    - mode: Restart mode — "soft" (default) stops and restarts OTP apps,
-            "hard" terminates the VM and relies on an external supervisor.
-    - delay_ms: Milliseconds to wait before triggering restart (default 3000)
+    - mode: Restart strategy (default: "soft"):
+      - "soft": Stops and restarts OTP applications within the running VM
+      - "hard": Terminates the entire VM; requires an external supervisor (e.g., systemd, Docker) to bring it back
+    - delay_ms: Milliseconds to wait before triggering restart (default: 3000)
+
+    Use "soft" for routine restarts after code updates. Use "hard" only when the
+    VM is unresponsive or when a clean slate is needed. After a hard restart,
+    reconnect to the MCP endpoint once the external supervisor restarts the VM.
+
+    Examples:
+    - Routine restart: {"mode": "soft"}
+    - Delayed hard restart: {"mode": "hard", "delay_ms": 5000}
+    - Quick soft restart: {"mode": "soft", "delay_ms": 1000}
     """
   end
 

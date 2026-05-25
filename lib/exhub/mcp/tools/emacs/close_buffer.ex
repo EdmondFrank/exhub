@@ -15,17 +15,25 @@ defmodule Exhub.MCP.Tools.Emacs.CloseBuffer do
   @impl true
   def description do
     """
-    Close an Emacs buffer with option to save or discard changes.
+    Close an Emacs buffer with control over unsaved changes.
 
-    This tool allows closing a buffer with different behaviors:
-    - Save and close: saves the buffer if modified, then closes
-    - Discard and close: closes without saving, discarding any changes
-    - Close only: closes only if buffer is not modified
+    Use this tool to clean up buffers, dismiss temporary buffers, or manage
+    the editor's buffer list. Handles unsaved changes according to the specified action.
+
+    Parameters:
+    - buffer_name: Name of the buffer to close (required)
+    - action: How to handle unsaved changes (required):
+      - "save": Save the buffer if modified, then close it
+      - "discard": Close without saving, discarding any unsaved changes
+      - "close": Close only if the buffer has no unsaved changes; returns an error if modified
+
+    The "close" action is safe for buffers you expect to be clean. If the buffer
+    has unsaved changes, the tool returns a message asking you to use "save" or "discard".
 
     Examples:
-    - Save and close: {"buffer_name": "myfile.el", "action": "save"}
-    - Discard and close: {"buffer_name": "*scratch*", "action": "discard"}
-    - Close if clean: {"buffer_name": "myfile.el", "action": "close"}
+    - Save and close a file: {"buffer_name": "myfile.el", "action": "save"}
+    - Discard scratch work: {"buffer_name": "*scratch*", "action": "discard"}
+    - Close clean buffer: {"buffer_name": "*Help*", "action": "close"}
     """
   end
 
