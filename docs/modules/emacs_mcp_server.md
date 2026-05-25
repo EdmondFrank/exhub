@@ -16,15 +16,33 @@ The server is built on the existing Exhub architecture:
 
 ### 1. `emacs_list_buffers`
 
-Lists all open buffers in Emacs.
+Lists open buffers in Emacs with filtering and pagination.
 
 **Parameters:**
-- `include_details` (boolean, optional): Whether to include buffer details like size and mode
+- `include_details` (boolean, optional): Whether to include buffer details like size and mode (default: false)
+- `limit` (integer, optional): Maximum number of buffers to return (default: 20, 0 for no limit)
+- `keyword` (string, optional): Filter buffers by keyword (case-insensitive match on buffer name)
+- `include_total` (boolean, optional): Whether to include total buffer count (default: true)
 
-**Example:**
+**Examples:**
 ```json
 {
   "include_details": false
+}
+```
+
+```json
+{
+  "keyword": "el",
+  "limit": 5,
+  "include_details": true
+}
+```
+
+```json
+{
+  "limit": 0,
+  "include_total": true
 }
 ```
 
@@ -130,10 +148,28 @@ forward("/emacs/mcp",
 Agents can use the tools through the MCP protocol:
 
 ```elixir
-# Example: List all buffers
+# Example: List recent buffers (default: 20 most recent)
+{:ok, response} = Exhub.MCP.Hub.ClientManager.call_tool(
+  "emacs_list_buffers",
+  %{}
+)
+
+# Example: List buffers with details
 {:ok, response} = Exhub.MCP.Hub.ClientManager.call_tool(
   "emacs_list_buffers",
   %{"include_details" => true}
+)
+
+# Example: Filter buffers by keyword
+{:ok, response} = Exhub.MCP.Hub.ClientManager.call_tool(
+  "emacs_list_buffers",
+  %{"keyword" => "el", "limit" => 5}
+)
+
+# Example: List all buffers (no limit)
+{:ok, response} = Exhub.MCP.Hub.ClientManager.call_tool(
+  "emacs_list_buffers",
+  %{"limit" => 0}
 )
 
 # Example: Read a buffer

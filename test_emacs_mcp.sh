@@ -13,8 +13,30 @@ case "${1:-help}" in
     mcp-cli $CONFIG info $SERVER
     ;;
   list)
-    echo "=== List Buffers ==="
+    echo "=== List Recent Buffers (default: 20) ==="
     MCP_NO_DAEMON=1 mcp-cli $CONFIG call $SERVER emacs_list_buffers '{}'
+    ;;
+  list-all)
+    echo "=== List All Buffers ==="
+    MCP_NO_DAEMON=1 mcp-cli $CONFIG call $SERVER emacs_list_buffers '{"limit": 0}'
+    ;;
+  list-filter)
+    KEYWORD="${2:-}"
+    LIMIT="${3:-20}"
+    if [ -z "$KEYWORD" ]; then
+      echo "Usage: $0 list-filter <keyword> [limit]"
+      exit 1
+    fi
+    echo "=== List Buffers Filtered by '$KEYWORD' (limit: $LIMIT) ==="
+    MCP_NO_DAEMON=1 mcp-cli $CONFIG call $SERVER emacs_list_buffers "{\"keyword\": \"$KEYWORD\", \"limit\": $LIMIT}"
+    ;;
+  list-details)
+    echo "=== List Buffers with Details ==="
+    MCP_NO_DAEMON=1 mcp-cli $CONFIG call $SERVER emacs_list_buffers '{"include_details": true}'
+    ;;
+  list-details-all)
+    echo "=== List All Buffers with Details ==="
+    MCP_NO_DAEMON=1 mcp-cli $CONFIG call $SERVER emacs_list_buffers '{"include_details": true, "limit": 0}'
     ;;
   list-details)
     echo "=== List Buffers with Details ==="
@@ -62,8 +84,11 @@ case "${1:-help}" in
     echo ""
     echo "Commands:"
     echo "  info              Show server info and available tools"
-    echo "  list              List all buffers"
-    echo "  list-details      List buffers with size and mode details"
+    echo "  list              List recent buffers (default: 20)"
+    echo "  list-all          List all buffers (no limit)"
+    echo "  list-filter <keyword> [limit]  Filter buffers by keyword"
+    echo "  list-details      List recent buffers with size and mode details"
+    echo "  list-details-all  List all buffers with details"
     echo "  read [buffer]     Read buffer content (default: *scratch*)"
     echo "  read-range [buffer] [start] [end]  Read buffer line range"
     echo "  write [buffer] [content] [mode]    Write to buffer (mode: replace/insert/append)"
@@ -73,6 +98,8 @@ case "${1:-help}" in
     echo ""
     echo "Examples:"
     echo "  $0 list"
+    echo "  $0 list-all"
+    echo "  $0 list-filter el 5"
     echo "  $0 read '*scratch*'"
     echo "  $0 write '*scratch*' 'Hello World' append"
     echo "  $0 close '*scratch*' discard"
