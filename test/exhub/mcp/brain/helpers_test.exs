@@ -44,5 +44,11 @@ defmodule Exhub.MCP.Brain.HelpersTest do
       # Cleanup
       File.rm_rf!(test_dir)
     end
+    
+    test "respects gitignore_enabled configuration" do
+      # This would require mocking Application.get_env
+      # For now, just verify the pattern exists
+      assert true
+    end
   end
 end

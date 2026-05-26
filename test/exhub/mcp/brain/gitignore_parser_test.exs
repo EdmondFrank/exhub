@@ -87,4 +87,18 @@ defmodule Exhub.MCP.Brain.GitignoreParserTest do
       assert GitignoreParser.ignored?(patterns, "temp/file.txt")
     end
   end
+  
+  describe "performance" do
+    test "gitignore parsing is efficient for large patterns" do
+      # Generate large gitignore content
+      content = Enum.map_join(1..1000, "\n", fn i -> "pattern#{i}*" end)
+      
+      start_time = System.monotonic_time(:millisecond)
+      patterns = GitignoreParser.parse(content)
+      end_time = System.monotonic_time(:millisecond)
+      
+      assert length(patterns) == 1000
+      assert end_time - start_time < 100  # Should parse in less than 100ms
+    end
+  end
 end
