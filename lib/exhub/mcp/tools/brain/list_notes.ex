@@ -7,6 +7,7 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Brain.Helpers
+  alias Exhub.MCP.Brain.GitignoreParser
 
   use Anubis.Server.Component, type: :tool
 
@@ -54,12 +55,15 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
     vault = Helpers.vault_path()
     search_dir = if folder, do: Path.join(vault, folder), else: vault
 
+    # Load gitignore patterns
+    gitignore_patterns = Helpers.load_gitignore_patterns(vault)
+
     with :ok <- Helpers.validate_in_vault(vault, search_dir) do
       entries =
         if recursive do
-          list_recursive_with_dirs(vault, search_dir)
+          list_recursive_with_dirs(vault, search_dir, gitignore_patterns)
         else
-          list_flat(search_dir, vault)
+          list_flat(search_dir, vault, gitignore_patterns)
         end
 
       entries = if abs_path do
@@ -89,18 +93,30 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
     end
   end
 
-  defp list_flat(dir, vault) do
+  defp list_flat(dir, vault, gitignore_patterns) do
     case File.ls(dir) do
       {:ok, entries} ->
         dirs =
           entries
-          |> Enum.filter(fn e -> File.dir?(Path.join(dir, e)) end)
+          |> Enum.filter(fn e ->
+            full = Path.join(dir, e)
+            rel = Path.relative_to(full, vault)
+            
+            File.dir?(full) and 
+              (gitignore_patterns == [] or not GitignoreParser.ignored?(gitignore_patterns, rel <> "/"))
+          end)
           |> Enum.map(fn e -> Path.relative_to(Path.join(dir, e), vault) <> "/" end)
           |> Enum.sort()
 
         files =
           entries
-          |> Enum.filter(&String.ends_with?(&1, ".md"))
+          |> Enum.filter(fn e ->
+            full = Path.join(dir, e)
+            rel = Path.relative_to(full, vault)
+            
+            String.ends_with?(e, ".md") and
+              (gitignore_patterns == [] or not GitignoreParser.ignored?(gitignore_patterns, rel))
+          end)
           |> Enum.map(&Path.relative_to(Path.join(dir, &1), vault))
           |> Enum.sort()
 
@@ -111,25 +127,30 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
     end
   end
 
-  defp list_recursive_with_dirs(vault_path, dir_path) do
+  defp list_recursive_with_dirs(vault_path, dir_path, gitignore_patterns) do
     case File.ls(dir_path) do
       {:ok, entries} ->
         {dirs, files} =
           Enum.reduce(entries, {[], []}, fn entry, {dirs, files} ->
             full = Path.join(dir_path, entry)
+            rel = Path.relative_to(full, vault_path)
+            
+            # Check if this path should be ignored
+            if gitignore_patterns != [] and GitignoreParser.ignored?(gitignore_patterns, rel) do
+              {dirs, files}
+            else
+              cond do
+                File.dir?(full) ->
+                  rel_with_slash = rel <> "/"
+                  child_entries = list_recursive_with_dirs(vault_path, full, gitignore_patterns)
+                  {[{rel_with_slash, child_entries} | dirs], files}
 
-            cond do
-              File.dir?(full) ->
-                rel = Path.relative_to(full, vault_path) <> "/"
-                child_entries = list_recursive_with_dirs(vault_path, full)
-                {[{rel, child_entries} | dirs], files}
+                String.ends_with?(entry, ".md") ->
+                  {dirs, [rel | files]}
 
-              String.ends_with?(entry, ".md") ->
-                rel = Path.relative_to(full, vault_path)
-                {dirs, [rel | files]}
-
-              true ->
-                {dirs, files}
+                true ->
+                  {dirs, files}
+              end
             end
           end)
 
