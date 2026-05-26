@@ -23,6 +23,7 @@ defmodule Exhub.MCP.Brain.GitignoreParser do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(String.starts_with?(&1, "#") or &1 == ""))
     |> Enum.map(&parse_pattern/1)
+    |> Enum.reverse()  # Patterns are evaluated in reverse order
   end
   
   @doc """
@@ -32,12 +33,13 @@ defmodule Exhub.MCP.Brain.GitignoreParser do
   """
   @spec ignored?([pattern()], String.t()) :: boolean()
   def ignored?(patterns, path) do
+    # Use Enum.reduce_while for early termination
     patterns
-    |> Enum.reduce(false, fn pattern, ignored? ->
+    |> Enum.reduce_while(false, fn pattern, ignored? ->
       if matches?(pattern, path) do
-        not pattern.negate
+        {:halt, not pattern.negate}
       else
-        ignored?
+        {:cont, ignored?}
       end
     end)
   end
