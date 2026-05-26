@@ -41,3 +41,4 @@ keys.txt
 
 .cecli*
 .agent-shell/
+.worktrees/
