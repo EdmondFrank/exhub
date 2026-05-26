@@ -7,6 +7,7 @@ defmodule Exhub.MCP.Brain.Helpers do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Brain.GitignoreParser
 
   @doc """
   Returns the configured Obsidian vault path.
@@ -78,25 +79,50 @@ defmodule Exhub.MCP.Brain.Helpers do
   end
 
   @doc """
+  Loads gitignore patterns from the vault's .gitignore file.
+  Returns empty list if no .gitignore exists.
+  """
+  @spec load_gitignore_patterns(String.t()) :: [GitignoreParser.pattern()]
+  def load_gitignore_patterns(vault_path) do
+    gitignore_path = Path.join(vault_path, ".gitignore")
+    
+    case File.read(gitignore_path) do
+      {:ok, content} -> GitignoreParser.parse(content)
+      {:error, _} -> []
+    end
+  end
+
+  @doc """
   Recursively lists all .md files under a directory.
   Returns a list of relative paths from the vault root.
+
+  Options:
+    - :gitignore_patterns - list of parsed gitignore patterns to filter by
   """
-  @spec list_md_files(String.t(), String.t()) :: [String.t()]
-  def list_md_files(vault_path, dir_path) do
+  @spec list_md_files(String.t(), String.t(), keyword()) :: [String.t()]
+  def list_md_files(vault_path, dir_path, opts \\ []) do
+    gitignore_patterns = Keyword.get(opts, :gitignore_patterns, [])
+    
     case File.ls(dir_path) do
       {:ok, entries} ->
         Enum.flat_map(entries, fn entry ->
           full = Path.join(dir_path, entry)
-
-          cond do
-            File.dir?(full) ->
-              list_md_files(vault_path, full)
-
-            String.ends_with?(entry, ".md") ->
-              [Path.relative_to(full, vault_path)]
-
-            true ->
-              []
+          rel_path = Path.relative_to(full, vault_path)
+          
+          # Check if this path should be ignored
+          if gitignore_patterns != [] and GitignoreParser.ignored?(gitignore_patterns, rel_path) do
+            []
+          else
+            cond do
+              File.dir?(full) ->
+                list_md_files(vault_path, full, opts)
+            
+              String.ends_with?(entry, ".md") ->
+                [rel_path]
+            
+              true ->
+                []
+            end
           end
         end)
 
