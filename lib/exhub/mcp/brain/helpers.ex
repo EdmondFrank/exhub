@@ -80,15 +80,20 @@ defmodule Exhub.MCP.Brain.Helpers do
 
   @doc """
   Loads gitignore patterns from the vault's .gitignore file.
-  Returns empty list if no .gitignore exists.
+  Returns empty list if no .gitignore exists or gitignore support is disabled.
   """
   @spec load_gitignore_patterns(String.t()) :: [GitignoreParser.pattern()]
   def load_gitignore_patterns(vault_path) do
-    gitignore_path = Path.join(vault_path, ".gitignore")
-    
-    case File.read(gitignore_path) do
-      {:ok, content} -> GitignoreParser.parse(content)
-      {:error, _} -> []
+    # Check if gitignore support is enabled (default: true)
+    if Application.get_env(:exhub, :brain_gitignore_enabled, true) do
+      gitignore_path = Path.join(vault_path, ".gitignore")
+      
+      case File.read(gitignore_path) do
+        {:ok, content} -> GitignoreParser.parse(content)
+        {:error, _} -> []
+      end
+    else
+      []
     end
   end
 
