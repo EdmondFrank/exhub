@@ -75,8 +75,12 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     vault = Helpers.vault_path()
     search_dir = if scope_path, do: Path.join(vault, scope_path), else: vault
 
+    # Load gitignore patterns
+    gitignore_patterns = Helpers.load_gitignore_patterns(vault)
+
     with :ok <- Helpers.validate_in_vault(vault, search_dir) do
-      files = Helpers.list_md_files(vault, search_dir)
+      # Pass gitignore patterns to list_md_files
+      files = Helpers.list_md_files(vault, search_dir, gitignore_patterns: gitignore_patterns)
 
       results =
         cond do
