@@ -1,8 +1,6 @@
 defmodule Exhub.MCP.Tools.Brain.SearchVaultTest do
   use ExUnit.Case, async: true
 
-  alias Exhub.MCP.Tools.Brain.SearchVault
-
   describe "gitignore support" do
     test "respects .gitignore patterns when searching" do
       # Create temporary test structure

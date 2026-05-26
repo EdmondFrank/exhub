@@ -21,9 +21,6 @@ defmodule Exhub.MCP.Tools.Emacs.ListBuffersTest do
     test "returns error when Emacs communication fails" do
       # This test would require mocking the Emacs communication
       # For now, we just test that the function exists and can be called
-      frame = %{}
-      params = %{include_details: false}
-
       # The actual execution would require a running Emacs instance
       # This is a placeholder test
       assert is_function(&ListBuffers.execute/2, 2)

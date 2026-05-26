@@ -1,8 +1,6 @@
 defmodule Exhub.MCP.Tools.BrainIntegrationTest do
   use ExUnit.Case, async: true
-  
-  alias Exhub.MCP.Tools.Brain.ListNotes
-  alias Exhub.MCP.Tools.Brain.SearchVault
+
   alias Exhub.MCP.Brain.Helpers
   
   describe "integration tests with gitignore" do

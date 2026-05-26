@@ -1,8 +1,6 @@
 defmodule Exhub.MCP.Tools.Brain.ListNotesTest do
   use ExUnit.Case, async: true
 
-  alias Exhub.MCP.Tools.Brain.ListNotes
-
   describe "gitignore support" do
     test "respects .gitignore patterns when listing notes" do
       # Create temporary test structure

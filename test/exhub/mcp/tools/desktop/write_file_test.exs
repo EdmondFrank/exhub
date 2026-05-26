@@ -62,7 +62,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFileTest do
 
       assert resp.isError == true
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
-      assert text =~ "Invalid path"
+      assert text =~ "Relative paths are not supported"
     end
   end
 end

@@ -17,8 +17,6 @@ defmodule Exhub.MCP.MacUse.ToolsMetadataTest do
     {Exhub.MCP.Tools.MacUse.GetAttribute, "get_attribute", [:selector, :attribute]},
     {Exhub.MCP.Tools.MacUse.Wait, "wait", []},
     {Exhub.MCP.Tools.MacUse.Activate, "activate", []},
-    {Exhub.MCP.Tools.MacUse.Mouse, "mouse", [:action]},
-    {Exhub.MCP.Tools.MacUse.Keyboard, "keyboard", [:action, :text]}
   ]
 
   for {module, expected_name, _required_fields} <- @tools do
@@ -40,7 +38,7 @@ defmodule Exhub.MCP.MacUse.ToolsMetadataTest do
       # Verify the module exists and has the expected tool components
       # by checking the module attribute that Anubis uses
       tools = Exhub.MCP.MacUseServer.__components__()
-      assert length(tools) == 17
+      assert length(tools) == 15
     end
   end
 
