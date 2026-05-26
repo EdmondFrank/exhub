@@ -19,6 +19,45 @@ config :exhub, :obsidian_vault_path, "~/Documents/Obsidian/MyVault"
 
 Defaults to `~/Documents/Obsidian` if not set. Both `~` and `~/...` paths are expanded automatically.
 
+### Gitignore Support
+
+The Brain MCP tools automatically respect `.gitignore` files in your Obsidian vault. When a `.gitignore` file is present in the vault root, files and directories matching the patterns will be excluded from listing and search results.
+
+**Features:**
+- Supports standard gitignore patterns including wildcards (`*`, `**`, `?`)
+- Supports negation patterns (`!pattern`) to un-ignore files
+- Supports directory-only patterns (`pattern/`)
+- Supports path-specific patterns (`dir/file.txt`)
+- Automatically loads `.gitignore` from vault root
+- Can be disabled via configuration
+
+**Configuration:**
+
+To disable gitignore support:
+
+```elixir
+config :exhub, :brain_gitignore_enabled, false
+```
+
+**Examples:**
+
+If your `.gitignore` contains:
+
+```
+# Ignore all .tmp files
+*.tmp
+
+# Ignore secret directory
+secret/
+
+# But don't ignore important.tmp
+!important.tmp
+```
+
+Then:
+- `brain_list_notes` will not show `secret/` directory or `.tmp` files (except `important.tmp`)
+- `brain_search_vault` will not search in ignored files
+
 ## MCP Server
 
 The Brain MCP server runs at the `/brain/mcp` endpoint.
