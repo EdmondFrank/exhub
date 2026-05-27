@@ -125,6 +125,9 @@ Create the following secrets for full functionality:
 # BurnCloud API (default OpenAI-compatible provider)
 mix scr.insert dev burncloud_api_key "your-burncloud-api-key"
 
+# BurnCloud Gemini API (dedicated key for Gemini models)
+mix scr.insert dev burncloud_gemini_api_key "your-burncloud-gemini-api-key"
+
 # Gitee AI API (alternative provider)
 mix scr.insert dev gitee_api_key "your-gitee-ai-api-key"
 

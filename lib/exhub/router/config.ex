@@ -30,7 +30,7 @@ defmodule Exhub.Router.Config do
     giteeai: "https://ai.gitee.com/v1",
     kimi: "https://api.kimi.com/coding/v1",
     minimaxi: "https://api.minimaxi.com/v1",
-    mimo: "https://token-plan-cn.xiaomimimo.com/v1",
+    mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
     openai: @default_upstream,
@@ -152,7 +152,7 @@ defmodule Exhub.Router.Config do
       ] ->
         @provider_urls.openrouter
 
-      model in ["gemini-2.5-pro", "gemini-2.5-flash"] ->
+      model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"] ->
         get_burncloud_target()
 
       model in @infini_models ->
@@ -204,8 +204,8 @@ defmodule Exhub.Router.Config do
       ] ->
         Application.get_env(:exhub, :openrouter_api_key, "")
 
-      model in ["gemini-2.5-pro", "gemini-2.5-flash"] ->
-        Application.get_env(:exhub, :burncloud_api_key, "")
+      model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"] ->
+        Application.get_env(:exhub, :burncloud_gemini_api_key, "")
 
       model in @infini_models ->
         Application.get_env(:exhub, :infini_api_key, "")
@@ -406,6 +406,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :giteeai_api_key, fetch_secret.("gitee_api_key"))
     Application.put_env(:exhub, :openai_api_key, fetch_secret.("openai_api_key"))
     Application.put_env(:exhub, :burncloud_api_key, fetch_secret.("burncloud_api_key"))
+    Application.put_env(:exhub, :burncloud_gemini_api_key, fetch_secret.("burncloud_gemini_api_key"))
     Application.put_env(:exhub, :infini_api_key, fetch_secret.("infini_api_key"))
     Application.put_env(:exhub, :minimax_api_key, fetch_secret.("minimax_api_key"))
     Application.put_env(:exhub, :mimo_api_key, fetch_secret.("mimo_api_key"))

@@ -127,6 +127,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       giteeai_api_key: giteeai_api_key,
       openai_api_key: openai_api_key,
       burncloud_api_key: fetch_secret.("burncloud_api_key"),
+      burncloud_gemini_api_key: fetch_secret.("burncloud_gemini_api_key"),
       infini_api_key: fetch_secret.("infini_api_key"),
       minimax_api_key: fetch_secret.("minimax_api_key"),
       mimo_api_key: fetch_secret.("mimo_api_key"),
