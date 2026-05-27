@@ -250,9 +250,10 @@ defmodule Exhub.MCP.Hub.ClientManager do
             {:noreply, state}
 
           {{from, server_name, tool_name, start_time}, new_pending_calls} ->
+            {_server, _tool, _start, actual_result} = result
             duration = System.monotonic_time(:millisecond) - start_time
             Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
-            GenServer.reply(from, result)
+            GenServer.reply(from, actual_result)
             {:noreply, %{state | pending_tool_calls: new_pending_calls}}
         end
 

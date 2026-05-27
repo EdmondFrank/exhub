@@ -297,9 +297,10 @@ defmodule Exhub.Router.DashboardView do
       <div class="container">
         <div class="filter-bar">
           <span class="filter-label">Period:</span>
-          <button class="filter-btn" id="filter-this-month" onclick="setFilter('this_month')">This Month</button>
-          <button class="filter-btn active" id="filter-30d" onclick="setFilter('30d')">Last 30 Days</button>
+          <button class="filter-btn active" id="filter-today" onclick="setFilter('today')">Today</button>
           <button class="filter-btn" id="filter-7d" onclick="setFilter('7d')">Last 7 Days</button>
+          <button class="filter-btn" id="filter-this-month" onclick="setFilter('this_month')">This Month</button>
+          <button class="filter-btn" id="filter-30d" onclick="setFilter('30d')">Last 30 Days</button>
           <button class="filter-btn" id="filter-all" onclick="setFilter('all')">All Time</button>
           <span class="filter-label">Model:</span>
           <select class="filter-select" id="model-filter" onchange="setModelFilter(this.value)">
@@ -391,7 +392,7 @@ defmodule Exhub.Router.DashboardView do
       </div>
 
       <script>
-        var currentFilter = '30d';
+        var currentFilter = 'today';
         var currentModelFilter = '';
 
         function formatNumber(num) {
@@ -418,7 +419,13 @@ defmodule Exhub.Router.DashboardView do
         function getFilterParams(filter) {
           var today = new Date();
           var params = {};
-          if (filter === 'this_month') {
+          if (filter === 'today') {
+            var y = today.getFullYear();
+            var m = String(today.getMonth() + 1).padStart(2, '0');
+            var d = String(today.getDate()).padStart(2, '0');
+            params.start_date = y + '-' + m + '-' + d;
+            params.end_date = y + '-' + m + '-' + d;
+          } else if (filter === 'this_month') {
             var y = today.getFullYear();
             var m = String(today.getMonth() + 1).padStart(2, '0');
             params.start_date = y + '-' + m + '-01';
@@ -443,6 +450,7 @@ defmodule Exhub.Router.DashboardView do
           document.getElementById('filter-' + filter.replace('_', '-')).classList.add('active');
 
           var titles = {
+            'today': 'Usage Trends (Today)',
             'this_month': 'Usage Trends (This Month)',
             '30d': 'Usage Trends (Last 30 Days)',
             '7d': 'Usage Trends (Last 7 Days)',
