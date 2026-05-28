@@ -22,14 +22,14 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
   schema do
     field :server_name, :string, description: "Name of the upstream server to call the tool on", required: true
     field :tool_name, :string, description: "Name of the tool to execute (without server prefix)", required: true
-    field :arguments, :map, description: "Arguments to pass to the tool", default: %{}
+    field :arguments, {:either, [:map, :string]}, description: "Arguments to pass to the tool (map or JSON string)", default: %{}
   end
 
   @impl true
   def execute(params, frame) do
     server_name = Map.get(params, :server_name, "")
     tool_name = Map.get(params, :tool_name, "")
-    arguments = Map.get(params, :arguments, %{})
+    arguments = parse_arguments(Map.get(params, :arguments, %{}))
 
     require Logger
     Logger.info("[MCP Hub] call_tools: #{server_name}:#{tool_name}")
@@ -72,4 +72,14 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
   end
 
   defp strip_server_prefix(_), do: :error
+
+  defp parse_arguments(args) when is_map(args), do: args
+  defp parse_arguments(args) when is_binary(args) do
+    case Jason.decode(args) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp parse_arguments(_), do: %{}
 end

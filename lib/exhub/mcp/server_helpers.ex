@@ -16,7 +16,6 @@ defmodule Exhub.MCP.ServerHelpers do
   """
 
   alias Anubis.Server.Frame
-  require Logger
 
   @doc """
   Filters a list of tools based on the `x-include-tools` and `x-exclude-tools`
@@ -53,8 +52,6 @@ defmodule Exhub.MCP.ServerHelpers do
           | {:noreply, Frame.t()}
           | {:error, term(), Frame.t()}
   def handle_request_with_filtered_tools(server_module, request, frame) do
-    request = normalize_arguments(request)
-
     case request do
       %{"method" => "tools/list"} ->
         # Delegate to the default handler first
@@ -76,23 +73,6 @@ defmodule Exhub.MCP.ServerHelpers do
   # ------------------------------------------------------------------
   # Private helpers
   # ------------------------------------------------------------------
-
-  # Normalize arguments for tools/call requests.
-  # Some MCP clients send arguments as a JSON string instead of a decoded map.
-  # This function parses the string into a map before Anubis validates it.
-  defp normalize_arguments(%{"method" => "tools/call", "params" => %{"arguments" => args} = _params} = request)
-       when is_binary(args) do
-    case Jason.decode(args) do
-      {:ok, decoded} when is_map(decoded) ->
-        put_in(request, ["params", "arguments"], decoded)
-
-      _ ->
-        Logger.warning("Failed to decode tools/call arguments string: #{inspect(args)}")
-        request
-    end
-  end
-
-  defp normalize_arguments(request), do: request
 
   defp parse_tool_list(nil), do: []
   defp parse_tool_list(""), do: []
