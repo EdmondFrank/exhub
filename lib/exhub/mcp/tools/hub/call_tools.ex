@@ -22,7 +22,7 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
   schema do
     field :server_name, :string, description: "Name of the upstream server to call the tool on", required: true
     field :tool_name, :string, description: "Name of the tool to execute (without server prefix)", required: true
-    field :arguments, {:either, [:map, :string]}, description: "Arguments to pass to the tool (map or JSON string)", default: %{}
+    field :arguments, :any, description: "Arguments to pass to the tool (map or JSON string)", default: %{}
   end
 
   @impl true
