@@ -27,7 +27,7 @@ defmodule Exhub.Router.Config do
 
   # Provider base URLs
   @provider_urls %{
-    giteeai: "https://ai.gitee.com/v1",
+    giteeai: "https://api.moark.com/v1",
     kimi: "https://api.kimi.com/coding/v1",
     minimaxi: "https://api.minimaxi.com/v1",
     mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
@@ -49,6 +49,7 @@ defmodule Exhub.Router.Config do
     "glm-5",
     "glm-5.1",
     "glm-5-turbo",
+    "hy-mt2-30b-a3b",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
     "deepseek-v3",
@@ -123,7 +124,7 @@ defmodule Exhub.Router.Config do
   ## Examples
 
       iex> Exhub.Router.Config.get_model_target("deepseek-v3")
-      "https://ai.gitee.com/v1"
+      "https://api.moark.com/v1"
 
       iex> Exhub.Router.Config.get_model_target("unknown-model")
       "https://pinova.ai/v1"
