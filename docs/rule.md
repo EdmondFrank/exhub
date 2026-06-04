@@ -60,21 +60,24 @@ From `retrieve_tools` results:
 
 → Note: *Must* strictly follow the return values of server and name for invocation.
 
-### MCP Servers Index
+### External MCP Servers Index
 
-#### Built-in Servers
-
-| Name          | Module                         | Description                                      |
-|---------------|--------------------------------|--------------------------------------------------|
-| `time`        | `Exhub.MCP.TimeServer`         | Time-related functionality                       |
-| `web-tools`   | `Exhub.MCP.WebToolsServer`     | Web search and web fetch                         |
-| `archery`     | `Exhub.MCP.ArcheryServer`      | Archery SQL audit platform integration           |
-| `browser-use` | `Exhub.MCP.BrowserUseServer`   | Browser automation via kuri-agent CDP            |
-| `image-gen`   | `Exhub.MCP.ImageGenServer`     | AI image generation via Gitee AI                 |
-| `doc-extract` | `Exhub.MCP.DocExtractServer`   | Document text extraction via Gitee AI            |
-| `look`        | `Exhub.MCP.LookServer`         | Image understanding via Gitee AI vision models   |
-| `todo`        | `Exhub.MCP.TodoServer`         | Todo/task list tracking across conversations     |
-| `agent`       | `Exhub.MCP.AgentServer`        | ACP agent management (Claude Code, Gemini, etc.) |
-| `brain`       | `Exhub.MCP.BrainServer`        | Obsidian brain vault operations                  |
-| `exhub`       | `Exhub.MCP.ExhubServer`        | Exhub self-management (compile, reload, restart) |
-| `mac-use`     | `Exhub.MCP.MacUseServer`       | macOS native app automation via axcli            |
+| Name        | Description                                                                       |
+|-------------|-----------------------------------------------------------------------------------|
+| time        | Time-related functionality                                                        |
+| web-tools   | Web search and web fetch                                                          |
+| archery     | Archery SQL audit platform integration                                            |
+| browser-use | Browser automation via kuri-agent CDP                                             |
+| image-gen   | AI image generation via Gitee AI                                                  |
+| doc-extract | Document text extraction via Gitee AI                                             |
+| todo        | Todo/task list tracking across conversations                                      |
+| agent       | ACP agent management (Claude Code, Gemini, etc.)                                  |
+| brain       | Obsidian brain vault operations                                                   |
+| exhub       | Exhub self-management (compile, reload, restart)                                  |
+| mac-use     | macOS native app automation via axcli                                             |
+| amap        | Amap map and location services integration                                        |
+| context7    | Pull up-to-date, version-specific documentation and code examples for any library |
+| deepwiki    | Provides up-to-date documentation you can talk to, for every repo in the world    |
+| github      | GitHub integration for pull requests, issues, and repository management           |
+| gitee       | Gitee integration for pull requests, issues, and repository management            |
+| search      | Web search and retrieval via integrated search engines                            |
