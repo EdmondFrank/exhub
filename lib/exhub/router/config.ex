@@ -149,7 +149,8 @@ defmodule Exhub.Router.Config do
       model in [
         "tngtech/deepseek-r1t2-chimera:free",
         "minimax/minimax-m2:free",
-        "openrouter/polaris-alpha"
+        "openrouter/polaris-alpha",
+        "nvidia/nemotron-3-ultra-550b-a55b:free"
       ] ->
         @provider_urls.openrouter
 
@@ -201,7 +202,8 @@ defmodule Exhub.Router.Config do
       model in [
         "tngtech/deepseek-r1t2-chimera:free",
         "minimax/minimax-m2:free",
-        "openrouter/polaris-alpha"
+        "openrouter/polaris-alpha",
+        "nvidia/nemotron-3-ultra-550b-a55b:free"
       ] ->
         Application.get_env(:exhub, :openrouter_api_key, "")
 
