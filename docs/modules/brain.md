@@ -8,6 +8,7 @@ The Brain integration exposes vault operations as MCP tools, allowing LLMs and o
 
 - List notes and directories in the vault (with optional recursion and absolute paths)
 - Search notes by content, filename, or tags (with optional scoping and absolute paths)
+- Create new notes with optional subfolder placement and initial content
 
 ## Configuration
 
@@ -70,6 +71,8 @@ The Brain MCP server runs at the `/brain/mcp` endpoint.
 |----------------------|------------------------------------------------------------------|
 | `brain_list_notes`   | List notes and directories in the vault or a subfolder           |
 | `brain_search_vault` | Search notes by content, filename, or tags                       |
+| `brain_create_note`  | Create a new note in the vault                                   |
+| `brain_move_note`    | Move or rename a note within the vault                           |
 
 ---
 
@@ -157,12 +160,81 @@ Hierarchical tags are supported — `tag:project` also matches `#project/active`
 
 ---
 
+### `brain_create_note`
+
+Create a new note in the vault. Parent directories are created automatically.
+
+By default, returns an error if the note already exists. Set `overwrite: true` to replace it.
+
+**Parameters:**
+
+| Parameter    | Type    | Default      | Description                                              |
+|--------------|---------|--------------|----------------------------------------------------------|
+| `filename`   | string  | *(required)* | Note name (`.md` added automatically if missing)         |
+| `folder`     | string  | —            | Subfolder path relative to vault root (optional)         |
+| `content`    | string  | `""`         | Initial note content                                     |
+| `overwrite`  | boolean | `false`      | Allow replacing an existing note                         |
+
+**Response format:**
+- Response starts with `Vault: <path>`
+- On success: `Created: <relative-path>`
+- On failure: error message (e.g. note exists, path outside vault)
+
+**Examples:**
+
+```json
+// Simple note at vault root
+{ "filename": "ideas" }
+
+// Note in subfolder (directories created automatically)
+{ "filename": "weekly-review", "folder": "journal/2026" }
+
+// With initial content
+{ "filename": "todo", "folder": "projects", "content": "- [ ] Task 1\n- [ ] Task 2" }
+
+// Overwrite existing note
+{ "filename": "scratch", "overwrite": true, "content": "Fresh start" }
+```
+
+---
+
+### `brain_move_note`
+
+Move or rename a note within the vault. Parent directories for the destination
+are created automatically.
+
+**Parameters:**
+
+| Parameter     | Type    | Default      | Description                                                  |
+|---------------|---------|--------------|--------------------------------------------------------------|
+| `source`      | string  | *(required)* | Current path relative to vault root (`.md` added if missing) |
+| `destination` | string  | *(required)* | New path relative to vault root (`.md` added if missing)     |
+| `overwrite`   | boolean | `false`      | Allow replacing an existing note at the destination          |
+
+**Examples:**
+
+```json
+// Rename in place
+{ "source": "drafts/idea", "destination": "projects/idea" }
+
+// Move to different folder (directories created automatically)
+{ "source": "old/meeting", "destination": "archive/2026/meeting" }
+
+// Overwrite existing destination
+{ "source": "tmp/notes", "destination": "inbox/notes", "overwrite": true }
+```
+
+---
+
+
 ## Architecture
 
 ```
 Exhub.MCP.BrainServer          ← Anubis MCP server, mounted at /brain/mcp
 ├── Exhub.MCP.Tools.Brain.ListNotes    ← brain_list_notes tool
 ├── Exhub.MCP.Tools.Brain.SearchVault  ← brain_search_vault tool
+├── Exhub.MCP.Tools.Brain.CreateNote   ← brain_create_note tool
+├── Exhub.MCP.Tools.Brain.MoveNote     ← brain_move_note tool
 └── Exhub.MCP.Brain.Helpers            ← shared vault path & file utilities
 ```
 

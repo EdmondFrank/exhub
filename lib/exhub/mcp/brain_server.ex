@@ -26,6 +26,14 @@ defmodule Exhub.MCP.BrainServer do
                            hierarchical tag search (`tag:` prefix), scoped search,
                            case-sensitive mode, and absolute path output.
 
+  ### Note Management
+  - `brain_create_note`  — Create a new note in the vault.
+                           Supports optional subfolder, initial content, and
+                           overwrite protection (opt-in via `overwrite: true`).
+  - `brain_move_note`    — Move or rename a note within the vault.
+                           Supports automatic `.md` extension, parent directory
+                           creation, and overwrite protection.
+
   All responses include the vault root path (`Vault: <path>`) for caller orientation.
 
   The server is accessible at `/brain/mcp`.
@@ -43,6 +51,10 @@ defmodule Exhub.MCP.BrainServer do
   # Search & navigation
   component Exhub.MCP.Tools.Brain.SearchVault
   component Exhub.MCP.Tools.Brain.ListNotes
+
+  # Note management
+  component Exhub.MCP.Tools.Brain.CreateNote
+  component Exhub.MCP.Tools.Brain.MoveNote
 
   @impl true
   def init(client_info, frame) do
