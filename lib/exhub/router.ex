@@ -144,17 +144,20 @@ defmodule Exhub.Router do
   post "/openai/v1/*path" do
     model = Helpers.extract_model(conn)
     target_url = RouterConfig.get_model_target(model)
+    use_proxy = RouterConfig.use_proxy_for_model?(model)
+    proxy = if use_proxy, do: RouterConfig.get_proxy(), else: ""
 
     options = [
       custom_headers: RouterConfig.get_auth_headers(model, :openai),
       client_options: [
         timeout: RouterConfig.get_timeout(),
-        recv_timeout: RouterConfig.get_timeout()
+        recv_timeout: RouterConfig.get_timeout(),
+        proxy: proxy
       ]
     ]
 
     Logger.info(
-      "[OpenAI Proxy] Forwarding request - model: #{inspect(model)}, target: #{target_url}"
+      "[OpenAI Proxy] Forwarding request - model: #{inspect(model)}, target: #{target_url}, proxy: #{proxy}"
     )
 
     start = System.monotonic_time(:millisecond)

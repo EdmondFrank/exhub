@@ -100,6 +100,14 @@ defmodule Exhub.Router.Config do
     "inf-deepseek-v3.2"
   ]
 
+  # OpenRouter models
+  @openrouter_models [
+    "tngtech/deepseek-r1t2-chimera:free",
+    "minimax/minimax-m2:free",
+    "openrouter/polaris-alpha",
+    "nvidia/nemotron-3-ultra-550b-a55b:free"
+  ]
+
   # Kiro Gateway models (local Claude proxy)
   @kiro_models [
     "auto-kiro",
@@ -146,12 +154,7 @@ defmodule Exhub.Router.Config do
       model in @mimo_models ->
         @provider_urls.mimo
 
-      model in [
-        "tngtech/deepseek-r1t2-chimera:free",
-        "minimax/minimax-m2:free",
-        "openrouter/polaris-alpha",
-        "nvidia/nemotron-3-ultra-550b-a55b:free"
-      ] ->
+      model in @openrouter_models ->
         @provider_urls.openrouter
 
       model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"] ->
@@ -199,12 +202,7 @@ defmodule Exhub.Router.Config do
       model in @mimo_models ->
         Application.get_env(:exhub, :mimo_api_key, "")
 
-      model in [
-        "tngtech/deepseek-r1t2-chimera:free",
-        "minimax/minimax-m2:free",
-        "openrouter/polaris-alpha",
-        "nvidia/nemotron-3-ultra-550b-a55b:free"
-      ] ->
+      model in @openrouter_models ->
         Application.get_env(:exhub, :openrouter_api_key, "")
 
       model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"] ->
@@ -232,8 +230,8 @@ defmodule Exhub.Router.Config do
   """
   @spec use_proxy_for_model?(model()) :: boolean()
   def use_proxy_for_model?(model) when is_binary(model) do
-    # Currently only specific models bypass proxy
-    model in ["minimax-m2.1", "minimax-m2-preview"]
+    model in @openrouter_models or
+      model in ["minimax-m2.1", "minimax-m2-preview"]
   end
 
   @doc """
