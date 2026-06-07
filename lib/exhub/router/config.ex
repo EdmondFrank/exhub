@@ -35,7 +35,8 @@ defmodule Exhub.Router.Config do
     local: "http://localhost:8765/v1",
     openai: @default_upstream,
     infini: "https://cloud.infini-ai.com/maas/v1",
-    kiro: "http://localhost:8000/v1"
+    kiro: "http://localhost:8000/v1",
+    nvidia: "https://integrate.api.nvidia.com/v1"
   }
 
   # Model to provider mappings
@@ -118,6 +119,11 @@ defmodule Exhub.Router.Config do
     "claude-sonnet-4.5"
   ]
 
+  # NVIDIA API models
+  @nvidia_models [
+    "nvidia/nemotron-3-ultra-550b-a55b"
+  ]
+
   # Mapping from prefixed model names to actual API model names
   @infini_model_mapping %{
     "inf-glm-5.1" => "glm-5.1",
@@ -165,6 +171,9 @@ defmodule Exhub.Router.Config do
 
       model in @kiro_models ->
         @provider_urls.kiro
+
+      model in @nvidia_models ->
+        @provider_urls.nvidia
 
       true ->
         Logger.debug("No specific target for model #{model}, using default")
@@ -214,6 +223,9 @@ defmodule Exhub.Router.Config do
       model in @kiro_models ->
         Application.get_env(:exhub, :kiro_api_key, "")
 
+      model in @nvidia_models ->
+        Application.get_env(:exhub, :nvidia_api_key, "")
+
       true ->
         Application.get_env(:exhub, :openai_api_key, "")
     end
@@ -231,6 +243,7 @@ defmodule Exhub.Router.Config do
   @spec use_proxy_for_model?(model()) :: boolean()
   def use_proxy_for_model?(model) when is_binary(model) do
     model in @openrouter_models or
+      model in @nvidia_models or
       model in ["minimax-m2.1", "minimax-m2-preview"]
   end
 
@@ -414,6 +427,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :kiro_api_key, fetch_secret.("kiro_api_key"))
     Application.put_env(:exhub, :anthropic_api_key, fetch_secret.("anthropic_api_key"))
     Application.put_env(:exhub, :openrouter_api_key, fetch_secret.("openrouter_api_key"))
+    Application.put_env(:exhub, :nvidia_api_key, fetch_secret.("nvidia_api_key"))
   end
 
   defp transform_kimi_reasoning_body(body) do
