@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## Listen MCP Server (Audio Transcription via Gitee AI)
+
+- **New MCP Server**: `Exhub.MCP.ListenServer` provides audio-to-text transcription over MCP at `/listen/mcp`
+- **Gitee AI / moark.com Backend**: Calls the OpenAI-compatible `/v1/audio/transcriptions` endpoint at `https://ai.gitee.com/v1/audio/transcriptions`
+- **Supported Models**:
+  - `whisper-large-v3-turbo` (default) — OpenAI Whisper multilingual real-time recognition
+  - `whisper-large-v3` — Whisper standard
+- **Supported Audio Formats**: MP3, WAV, M4A, FLAC, OGG, OPUS, WebM, MP4, AAC, MPEG, OGA
+- **MCP Tool**: `listen` — accepts a file path (absolute or `~` shorthand), optional `model` and `language` hint
+- **Shared API key**: Reuses the existing `giteeai_api_key` SecretVault entry — no new secrets needed if already configured
+- **Multipart Upload**: Uses manual multipart/form-data encoding matching the `DocExtract.Client` pattern (no external multipart library)
+- **HTTP Endpoint**: Exposed at `/listen/mcp`
+- **Full Docs**: [docs/modules/listen.md](docs/modules/listen.md)
+
+---
+
 ## Mac-use MCP Server (Native macOS App Automation)
 
 - **New MCP Server**: `Exhub.MCP.MacUseServer` provides Playwright/Puppeteer-style control over native macOS applications via the Accessibility API
@@ -29,7 +45,7 @@
 - **New Feature**: MCP Hub now auto-registers all 14 built-in MCP servers for direct in-process tool execution, bypassing HTTP loopback
 
 ### Built-in Server Registry (`Exhub.MCP.Hub.BuiltInRegistry`)
-- **Zero-latency execution**: Built-in servers (habit, time, think, web-tools, archery, browser-use, image-gen, doc-extract, look, todo, desktop, agent, brain, exhub) are accessed directly via function calls — no HTTP handshake or Anubis.Client connection needed
+- **Zero-latency execution**: Built-in servers (habit, time, think, web-tools, archery, browser-use, image-gen, doc-extract, look, listen, todo, desktop, agent, brain, exhub) are accessed directly via function calls — no HTTP handshake or Anubis.Client connection needed
 - **Auto-registration**: Built-in configs are merged with external configs from `priv/mcp_servers.json` at startup; external configs take precedence on name collision
 - **Protection**: Built-in servers cannot be removed or toggled via the REST API (`:cannot_remove_builtin`, `:cannot_toggle_builtin`)
 - **Config persistence**: Built-in servers are excluded from `priv/mcp_servers.json` — always regenerated from the registry
@@ -98,7 +114,7 @@
 - **Exclude Filter**: `x-exclude-tools` accepts a comma-separated list of tool names; matching tools are removed after the include filter
 - **Case-Sensitive**: Tool names are trimmed but matched case-sensitively; unknown names are silently ignored
 - **Combined Usage**: Both headers can be used together — exclusion is applied after inclusion
-- **Universal Coverage**: Applied automatically to all MCP servers via `Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools/3`, including Agent, Archery, Brain, BrowserUse, Desktop, DocExtract, Exhub, Habit, Hub, ImageGen, Look, Think, Time, Todo, and WebTools servers
+- **Universal Coverage**: Applied automatically to all MCP servers via `Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools/3`, including Agent, Archery, Brain, BrowserUse, Desktop, DocExtract, Exhub, Habit, Hub, ImageGen, Listen, Look, Think, Time, Todo, and WebTools servers
 - **Full Docs**: [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)
 
 ## KuriDaemon — Auto-managed Chrome CDP Backend

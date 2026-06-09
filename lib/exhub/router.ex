@@ -44,6 +44,7 @@ defmodule Exhub.Router do
   - `POST /mac-use/mcp` - MCP macOS native app automation (accessibility, screenshots via axcli)
   - `POST /doc-extract/mcp` - MCP document extraction server endpoint (PDF, DOCX, images via Gitee AI)
   - `POST /look/mcp` - MCP image understanding server endpoint (vision models via Gitee AI)
+  - `POST /listen/mcp` - MCP audio transcription server endpoint (speech-to-text via Gitee AI / moark.com)
   - `POST /agent/mcp` - MCP agent control server endpoint (ACP bridge for coding agents)
   - `POST /brain/mcp` - MCP brain server endpoint (Obsidian vault as second brain)
   - `POST /emacs/mcp` - MCP Emacs buffer operations server endpoint
@@ -421,6 +422,11 @@ defmodule Exhub.Router do
   forward("/look/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.LookServer, request_timeout: 120_000]
+  )
+
+  forward("/listen/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.ListenServer, request_timeout: 120_000]
   )
 
   forward("/agent/mcp",
