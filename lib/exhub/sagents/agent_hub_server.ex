@@ -11,21 +11,21 @@ defmodule Exhub.Sagents.AgentHubServer do
     version: "1.0.0",
     capabilities: [:tools]
 
-  component Exhub.Sagents.Tools.ListAgents
-  component Exhub.Sagents.Tools.StartAgent
-  component Exhub.Sagents.Tools.Chat
-  component Exhub.Sagents.Tools.Status
-  component Exhub.Sagents.Tools.Reset
-  component Exhub.Sagents.Tools.Stop
+  # component Exhub.Sagents.Tools.ListAgents
+  # component Exhub.Sagents.Tools.StartAgent
+  # component Exhub.Sagents.Tools.Chat
+  # component Exhub.Sagents.Tools.Status
+  # component Exhub.Sagents.Tools.Reset
+  # component Exhub.Sagents.Tools.Stop
 
-  @impl true
-  def init(client_info, frame) do
-    _ = client_info
-    {:ok, frame}
-  end
+  # @impl true
+  # def init(client_info, frame) do
+  #   _ = client_info
+  #   {:ok, frame}
+  # end
 
-  @impl true
-  def handle_request(request, frame) do
-    Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
-  end
+  # @impl true
+  # def handle_request(request, frame) do
+  #   Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
+  # end
 end

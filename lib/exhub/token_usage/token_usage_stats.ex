@@ -150,6 +150,7 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
     "glm-5-turbo" => %{input: 1.2, output: 4.0},
     "glm-5v-turbo" => %{input: 1.2, output: 4.0},
     "glm-5.1" => %{input: 1.05, output: 3.5},
+    "glm-5.2" => %{input: 1.05, output: 3.5},
     # Cohere
     "command-r-plus" => %{input: 2.5, output: 10.0},
     "command-a-03-2025" => %{input: 2.5, output: 10.0},

@@ -49,6 +49,7 @@ defmodule Exhub.Router.Config do
     "glm-4.7",
     "glm-5",
     "glm-5.1",
+    "glm-5.2",
     "glm-5-turbo",
     "hy-mt2-30b-a3b",
     "deepseek-v4-flash",
@@ -96,6 +97,7 @@ defmodule Exhub.Router.Config do
   # Infini AI models (with inf- prefix for distinction)
   @infini_models [
     "inf-glm-5.1",
+    "inf-glm-5.2",
     "inf-kimi-k2.5",
     "inf-minimax-m2.7",
     "inf-deepseek-v3.2"
@@ -127,6 +129,7 @@ defmodule Exhub.Router.Config do
   # Mapping from prefixed model names to actual API model names
   @infini_model_mapping %{
     "inf-glm-5.1" => "glm-5.1",
+    "inf-glm-5.2" => "glm-5.2",
     "inf-kimi-k2.5" => "kimi-k2.5",
     "inf-minimax-m2.7" => "minimax-m2.7",
     "inf-deepseek-v3.2" => "deepseek-v3.2"
