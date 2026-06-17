@@ -51,6 +51,9 @@ Real-time chat interface for a specific agent. Features:
 
 ## MCP Tools
 
+> **Note:** MCP tools are temporarily disabled in `AgentHubServer` during refactoring.
+> The HTTP REST API and Web UI remain fully operational.
+
 | Tool | Description |
 |------|-------------|
 | `agent_hub_list` | List all registered agents |

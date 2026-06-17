@@ -1,5 +1,13 @@
 # Recent Enhancements
 
+## Agent Hub MCP Tools Temporarily Disabled
+
+- **Status**: All Agent Hub MCP tools (`agent_hub_list`, `agent_hub_start`, `agent_hub_chat`, `agent_hub_status`, `agent_hub_reset`, `agent_hub_stop`) are temporarily commented out in `Exhub.Sagents.AgentHubServer`
+- **Impact**: The HTTP REST chat API (`POST /agent-hub/agents/{name}/chat`) and Web UI remain fully operational; only the MCP endpoint (`/agent-hub/mcp`) is affected
+- **Reason**: Temporary disablement during refactoring; tools will be re-enabled in a future commit
+
+---
+
 ## Listen MCP Server (Audio Transcription via Gitee AI)
 
 - **New MCP Server**: `Exhub.MCP.ListenServer` provides audio-to-text transcription over MCP at `/listen/mcp`
