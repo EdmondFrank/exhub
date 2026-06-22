@@ -126,6 +126,7 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
     "kimi-k2.5" => %{input: 0.44, output: 2.0},
     "kimi-k2-instruct" => %{input: 0.57, output: 2.3},
     "kimi-k2.6" => %{input: 0.75, output: 3.5},
+    "kimi-k2.7-code" => %{input: 0.75, output: 3.5},
     "kimi-k2-thinking" => %{input: 0.6, output: 2.5},
     # Xiaomi MiMo
     "mimo-v2-flash" => %{input: 0.1, output: 0.3},

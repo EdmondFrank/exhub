@@ -64,6 +64,7 @@ defmodule Exhub.Router.Config do
     "internvl3-78b",
     "kimi-k2.5",
     "kimi-k2.6",
+    "kimi-k2.7-code",
     "kimi-k2-instruct",
     "kimi-k2-thinking",
     "qwen3.6-max",
@@ -99,6 +100,7 @@ defmodule Exhub.Router.Config do
     "inf-glm-5.1",
     "inf-glm-5.2",
     "inf-kimi-k2.5",
+    "inf-kimi-k2.7-code",
     "inf-minimax-m2.7",
     "inf-deepseek-v3.2"
   ]
@@ -131,6 +133,7 @@ defmodule Exhub.Router.Config do
     "inf-glm-5.1" => "glm-5.1",
     "inf-glm-5.2" => "glm-5.2",
     "inf-kimi-k2.5" => "kimi-k2.5",
+    "inf-kimi-k2.7-code" => "kimi-k2.7-code",
     "inf-minimax-m2.7" => "minimax-m2.7",
     "inf-deepseek-v3.2" => "deepseek-v3.2"
   }
@@ -352,7 +355,7 @@ defmodule Exhub.Router.Config do
 
   # Models that require reasoning_content to be present in assistant tool-call
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
-  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"]
+  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "kimi-k2.7-code", "inf-kimi-k2.5", "inf-kimi-k2.7-code", "mimo-v2.5-pro", "mimo-v2.5"]
 
   @doc """
   Transforms request body for model-specific requirements.
