@@ -29,7 +29,8 @@ Reads the contents of a file from the filesystem. Supports both plain text files
 | Category   | Extensions                                                                                  | Behavior                                          |
 |------------|---------------------------------------------------------------------------------------------|---------------------------------------------------|
 | Text files | `.txt`, `.md`, `.ex`, `.exs`, `.json`, `.yaml`, `.xml`, `.html`, `.css`, `.js`, `.ts`, etc. | Line-based reading with offset/length             |
-| Documents  | `.pdf`, `.docx`, `.doc`                                                                     | Text extraction via Gitee AI PaddleOCR-VL-1.5     |
+| Office     | `.docx`, `.xlsx`, `.pptx`                                                                   | Local text extraction via [nanoxml](https://github.com/justrach/nanoxml) CLI — no API needed |
+| Documents  | `.pdf`, `.doc`                                                                              | Text extraction via Gitee AI PaddleOCR-VL-1.5     |
 | Images     | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.gif`, `.webp`                                   | OCR text extraction via Gitee AI PaddleOCR-VL-1.5 |
 
 **Parameters**
@@ -61,7 +62,8 @@ Reads the contents of a file from the filesystem. Supports both plain text files
 
 **Document Extraction Requirements**
 
-Document extraction requires the Gitee AI API key to be configured (same as the `doc_extract` tool). See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
+- **Office files** (`.docx`, `.xlsx`, `.pptx`): Extracted locally via the [nanoxml](https://github.com/justrach/nanoxml) CLI binary — no API key or network access required. The `nanoxml` binary must be on `PATH`.
+- **Other documents** (`.pdf`, `.doc`) and **images** (`.png`, `.jpg`, etc.): Require the Gitee AI API key to be configured (same as the `doc_extract` tool). See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
 
 **Error Cases**
 
@@ -113,7 +115,10 @@ All file content is sanitized to ensure valid UTF-8 encoding. Invalid byte seque
 
 **Document Extraction**
 
-When `extract: true`, document files (PDF, DOCX, images) are processed using Gitee AI PaddleOCR-VL-1.5 for text extraction. See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
+When `extract: true`:
+
+- **Office files** (`.docx`, `.xlsx`, `.pptx`): Extracted locally via the [nanoxml](https://github.com/justrach/nanoxml) CLI — no API key required.
+- **Other documents** (`.pdf`, `.doc`) and **images**: Processed using Gitee AI PaddleOCR-VL-1.5 for text extraction. See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
 
 **Error Cases**
 

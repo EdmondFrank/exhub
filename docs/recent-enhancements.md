@@ -1,5 +1,23 @@
 # Recent Enhancements
 
+## Nanoxml Local Office File Extraction
+
+- **New Module**: `Exhub.MCP.Desktop.Nanoxml` wraps the [nanoxml](https://github.com/justrach/nanoxml) CLI binary for fast, local Office Open XML text extraction — no API calls or network access required
+- **Affected Tools**: `read_file` and `read_multiple_files` now route `.docx`, `.xlsx`, and `.pptx` files to nanoxml instead of the Gitee AI API
+- **Extraction Behavior**:
+  - `.docx` / `.pptx` → plain text via `nanoxml text`
+  - `.xlsx` → all worksheets extracted as CSV via `nanoxml sheets` + `nanoxml csv`, joined with sheet-name headers
+- **Unchanged**: `.pdf`, `.doc`, and image files (`.png`, `.jpg`, etc.) still use the Gitee AI PaddleOCR-VL-1.5 API
+- **Prerequisite**: `nanoxml` binary must be on `PATH` (`cargo install nanoxml` or see [installation](https://github.com/justrach/nanoxml))
+- **Shared Helper**: `Exhub.MCP.Tools.DocExtract.Client` gained `office_type?/1` to distinguish Office Open XML files from other document types
+- **Files Changed**:
+  - `lib/exhub/mcp/desktop/nanoxml.ex` — NEW: nanoxml CLI wrapper module
+  - `lib/exhub/mcp/tools/doc_extract/client.ex` — Added `office_type?/1` + `@office_extensions`
+  - `lib/exhub/mcp/tools/desktop/read_file.ex` — Office file routing to nanoxml
+  - `lib/exhub/mcp/tools/desktop/read_multiple_files.ex` — Office file routing to nanoxml
+
+---
+
 ## Agent Hub MCP Tools Temporarily Disabled
 
 - **Status**: All Agent Hub MCP tools (`agent_hub_list`, `agent_hub_start`, `agent_hub_chat`, `agent_hub_status`, `agent_hub_reset`, `agent_hub_stop`) are temporarily commented out in `Exhub.Sagents.AgentHubServer`
