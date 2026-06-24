@@ -87,12 +87,14 @@ defmodule Exhub.Router.Config do
     "minimax-m2.1",
     "minimax-m2.5",
     "minimax-m2.7",
-    "minimax-m2-preview"
+    "minimax-m2-preview",
+    "mimo-v2.5-pro",
+    "mimo-v2.5"
   ]
 
   @minimax_models ["minimax-m2.7", "minimax-m2-preview"]
 
-  # MiMo AI models
+  # MiMo AI models (backup — currently routed via Gitee AI, see @giteeai_models)
   @mimo_models ["mimo-v2.5-pro", "mimo-v2.5"]
 
   # Infini AI models (with inf- prefix for distinction)
