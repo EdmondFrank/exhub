@@ -59,11 +59,20 @@
 If nil or empty, the environment variable will not be set."
   :type '(choice (const :tag "Not set" nil) string))
 
+(defcustom exhub-restart-delay 5
+  "Seconds to wait after starting the Elixir process before connecting WebSocket.
+This allows the server time to bind the port and initialize."
+  :type 'integer)
+
+(defcustom exhub-max-retries 5
+  "Maximum number of connection attempts when starting the WebSocket."
+  :type 'integer)
+
 (defun exhub-start ()
   "Start webserver connection to Exhub (Elixir WS server)."
   (interactive)
   (let ((retry-count 0)
-        (max-retries 3)
+        (max-retries exhub-max-retries)
         (success nil))
     (while (and (< retry-count max-retries) (not success))
       (condition-case err
@@ -84,9 +93,11 @@ If nil or empty, the environment variable will not be set."
             (setq success t)
             (exhub--start-ping-timer))  ; Start the ping timer
         (error
-         (message "Attempt %d to connect to Exhub failed: %s" (1+ retry-count) err)
-         (sleep-for (+ 1 (random 2)))  ; Sleep for 1 to 2 seconds
-         (setq retry-count (1+ retry-count)))))
+         (let ((wait-time (min 10 (* 2 (expt 2 retry-count)))))  ; Exponential backoff, max 10s
+           (message "Attempt %d to connect to Exhub failed: %s (retrying in %ds)"
+                    (1+ retry-count) err wait-time)
+           (sleep-for wait-time)
+           (setq retry-count (1+ retry-count))))))
     (unless success
       (message "Failed to connect to Exhub after %d attempts" max-retries))))
 
@@ -202,10 +213,15 @@ This is used by the Emacs MCP server to return command results."
   (exhub-start-elixir))
 
 (defun exhub-restart ()
-  "Restart the websocket connection and the Elixir application."
+  "Restart the websocket connection and the Elixir application.
+Waits `exhub-restart-delay' seconds after starting the Elixir process
+before attempting to connect the WebSocket."
   (interactive)
   (exhub-restart-elixir)
-  (exhub-restart-websocket))
+  (message "[Exhub] Waiting %d seconds for server to start..." exhub-restart-delay)
+  (run-with-timer exhub-restart-delay nil
+                  (lambda ()
+                    (exhub-restart-websocket))))
 
 (defun exhub-reload ()
   "Hot-reload all BEAM modules in the running Exhub server.
