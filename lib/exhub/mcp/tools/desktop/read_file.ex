@@ -9,6 +9,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.Nanoxml
   alias Exhub.MCP.Tools.DocExtract.Client
 
   use Anubis.Server.Component, type: :tool
@@ -55,8 +56,27 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
           resp = Response.tool() |> Response.error("`path` is required")
           {:reply, resp, frame}
 
+        extract and Client.office_type?(path) ->
+          # Office file (.docx/.xlsx/.pptx) — use nanoxml for local extraction
+          case Nanoxml.extract_text(path) do
+            {:ok, content} ->
+              resp =
+                Response.tool()
+                |> Helpers.toon_response(%{
+                  "path" => path,
+                  "extraction" => true,
+                  "content" => content
+                })
+
+              {:reply, resp, frame}
+
+            {:error, reason} ->
+              resp = Response.tool() |> Response.error("Office file extraction failed: #{reason}")
+              {:reply, resp, frame}
+          end
+
         extract and Client.document_type?(path) ->
-          # Document file - use extraction
+          # Other document files (PDF, images, .doc) — use API extraction
           case Client.extract(path) do
             {:ok, content} ->
               resp =

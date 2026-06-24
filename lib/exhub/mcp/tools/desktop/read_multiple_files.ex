@@ -3,6 +3,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.Nanoxml
   alias Exhub.MCP.Tools.DocExtract.Client
 
   def name, do: "read_multiple_files"
@@ -50,6 +51,9 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
     case Helpers.validate_absolute_path(path) do
       {:ok, expanded_path} ->
         cond do
+          extract and Client.office_type?(expanded_path) ->
+            read_office_file(expanded_path, path)
+
           extract and Client.document_type?(expanded_path) ->
             read_document(expanded_path, path)
 
@@ -59,6 +63,24 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
 
       {:error, reason} ->
         %{path: path, success: false, error: reason}
+    end
+  end
+
+  defp read_office_file(expanded_path, original_path) do
+    case Nanoxml.extract_text(expanded_path) do
+      {:ok, content} ->
+        %{
+          path: original_path,
+          success: true,
+          content: sanitize_utf8(content)
+        }
+
+      {:error, reason} ->
+        %{
+          path: original_path,
+          success: false,
+          error: reason
+        }
     end
   end
 

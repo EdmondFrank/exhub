@@ -16,6 +16,7 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   @boundary_random_max 999_999_999
 
   @doc_extensions ~w(.pdf .docx .doc .png .jpg .jpeg .tiff .tif .bmp .gif .webp)
+  @office_extensions ~w(.docx .xlsx .pptx)
 
   @doc """
   Returns the list of supported document extensions.
@@ -31,6 +32,17 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   end
 
   def document_type?(_), do: false
+
+  @doc """
+  Checks if a file is an Office Open XML type (.docx, .xlsx, .pptx)
+  that can be processed locally by nanoxml instead of the API.
+  """
+  def office_type?(path) when is_binary(path) do
+    ext = Path.extname(path) |> String.downcase()
+    ext in @office_extensions
+  end
+
+  def office_type?(_), do: false
 
   @doc """
   Extracts text from a document file (local path or URL).
