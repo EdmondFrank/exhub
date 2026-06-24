@@ -37,6 +37,8 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "brain" => Exhub.MCP.BrainServer,
     "exhub" => Exhub.MCP.ExhubServer,
     "mac-use" => Exhub.MCP.MacUseServer,
+    "emacs" => Exhub.MCP.EmacsServer,
+    "listen" => Exhub.MCP.ListenServer,
     "agent-hub" => Exhub.Sagents.AgentHubServer
   }
 
