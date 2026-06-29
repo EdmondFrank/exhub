@@ -140,7 +140,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   @impl true
   def handle_call(:list, _from, state) do
-    {:reply, Map.values(state), state}
+    {:reply, state |> Map.values() |> Enum.reject(&is_nil/1), state}
   end
 
   @impl true
@@ -228,55 +228,45 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   @impl true
   def handle_cast({:append_output, id, data}, state) do
-    state =
-      Map.update(state, id, nil, fn
-        nil -> nil
-        entry -> %{entry | output: entry.output <> data, last_read_at: now()}
-      end)
+    state = update_entry(state, id, fn entry ->
+      %{entry | output: entry.output <> data, last_read_at: now()}
+    end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:set_exit_code, id, code}, state) do
-    state =
-      Map.update(state, id, nil, fn
-        nil -> nil
-        entry -> %{entry | exit_code: code, status: :completed, last_read_at: now()}
-      end)
+    state = update_entry(state, id, fn entry ->
+      %{entry | exit_code: code, status: :completed, last_read_at: now()}
+    end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:set_status, id, status}, state) do
-    state =
-      Map.update(state, id, nil, fn
-        nil -> nil
-        entry -> %{entry | status: status, last_read_at: now()}
-      end)
+    state = update_entry(state, id, fn entry ->
+      %{entry | status: status, last_read_at: now()}
+    end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:update_pid, id, pid}, state) do
-    state =
-      Map.update(state, id, nil, fn
-        nil -> nil
-        entry -> %{entry | pid: pid}
-      end)
+    state = update_entry(state, id, fn entry ->
+      %{entry | pid: pid}
+    end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:touch, id}, state) do
-    state =
-      Map.update(state, id, nil, fn
-        nil -> nil
-        entry -> %{entry | last_read_at: now()}
-      end)
+    state = update_entry(state, id, fn entry ->
+      %{entry | last_read_at: now()}
+    end)
 
     {:noreply, state}
   end
@@ -288,11 +278,9 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   @impl true
   def handle_cast({:set_port, id, port}, state) do
-    state =
-      Map.update(state, id, nil, fn
-        nil -> nil
-        entry -> %{entry | port: port}
-      end)
+    state = update_entry(state, id, fn entry ->
+      %{entry | port: port}
+    end)
 
     {:noreply, state}
   end
@@ -303,7 +291,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
     {to_remove, to_keep} =
       Enum.split_with(state, fn {_id, entry} ->
-        entry.last_read_at < cutoff
+        is_nil(entry) or entry.last_read_at < cutoff
       end)
 
     if length(to_remove) > 0 do
@@ -312,7 +300,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       # Try to kill any still-running expired processes
       Enum.each(to_remove, fn {id, entry} ->
         # Kill via port if interactive (Port.close terminates the OS process)
-        if entry.status == :running and entry.interactive and is_port(entry.port) do
+        if not is_nil(entry) and entry.status == :running and entry.interactive and is_port(entry.port) do
           try do
             Port.close(entry.port)
           rescue
@@ -321,7 +309,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
         end
 
         # Kill via system pid if available (skip for interactive - already handled above)
-        if entry.status == :running and not entry.interactive and is_integer(entry.pid) do
+        if not is_nil(entry) and entry.status == :running and not entry.interactive and is_integer(entry.pid) do
           _ =
             try do
               {_, 0} = System.cmd("kill", ["-KILL", to_string(entry.pid)], stderr_to_stdout: true)
@@ -343,4 +331,11 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   end
 
   defp now, do: System.monotonic_time(:millisecond)
+
+  defp update_entry(state, id, fun) do
+    case Map.get(state, id) do
+      nil -> state
+      entry -> Map.put(state, id, fun.(entry))
+    end
+  end
 end
