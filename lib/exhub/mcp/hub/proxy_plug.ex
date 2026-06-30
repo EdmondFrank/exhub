@@ -285,7 +285,7 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     tool_name = get_in(req, ["params", "name"])
     arguments = get_in(req, ["params", "arguments"]) || %{}
 
-    response = case Anubis.Client.call_tool(client_ref, tool_name, arguments, timeout: 120_000) do
+    response = case Anubis.Client.call_tool(client_ref, tool_name, arguments, timeout: 600_000) do
       {:ok, %{result: result}} ->
         %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
 

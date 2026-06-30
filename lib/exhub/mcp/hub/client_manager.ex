@@ -112,7 +112,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
   """
   @spec call_tool(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def call_tool(server_name, tool_name, arguments) do
-    GenServer.call(__MODULE__, {:call_tool, server_name, tool_name, arguments}, 120_000)
+    GenServer.call(__MODULE__, {:call_tool, server_name, tool_name, arguments}, 600_000)
   end
 
   @doc """
@@ -491,7 +491,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
                 fn ->
                   result =
                     try do
-                      case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 120_000) do
+                      case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 600_000) do
                         {:ok, %{is_error: true} = response} ->
                           error_text = extract_error_text(response)
                           {:error, error_text}
