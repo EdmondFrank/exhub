@@ -20,6 +20,7 @@ defmodule Exhub.Router do
   - `GET|POST /openai/v1/*path` - Proxies to OpenAI-compatible endpoints with model routing
   - `POST /anthropic/v1/*path` - Proxies to Anthropic API with model routing
   - `GET|POST /burncloud/v1/*path` - Proxies to BurnCloud API with Bearer token auth
+  - `GET|POST /bailiancloud/v1/*path` - Proxies to BailianCloud (Aliyun MaaS) API with Bearer token auth
 
   ### API Endpoints
   - `POST /v1/messages` - Anthropic-compatible messages endpoint
@@ -207,6 +208,48 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[BurnCloud Proxy] Forwarded in #{duration}ms")
+    conn
+  end
+
+  # ============================================================================
+  # BailianCloud Proxy Routes
+  # ============================================================================
+
+  get "/bailiancloud/v1/*path" do
+    token = Application.get_env(:exhub, :bailiancloud_api_key, "")
+
+    options = [
+      custom_headers: [{"Authorization", "Bearer #{token}"}],
+      client_options: [
+        timeout: RouterConfig.get_timeout(),
+        recv_timeout: RouterConfig.get_timeout()
+      ]
+    ]
+
+    Logger.info("[BailianCloud Proxy] Forwarding request - #{inspect(path)}")
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_bailiancloud_target(), options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[BailianCloud Proxy] Forwarded in #{duration}ms")
+    conn
+  end
+
+  post "/bailiancloud/v1/*path" do
+    token = Application.get_env(:exhub, :bailiancloud_api_key, "")
+
+    options = [
+      custom_headers: [{"Authorization", "Bearer #{token}"}],
+      client_options: [
+        timeout: RouterConfig.get_timeout(),
+        recv_timeout: RouterConfig.get_timeout()
+      ]
+    ]
+
+    Logger.info("[BailianCloud Proxy] Forwarding request - #{inspect(path)}")
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_bailiancloud_target(), options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[BailianCloud Proxy] Forwarded in #{duration}ms")
     conn
   end
 

@@ -197,6 +197,7 @@ After migration, the `api_base` URLs for all LLM providers are defined in `confi
 | Codestral               | `https://codestral.mistral.ai/v1`                   |
 | Anthropic, Groq, Cohere | `http://127.0.0.1:9069/<provider>/v1` (local proxy) |
 | Gemini                  | `https://csp.burncloud.com/v1` (BurnCloud API)      |
+| BailianCloud (Aliyun)   | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` |
 
 To change the API base URL for a specific model, open `config/runtime.exs` and replace the helper call with an explicit map. For example, to route a Gitee model through a custom proxy:
 

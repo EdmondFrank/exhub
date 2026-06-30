@@ -308,6 +308,16 @@ defmodule Exhub.Router.Config do
   end
 
   @doc """
+  Returns the target URL for BailianCloud (Aliyun MaaS) API requests.
+  """
+  @spec get_bailiancloud_target() :: provider_url()
+  def get_bailiancloud_target do
+    Application.get_env(:exhub, :bailiancloud_endpoint,
+      "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    )
+  end
+
+  @doc """
   Returns the default upstream URL.
   """
   @spec default_upstream() :: provider_url()
@@ -429,6 +439,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :openai_api_key, fetch_secret.("openai_api_key"))
     Application.put_env(:exhub, :burncloud_api_key, fetch_secret.("burncloud_api_key"))
     Application.put_env(:exhub, :burncloud_gemini_api_key, fetch_secret.("burncloud_gemini_api_key"))
+    Application.put_env(:exhub, :bailiancloud_api_key, fetch_secret.("bailiancloud_api_key"))
     Application.put_env(:exhub, :infini_api_key, fetch_secret.("infini_api_key"))
     Application.put_env(:exhub, :minimax_api_key, fetch_secret.("minimax_api_key"))
     Application.put_env(:exhub, :mimo_api_key, fetch_secret.("mimo_api_key"))

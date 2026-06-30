@@ -128,6 +128,9 @@ mix scr.insert dev burncloud_api_key "your-burncloud-api-key"
 # BurnCloud Gemini API (dedicated key for Gemini models)
 mix scr.insert dev burncloud_gemini_api_key "your-burncloud-gemini-api-key"
 
+# BailianCloud API (Aliyun MaaS, OpenAI-compatible)
+mix scr.insert dev bailiancloud_api_key "your-bailiancloud-api-key"
+
 # Gitee AI API (alternative provider)
 mix scr.insert dev gitee_api_key "your-gitee-ai-api-key"
 
