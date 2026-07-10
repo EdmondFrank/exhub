@@ -16,6 +16,8 @@ defmodule Exhub.MCP.Agent.Handler do
   def handle_session_update(session_id, update, state) do
     # Strip large fields from tool_call_update events
     update = slim_tool_call_update(update)
+    # Strip large static data (availableCommands, configOptions) from session updates
+    update = slim_session_update(update)
 
     event = %{type: "update", update: update, session_id: session_id, agent_id: state.agent_id}
     Exhub.MCP.Agent.Store.push_event(state.agent_id, session_id, event)
@@ -32,6 +34,14 @@ defmodule Exhub.MCP.Agent.Handler do
   end
 
   defp slim_tool_call_update(update), do: update
+
+  defp slim_session_update(update) when is_map(update) do
+    update
+    |> Map.delete("availableCommands")
+    |> Map.delete("configOptions")
+  end
+
+  defp slim_session_update(update), do: update
 
   defp strip_raw_output_fields(update) do
     case Map.get(update, "rawOutput") do

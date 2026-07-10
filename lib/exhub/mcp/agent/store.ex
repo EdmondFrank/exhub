@@ -362,7 +362,43 @@ defmodule Exhub.MCP.Agent.Store do
             state1
           end
 
-        {:noreply, state2}
+        # Step 3: handle collect waiters → produce state3
+        state3 =
+          case get_in(state2, [:agents, agent_id, :collect_waiters, session_id]) do
+            nil ->
+              state2
+
+            {from, collect_ref, idle_ref, idle_ms, acc} ->
+              queued = get_in(state2, [:agents, agent_id, :event_queues, session_id]) || []
+
+              if queued == [] do
+                # Event was consumed by a regular waiter in Step 1
+                state2
+              else
+                new_acc = acc ++ queued
+
+                if has_terminal_event?(new_acc) do
+                  # Terminal event — reply immediately
+                  Process.cancel_timer(collect_ref)
+                  Process.cancel_timer(idle_ref)
+                  GenServer.reply(from, {:ok, merge_chunks(new_acc)})
+
+                  state2
+                  |> put_in([:agents, agent_id, :collect_waiters, session_id], nil)
+                  |> put_in([:agents, agent_id, :event_queues, session_id], [])
+                else
+                  # New events — reset idle timer
+                  Process.cancel_timer(idle_ref)
+                  new_idle_ref = Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
+
+                  state2
+                  |> put_in([:agents, agent_id, :collect_waiters, session_id], {from, collect_ref, new_idle_ref, idle_ms, new_acc})
+                  |> put_in([:agents, agent_id, :event_queues, session_id], [])
+                end
+              end
+          end
+
+        {:noreply, state3}
     end
   end
 
@@ -508,8 +544,14 @@ defmodule Exhub.MCP.Agent.Store do
 
       {from, _collect_ref, idle_ref, _idle_ms, acc} ->
         Process.cancel_timer(idle_ref)
-        GenServer.reply(from, {:ok, merge_chunks(acc)})
-        new_state = put_in(state, [:agents, agent_id, :collect_waiters, session_id], nil)
+        # Drain any events that arrived during the collection window
+        queued = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
+        all_events = acc ++ queued
+        GenServer.reply(from, {:ok, merge_chunks(all_events)})
+        new_state =
+          state
+          |> put_in([:agents, agent_id, :collect_waiters, session_id], nil)
+          |> put_in([:agents, agent_id, :event_queues, session_id], [])
         {:noreply, new_state}
     end
   end
@@ -521,8 +563,14 @@ defmodule Exhub.MCP.Agent.Store do
 
       {from, collect_ref, _idle_ref, _idle_ms, acc} ->
         Process.cancel_timer(collect_ref)
-        GenServer.reply(from, {:ok, merge_chunks(acc)})
-        new_state = put_in(state, [:agents, agent_id, :collect_waiters, session_id], nil)
+        # Drain any events that arrived during the collection window
+        queued = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
+        all_events = acc ++ queued
+        GenServer.reply(from, {:ok, merge_chunks(all_events)})
+        new_state =
+          state
+          |> put_in([:agents, agent_id, :collect_waiters, session_id], nil)
+          |> put_in([:agents, agent_id, :event_queues, session_id], [])
         {:noreply, new_state}
     end
   end
