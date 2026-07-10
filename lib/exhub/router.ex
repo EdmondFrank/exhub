@@ -254,6 +254,50 @@ defmodule Exhub.Router do
   end
 
   # ============================================================================
+  # Baidu Anthropic Proxy Routes (Anthropic-compatible)
+  # ============================================================================
+
+  get "/baidu-anthropic/v1/*path" do
+    token = Application.get_env(:exhub, :baidu_anthropic_api_key, "")
+
+    options = [
+      custom_headers: [{"x-api-key", token}, {"anthropic-version", "2023-06-01"}],
+      client_options: [
+        timeout: RouterConfig.get_timeout(),
+        recv_timeout: RouterConfig.get_timeout(),
+        proxy: RouterConfig.get_proxy()
+      ]
+    ]
+
+    Logger.info("[Baidu Anthropic Proxy] Forwarding request - #{inspect(path)}")
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_baidu_anthropic_target(), options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[Baidu Anthropic Proxy] Forwarded in #{duration}ms")
+    conn
+  end
+
+  post "/baidu-anthropic/v1/*path" do
+    token = Application.get_env(:exhub, :baidu_anthropic_api_key, "")
+
+    options = [
+      custom_headers: [{"x-api-key", token}, {"anthropic-version", "2023-06-01"}],
+      client_options: [
+        timeout: RouterConfig.get_timeout(),
+        recv_timeout: RouterConfig.get_timeout(),
+        proxy: RouterConfig.get_proxy()
+      ]
+    ]
+
+    Logger.info("[Baidu Anthropic Proxy] Forwarding request - #{inspect(path)}")
+    start = System.monotonic_time(:millisecond)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_baidu_anthropic_target(), options)
+    duration = System.monotonic_time(:millisecond) - start
+    Logger.info("[Baidu Anthropic Proxy] Forwarded in #{duration}ms")
+    conn
+  end
+
+  # ============================================================================
   # Anthropic Proxy Route (with model-based routing)
   # ============================================================================
 

@@ -36,7 +36,8 @@ defmodule Exhub.Router.Config do
     openai: @default_upstream,
     infini: "https://cloud.infini-ai.com/maas/v1",
     kiro: "http://localhost:8000/v1",
-    nvidia: "https://integrate.api.nvidia.com/v1"
+    nvidia: "https://integrate.api.nvidia.com/v1",
+    baidu_anthropic: "http://211.23.3.236:27545/v1"
   }
 
   # Model to provider mappings
@@ -318,6 +319,16 @@ defmodule Exhub.Router.Config do
   end
 
   @doc """
+  Returns the target URL for Baidu Anthropic (Anthropic-compatible) API requests.
+  """
+  @spec get_baidu_anthropic_target() :: provider_url()
+  def get_baidu_anthropic_target do
+    Application.get_env(:exhub, :baidu_anthropic_endpoint,
+      "http://211.23.3.236:27545/v1"
+    )
+  end
+
+  @doc """
   Returns the default upstream URL.
   """
   @spec default_upstream() :: provider_url()
@@ -447,6 +458,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :anthropic_api_key, fetch_secret.("anthropic_api_key"))
     Application.put_env(:exhub, :openrouter_api_key, fetch_secret.("openrouter_api_key"))
     Application.put_env(:exhub, :nvidia_api_key, fetch_secret.("nvidia_api_key"))
+    Application.put_env(:exhub, :baidu_anthropic_api_key, fetch_secret.("baidu_anthropic_api_key"))
   end
 
   defp transform_kimi_reasoning_body(body) do

@@ -286,6 +286,7 @@ defmodule Exhub.ProxyPlug do
       String.contains?(path, "cohere") -> "cohere"
       String.contains?(path, "samba") -> "samba"
       String.contains?(path, "infini") -> "infini"
+      String.contains?(path, "baidu-anthropic") -> "anthropic"
       true -> "unknown"
     end
   end
