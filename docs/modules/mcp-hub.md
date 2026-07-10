@@ -90,7 +90,7 @@ The Hub supports all MCP transport types via [Anubis.Client](https://hexdocs.pm/
 
 ### Config File
 
-Servers are configured in `priv/mcp_servers.json`:
+Servers are configured in `~/.config/exhub/mcp_servers.json` (or the path given by the `EXHUB_MCP_SERVERS_CONFIG` environment variable):
 
 ```json
 {
@@ -169,7 +169,7 @@ The Hub automatically registers all **built-in MCP servers** that run in the sam
 
 ### How Built-in Servers Work
 
-1. **Auto-registration**: On startup, `ClientManager` merges built-in configs (from `builtin_server_configs/0`) with external configs from `priv/mcp_servers.json`. External configs take precedence if names collide.
+1. **Auto-registration**: On startup, `ClientManager` merges built-in configs (from `builtin_server_configs/0`) with external configs from `~/.config/exhub/mcp_servers.json` (or `$EXHUB_MCP_SERVERS_CONFIG`). External configs take precedence if names collide.
 
 2. **Zero-latency execution**: Built-in servers start with status `:connected` immediately — no HTTP handshake or tool discovery is needed. Tool calls are routed directly to the server module via `BuiltInRegistry.call_tool/3`.
 
@@ -177,7 +177,7 @@ The Hub automatically registers all **built-in MCP servers** that run in the sam
 
 4. **Protection**: Built-in servers cannot be removed (`DELETE`) or toggled (`POST /toggle`) via the REST API. These operations return `{:error, :cannot_remove_builtin}` or `{:error, :cannot_toggle_builtin}`.
 
-5. **Config persistence**: Built-in servers are excluded from `priv/mcp_servers.json` persistence — they are always regenerated from the registry at startup.
+5. **Config persistence**: Built-in servers are excluded from the config file persistence — they are always regenerated from the registry at startup.
 
 ---
 
@@ -564,7 +564,7 @@ The MCP Hub includes built-in health monitoring and automatic reconnection for u
 
 The ClientManager uses a **non-blocking startup** pattern to avoid delaying the Exhub application supervisor tree:
 
-1. **`init/1`** — Loads config from `priv/mcp_servers.json`, merges with built-in server configs (from `BuiltInRegistry`), creates the `DynamicSupervisor`, and marks all enabled servers as `:connecting` (external) or `:connected` (built-in). Returns immediately.
+1. **`init/1`** — Loads config from `~/.config/exhub/mcp_servers.json` (or `$EXHUB_MCP_SERVERS_CONFIG`), merges with built-in server configs (from `BuiltInRegistry`), creates the `DynamicSupervisor`, and marks all enabled servers as `:connecting` (external) or `:connected` (built-in). Returns immediately.
 2. **`handle_continue(:start_clients)`** — Spawns a `Task` for each enabled **external** server under `Exhub.MCP.Hub.TaskSupervisor`. Built-in servers are skipped since they run in the same BEAM VM. Each task:
    - Starts the `Anubis.Client` under the `DynamicSupervisor`
    - Performs the MCP handshake (initialize)
@@ -629,7 +629,7 @@ Tools appear with their original names (no prefix).
 
 ## Configuration Persistence
 
-All configuration changes (add, update, remove, toggle) are automatically persisted to `priv/mcp_servers.json`. The file is rewritten on every modification, so manual edits to the file are picked up on the next application restart.
+All configuration changes (add, update, remove, toggle) are automatically persisted to `~/.config/exhub/mcp_servers.json` (or the path given by `EXHUB_MCP_SERVERS_CONFIG`). The file is rewritten on every modification, so manual edits to the file are picked up on the next application restart.
 
 Built-in servers are **excluded** from persistence — they are always regenerated from `BuiltInRegistry` at startup. External configs that override a built-in server name take precedence.
 

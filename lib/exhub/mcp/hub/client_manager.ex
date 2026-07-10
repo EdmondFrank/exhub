@@ -35,7 +35,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
   GenServer that manages upstream MCP server connections via Anubis.Client.
 
   Responsibilities:
-  - Load and persist server configurations from priv/mcp_servers.json
+  - Load and persist server configurations from `~/.config/exhub/mcp_servers.json` (or `$EXHUB_MCP_SERVERS_CONFIG`)
   - Start/stop Anubis.Client instances via DynamicSupervisor
   - Aggregate tools from all connected upstream servers
   - Route tool calls to the appropriate upstream server
@@ -57,7 +57,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   ## Configuration Persistence
 
-  Configurations are stored in `priv/mcp_servers.json` and automatically
+  Configurations are stored in `~/.config/exhub/mcp_servers.json` (or the path
+  given by the `EXHUB_MCP_SERVERS_CONFIG` environment variable) and automatically
   persisted on any modification.
   """
 
@@ -76,6 +77,15 @@ defmodule Exhub.MCP.Hub.ClientManager do
   ]
 
   @max_crashes 3
+
+  @default_config_path "~/.config/exhub/mcp_servers.json"
+
+  @doc """
+  Returns the path to the mcp_servers config file.
+  """
+  def config_path do
+    System.get_env("EXHUB_MCP_SERVERS_CONFIG") || Path.expand(@default_config_path)
+  end
 
   # Client API
 
@@ -163,7 +173,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
   def init(_opts) do
     Process.flag(:trap_exit, true)
 
-    config_path = Path.join(:code.priv_dir(:exhub), "mcp_servers.json")
+    config_path = config_path()
     configs = load_configs(config_path)
 
     # Merge built-in server configs with external configs from mcp_servers.json
@@ -981,6 +991,10 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   defp load_configs(path) do
+    # Migration: if the new config path doesn't exist but the old
+    # priv/mcp_servers.json does, copy it over automatically.
+    maybe_migrate_config(path)
+
     if File.exists?(path) do
       case File.read!(path) |> Jason.decode() do
         {:ok, %{"servers" => servers}} when is_list(servers) ->
@@ -991,6 +1005,18 @@ defmodule Exhub.MCP.Hub.ClientManager do
       end
     else
       []
+    end
+  end
+
+  defp maybe_migrate_config(path) do
+    unless File.exists?(path) do
+      old_path = Path.join(:code.priv_dir(:exhub), "mcp_servers.json")
+
+      if File.exists?(old_path) do
+        Logger.info("[MCP Hub] Migrating config from #{old_path} to #{path}")
+        File.mkdir_p!(Path.dirname(path))
+        File.cp!(old_path, path)
+      end
     end
   end
 

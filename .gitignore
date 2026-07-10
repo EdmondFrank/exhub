@@ -42,3 +42,6 @@ keys.txt
 .cecli*
 .agent-shell/
 .worktrees/
+
+# MCP servers config (now stored in ~/.config/exhub/)
+/priv/mcp_servers.json
