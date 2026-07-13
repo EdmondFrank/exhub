@@ -458,62 +458,62 @@ defmodule Exhub.Router do
 
   forward("/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.HabitServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.HabitServer, request_timeout: 600_000]
   )
 
   forward("/web-tools/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.WebToolsServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.WebToolsServer, request_timeout: 600_000]
   )
 
   forward("/think/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.ThinkServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.ThinkServer, request_timeout: 600_000]
   )
 
   forward("/time/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.TimeServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.TimeServer, request_timeout: 600_000]
   )
 
   forward("/archery/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.ArcheryServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.ArcheryServer, request_timeout: 600_000]
   )
 
   forward("/browser-use/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.BrowserUseServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.BrowserUseServer, request_timeout: 600_000]
   )
 
   forward("/image-gen/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.ImageGenServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.ImageGenServer, request_timeout: 600_000]
   )
 
   forward("/todo/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.TodoServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.TodoServer, request_timeout: 600_000]
   )
 
   forward("/desktop/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.DesktopServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.DesktopServer, request_timeout: 600_000]
   )
 
   forward("/doc-extract/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.DocExtractServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.DocExtractServer, request_timeout: 600_000]
   )
 
   forward("/look/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.LookServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.LookServer, request_timeout: 600_000]
   )
 
   forward("/listen/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.ListenServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.ListenServer, request_timeout: 600_000]
   )
 
   forward("/agent/mcp",
@@ -523,22 +523,22 @@ defmodule Exhub.Router do
 
   forward("/brain/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 600_000]
   )
 
   forward("/exhub/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.ExhubServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.ExhubServer, request_timeout: 600_000]
   )
 
   forward("/mac-use/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.MacUseServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.MacUseServer, request_timeout: 600_000]
   )
 
   forward("/emacs/mcp",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.EmacsServer, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.EmacsServer, request_timeout: 600_000]
   )
 
   # ============================================================================
@@ -560,7 +560,7 @@ defmodule Exhub.Router do
   # MCP Hub - unified endpoint for all upstream MCP servers
   forward("/mcp-hub",
     to: Exhub.MCP.LazyPlug,
-    init_opts: [server: Exhub.MCP.Hub.Server, request_timeout: 120_000]
+    init_opts: [server: Exhub.MCP.Hub.Server, request_timeout: 600_000]
   )
 
   # Agent Hub MCP server

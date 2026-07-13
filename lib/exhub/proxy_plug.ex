@@ -212,6 +212,7 @@ defmodule Exhub.ProxyPlug do
 
   defp encode_body_with_model_transforms(body_params) do
     body_params = fill_tool_calls_content(body_params)
+    body_params = normalize_developer_role(body_params)
 
     # Normalize model name by stripping prefixes before sending to API
     body_params =
@@ -269,6 +270,21 @@ defmodule Exhub.ProxyPlug do
   end
 
   defp fill_tool_calls_content(body_params), do: body_params
+
+  defp normalize_developer_role(%{"messages" => messages} = body_params) when is_list(messages) do
+    transformed_messages =
+      Enum.map(messages, fn message ->
+        if is_map(message) and Map.get(message, "role") == "developer" do
+          Map.put(message, "role", "system")
+        else
+          message
+        end
+      end)
+
+    Map.put(body_params, "messages", transformed_messages)
+  end
+
+  defp normalize_developer_role(body_params), do: body_params
 
   defp extract_model_name(conn) do
     case conn.body_params do
