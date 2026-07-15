@@ -42,8 +42,7 @@ defmodule Exhub.MCP.Tools.BrowserUse.Interact do
     )
 
     field(:value, :string,
-      description:
-        "Text or value to input. Required for `type`, `fill`, and `select` commands."
+      description: "Text or value to input. Required for `type`, `fill`, and `select` commands."
     )
   end
 

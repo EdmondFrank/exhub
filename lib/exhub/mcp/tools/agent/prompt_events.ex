@@ -25,9 +25,21 @@ defmodule Exhub.MCP.Tools.Agent.PromptEvents do
   schema do
     field(:agent_id, {:required, :string}, description: "ID of the agent")
     field(:session_id, {:required, :string}, description: "Session ID to poll")
-    field(:collect_ms, :integer, description: "Max collection window in ms (default 30000)", default: 30_000)
-    field(:idle_ms, :integer, description: "Idle timeout in ms — return early if no events for this long (default 15000)", default: 15_000)
-    field(:include_thoughts, :boolean, description: "Include thought events (default true)", default: true)
+
+    field(:collect_ms, :integer,
+      description: "Max collection window in ms (default 30000)",
+      default: 30_000
+    )
+
+    field(:idle_ms, :integer,
+      description: "Idle timeout in ms — return early if no events for this long (default 15000)",
+      default: 15_000
+    )
+
+    field(:include_thoughts, :boolean,
+      description: "Include thought events (default true)",
+      default: true
+    )
   end
 
   @impl true

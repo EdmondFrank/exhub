@@ -18,6 +18,7 @@ defmodule Exhub.MCP.Tools.Agent.LoadSession do
     agent_id = Map.get(params, :agent_id)
     session_id = Map.get(params, :session_id)
     cwd = Map.get(params, :cwd, File.cwd!())
+
     case Exhub.MCP.Agent.Store.get(agent_id) do
       {:ok, entry} ->
         case ExMCP.ACP.Client.load_session(entry.client, session_id, cwd) do
@@ -25,9 +26,13 @@ defmodule Exhub.MCP.Tools.Agent.LoadSession do
             Exhub.MCP.Agent.Store.add_session(agent_id, session_id)
             resp = Response.tool() |> Response.text(Jason.encode!(result))
             {:reply, resp, frame}
+
           {:error, reason} ->
-            {:reply, Response.tool() |> Response.error("Failed to load session: #{inspect(reason)}"), frame}
+            {:reply,
+             Response.tool() |> Response.error("Failed to load session: #{inspect(reason)}"),
+             frame}
         end
+
       {:error, :not_found} ->
         {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
     end

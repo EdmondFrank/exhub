@@ -26,8 +26,11 @@ defmodule Exhub.DefaultResponseHandler do
               "exhub-vault" -> ExhubVault.call(args)
               action -> Logger.debug("Unknown action: #{action}, data: #{data}")
             end
-          _ -> Logger.debug("Unknown message: #{data}")
+
+          _ ->
+            Logger.debug("Unknown message: #{data}")
         end
+
         nil
     end
   end

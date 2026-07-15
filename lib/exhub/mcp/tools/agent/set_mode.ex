@@ -21,9 +21,12 @@ defmodule Exhub.MCP.Tools.Agent.SetMode do
           {:ok, result} ->
             resp = Response.tool() |> Response.text(Jason.encode!(result))
             {:reply, resp, frame}
+
           {:error, reason} ->
-            {:reply, Response.tool() |> Response.error("Failed to set mode: #{inspect(reason)}"), frame}
+            {:reply, Response.tool() |> Response.error("Failed to set mode: #{inspect(reason)}"),
+             frame}
         end
+
       {:error, :not_found} ->
         {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
     end

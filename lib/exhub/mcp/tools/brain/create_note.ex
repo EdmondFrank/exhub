@@ -33,9 +33,7 @@ defmodule Exhub.MCP.Tools.Brain.CreateNote do
       description: "Note filename (`.md` extension is added automatically if missing)"
     )
 
-    field(:folder, :string,
-      description: "Optional subfolder path relative to vault root"
-    )
+    field(:folder, :string, description: "Optional subfolder path relative to vault root")
 
     field(:content, :string,
       description: "Note content (default: empty)",

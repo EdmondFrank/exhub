@@ -94,6 +94,7 @@ defmodule Exhub.MCP.Tools.Emacs.ListBuffers do
     filtered_expr =
       if keyword do
         escaped_keyword = Helpers.escape_elisp(keyword)
+
         "(let ((case-fold-search t)) (cl-remove-if-not (lambda (buf) (string-match-p (regexp-quote \"#{escaped_keyword}\") (buffer-name buf))) #{base_expr}))"
       else
         base_expr
@@ -255,6 +256,7 @@ defmodule Exhub.MCP.Tools.Emacs.ListBuffers do
       Enum.map_join(buffers, "\n", fn
         {name, size, mode} ->
           "  - #{name} (#{size} bytes, #{mode})"
+
         name when is_binary(name) ->
           "  - #{name}"
       end)

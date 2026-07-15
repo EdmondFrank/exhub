@@ -37,19 +37,23 @@ defmodule Exhub.Llm.Chat do
 
   def execute_with_schema(system_message, user_message, json_schema) do
     llm_chain = Chain.create_llm_chain()
+
     initial_messages = [
       Message.new_system!(system_message),
       Message.new_user!(user_message)
     ]
+
     Chain.execute_with_schema(llm_chain, initial_messages, json_schema)
   end
 
   defp execute_chain(system_message, user_message, custom_fns, context) do
     llm_chain = Chain.create_llm_chain()
+
     initial_messages = [
       Message.new_system!(system_message),
       Message.new_user!(user_message)
     ]
+
     Chain.execute(llm_chain, initial_messages, custom_fns, context)
   end
 
@@ -73,11 +77,16 @@ defmodule Exhub.Llm.Chat do
         },
         function: fn arguments, context ->
           real_args = Map.merge(arguments, context)
-          Logger.debug("Executing tool #{tool["name"]} with arguments: #{inspect real_args}")
+          Logger.debug("Executing tool #{tool["name"]} with arguments: #{inspect(real_args)}")
+
           with {:ok, response} <- Client.call_tool(client, tool["name"], real_args) do
             content = response.result["content"]
             {:ok, Jason.encode!(content)}
-          end || {:error, "failed to execute tool #{tool["name"]} with arguments: #{inspect real_args}"}
+          else
+            _ ->
+              {:error,
+               "failed to execute tool #{tool["name"]} with arguments: #{inspect(real_args)}"}
+          end
         end
       })
     end)

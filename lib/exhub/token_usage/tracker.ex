@@ -200,16 +200,16 @@ defmodule Exhub.TokenUsage.Tracker do
     case String.to_charlist(grapheme) do
       [cp | _] ->
         # CJK Unified Ideographs (4E00–9FFF)
+        # CJK Extension A (3400–4DBF)
+        # CJK Extension B (20000–2A6DF)
+        # CJK Compatibility Ideographs (F900–FAFF)
+        # CJK Symbols and Punctuation (3000–303F)
+        # Halfwidth and Fullwidth Forms (FF00–FFEF)
         (cp >= 0x4E00 and cp <= 0x9FFF) or
-          # CJK Extension A (3400–4DBF)
           (cp >= 0x3400 and cp <= 0x4DBF) or
-          # CJK Extension B (20000–2A6DF)
           (cp >= 0x20000 and cp <= 0x2A6DF) or
-          # CJK Compatibility Ideographs (F900–FAFF)
           (cp >= 0xF900 and cp <= 0xFAFF) or
-          # CJK Symbols and Punctuation (3000–303F)
           (cp >= 0x3000 and cp <= 0x303F) or
-          # Halfwidth and Fullwidth Forms (FF00–FFEF)
           (cp >= 0xFF00 and cp <= 0xFFEF)
 
       _ ->

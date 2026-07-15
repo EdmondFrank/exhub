@@ -66,24 +66,29 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
           list_flat(search_dir, vault, gitignore_patterns)
         end
 
-      entries = if abs_path do
-        Enum.map(entries, fn e ->
-          if String.ends_with?(e, "/") do
-            Path.join(vault, String.trim_trailing(e, "/")) <> "/"
-          else
-            Path.join(vault, e)
-          end
-        end)
-      else
-        entries
-      end
+      entries =
+        if abs_path do
+          Enum.map(entries, fn e ->
+            if String.ends_with?(e, "/") do
+              Path.join(vault, String.trim_trailing(e, "/")) <> "/"
+            else
+              Path.join(vault, e)
+            end
+          end)
+        else
+          entries
+        end
 
       if entries == [] do
         resp = Response.tool() |> Response.text("Vault: #{vault}\n\nNo entries found.")
         {:reply, resp, frame}
       else
         output = Enum.join(entries, "\n")
-        resp = Response.tool() |> Response.text("Vault: #{vault}\n\n#{length(entries)} entries(s):\n\n#{output}")
+
+        resp =
+          Response.tool()
+          |> Response.text("Vault: #{vault}\n\n#{length(entries)} entries(s):\n\n#{output}")
+
         {:reply, resp, frame}
       end
     else
@@ -101,9 +106,10 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
           |> Enum.filter(fn e ->
             full = Path.join(dir, e)
             rel = Path.relative_to(full, vault)
-            
-            File.dir?(full) and 
-              (gitignore_patterns == [] or not GitignoreParser.ignored?(gitignore_patterns, rel <> "/"))
+
+            File.dir?(full) and
+              (gitignore_patterns == [] or
+                 not GitignoreParser.ignored?(gitignore_patterns, rel <> "/"))
           end)
           |> Enum.map(fn e -> Path.relative_to(Path.join(dir, e), vault) <> "/" end)
           |> Enum.sort()
@@ -113,7 +119,7 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
           |> Enum.filter(fn e ->
             full = Path.join(dir, e)
             rel = Path.relative_to(full, vault)
-            
+
             String.ends_with?(e, ".md") and
               (gitignore_patterns == [] or not GitignoreParser.ignored?(gitignore_patterns, rel))
           end)
@@ -134,7 +140,7 @@ defmodule Exhub.MCP.Tools.Brain.ListNotes do
           Enum.reduce(entries, {[], []}, fn entry, {dirs, files} ->
             full = Path.join(dir_path, entry)
             rel = Path.relative_to(full, vault_path)
-            
+
             # Check if this path should be ignored
             if gitignore_patterns != [] and GitignoreParser.ignored?(gitignore_patterns, rel) do
               {dirs, files}

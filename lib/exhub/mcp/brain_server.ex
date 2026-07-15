@@ -49,12 +49,12 @@ defmodule Exhub.MCP.BrainServer do
     capabilities: [:tools]
 
   # Search & navigation
-  component Exhub.MCP.Tools.Brain.SearchVault
-  component Exhub.MCP.Tools.Brain.ListNotes
+  component(Exhub.MCP.Tools.Brain.SearchVault)
+  component(Exhub.MCP.Tools.Brain.ListNotes)
 
   # Note management
-  component Exhub.MCP.Tools.Brain.CreateNote
-  component Exhub.MCP.Tools.Brain.MoveNote
+  component(Exhub.MCP.Tools.Brain.CreateNote)
+  component(Exhub.MCP.Tools.Brain.MoveNote)
 
   @impl true
   def init(client_info, frame) do

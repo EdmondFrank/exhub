@@ -32,10 +32,24 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the directory to list")
-    field(:depth, :integer, description: "Recursion depth (0 = immediate children only, default 0)", default: 0)
-    field(:show_modified, :boolean, description: "Include last modified time in entries (default false)", default: false)
-    field(:pattern, :string, description: "Glob pattern to filter entries (e.g. *.rb, **/*.ex)", default: nil)
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the directory to list"
+    )
+
+    field(:depth, :integer,
+      description: "Recursion depth (0 = immediate children only, default 0)",
+      default: 0
+    )
+
+    field(:show_modified, :boolean,
+      description: "Include last modified time in entries (default false)",
+      default: false
+    )
+
+    field(:pattern, :string,
+      description: "Glob pattern to filter entries (e.g. *.rb, **/*.ex)",
+      default: nil
+    )
   end
 
   @impl true
@@ -99,7 +113,14 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
 
               children =
                 if is_dir and current_depth < max_depth do
-                  collect_entries(root, full_path, max_depth, current_depth + 1, show_modified, pattern)
+                  collect_entries(
+                    root,
+                    full_path,
+                    max_depth,
+                    current_depth + 1,
+                    show_modified,
+                    pattern
+                  )
                 else
                   []
                 end
@@ -116,12 +137,17 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
 
               if include_entry do
                 display_path = if is_dir, do: relative_path <> "/", else: relative_path
+
                 entry = %{
                   "path" => display_path,
                   "size" => humanize_size(stat.size)
                 }
 
-                entry = if show_modified, do: Map.put(entry, "modified", format_time(stat.mtime)), else: entry
+                entry =
+                  if show_modified,
+                    do: Map.put(entry, "modified", format_time(stat.mtime)),
+                    else: entry
+
                 [entry | children]
               else
                 children
@@ -137,7 +163,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     end
   end
 
-defp format_time({{y, mo, d}, {h, mi, s}}) do
+  defp format_time({{y, mo, d}, {h, mi, s}}) do
     :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B", [y, mo, d, h, mi, s])
     |> IO.iodata_to_binary()
   end
@@ -164,6 +190,7 @@ defp format_time({{y, mo, d}, {h, mi, s}}) do
   end
 
   defp matches_pattern?(_name, nil), do: true
+
   defp matches_pattern?(name, pattern) do
     regex =
       pattern

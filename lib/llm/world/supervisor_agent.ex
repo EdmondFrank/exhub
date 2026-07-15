@@ -52,8 +52,8 @@ defmodule Exhub.Llm.World.SupervisorAgent do
   def validate_changeset(changeset) do
     changeset
     |> Ecto.Changeset.validate_number(:confidence,
-    greater_than_or_equal_to: 0.0,
-    less_than_or_equal_to: 1.0
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
     )
   end
 
@@ -69,35 +69,41 @@ defmodule Exhub.Llm.World.SupervisorAgent do
   @impl true
   @spec handle_message(String.t(), map()) :: {:ok, any(), map()}
   def handle_message(message, state) when is_binary(message) do
-    %{llm: %{endpoint: endpoint, model: model, api_key: api_key}} = Chain.create_llm_chain(@default_llm_name)
+    %{llm: %{endpoint: endpoint, model: model, api_key: api_key}} =
+      Chain.create_llm_chain(@default_llm_name)
+
     uri = URI.parse(endpoint)
-    case Instructor.chat_completion([
-          model: model,
-          response_model: __MODULE__,
-          max_retries: 3,
-          messages: [
-            %{
-              role: "user",
-              content: message
-            }
-          ]
-        ],
-          [
-            adapter: Instructor.Adapters.OpenAI,
-            api_key: api_key,
-            api_url: "#{uri.scheme}://#{uri.authority}",
-            api_path: uri.path
-          ]
-        ) do
+
+    case Instructor.chat_completion(
+           [
+             model: model,
+             response_model: __MODULE__,
+             max_retries: 3,
+             messages: [
+               %{
+                 role: "user",
+                 content: message
+               }
+             ]
+           ],
+           adapter: Instructor.Adapters.OpenAI,
+           api_key: api_key,
+           api_url: "#{uri.scheme}://#{uri.authority}",
+           api_path: uri.path
+         ) do
       {:ok, %__MODULE__{userinput: user_message, selected_agent: agent, confidence: _confidence}} ->
         case SwarmEx.send_message_to_pid(state[agent], user_message) do
           {:ok, reply} ->
-            combined_reply = "#{reply} | Selected Agent: #{agent}"  # Combine selected_agent with reply
-            {:ok, combined_reply, state}  # Ensure reply is binary
+            # Combine selected_agent with reply
+            combined_reply = "#{reply} | Selected Agent: #{agent}"
+            # Ensure reply is binary
+            {:ok, combined_reply, state}
+
           error ->
             Logger.error("Supervisor agent failed: #{inspect(error)}")
             {:ok, inspect(error), state}
         end
+
       {:error, reason} ->
         {:ok, inspect(reason), state}
     end

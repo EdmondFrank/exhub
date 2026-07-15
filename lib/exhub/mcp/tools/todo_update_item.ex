@@ -34,9 +34,19 @@ defmodule Exhub.MCP.Tools.TodoUpdateItem do
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
-    field :name, {:required, :string}, description: "The exact name of the todo item to update, character-for-character as it was given to set_items."
-    field :completed, {:required, :boolean}, description: "true to mark the item done; false to reopen it."
+    field(:tenant_id, {:required, :string},
+      description:
+        "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+    )
+
+    field(:name, {:required, :string},
+      description:
+        "The exact name of the todo item to update, character-for-character as it was given to set_items."
+    )
+
+    field(:completed, {:required, :boolean},
+      description: "true to mark the item done; false to reopen it."
+    )
   end
 
   @impl true
@@ -63,7 +73,9 @@ defmodule Exhub.MCP.Tools.TodoUpdateItem do
       {:error, :not_found} ->
         resp =
           Response.tool()
-          |> Response.error("No todo list found for tenant '#{tenant_id}'. Create one first with set_items.")
+          |> Response.error(
+            "No todo list found for tenant '#{tenant_id}'. Create one first with set_items."
+          )
 
         {:reply, resp, frame}
 
@@ -73,6 +85,8 @@ defmodule Exhub.MCP.Tools.TodoUpdateItem do
     end
   end
 
-  defp item_to_map(%{name: name, completed: completed}), do: %{"name" => name, "completed" => completed}
+  defp item_to_map(%{name: name, completed: completed}),
+    do: %{"name" => name, "completed" => completed}
+
   defp item_to_map(item), do: item
 end

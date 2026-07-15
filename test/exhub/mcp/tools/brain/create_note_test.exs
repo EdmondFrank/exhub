@@ -3,7 +3,10 @@ defmodule Exhub.MCP.Tools.Brain.CreateNoteTest do
 
   alias Exhub.MCP.Tools.Brain.CreateNote
 
-  @test_vault Path.join(System.tmp_dir!(), "brain_create_note_test_#{System.unique_integer([:positive])}")
+  @test_vault Path.join(
+                System.tmp_dir!(),
+                "brain_create_note_test_#{System.unique_integer([:positive])}"
+              )
 
   setup do
     File.mkdir_p!(@test_vault)
@@ -57,7 +60,13 @@ defmodule Exhub.MCP.Tools.Brain.CreateNoteTest do
     end
 
     test "creates note in subfolder" do
-      params = %{filename: "weekly", folder: "journal/2026", content: "## Week 1", overwrite: false}
+      params = %{
+        filename: "weekly",
+        folder: "journal/2026",
+        content: "## Week 1",
+        overwrite: false
+      }
+
       frame = %{}
 
       {:reply, _resp, ^frame} = CreateNote.execute(params, frame)

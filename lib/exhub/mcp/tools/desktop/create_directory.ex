@@ -26,7 +26,9 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand of the directory to create")
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand of the directory to create"
+    )
   end
 
   @impl true
@@ -48,7 +50,9 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
           {:reply, resp, frame}
 
         {:error, reason} ->
-          resp = Response.tool() |> Response.error("Failed to create directory: #{inspect(reason)}")
+          resp =
+            Response.tool() |> Response.error("Failed to create directory: #{inspect(reason)}")
+
           {:reply, resp, frame}
       end
     else

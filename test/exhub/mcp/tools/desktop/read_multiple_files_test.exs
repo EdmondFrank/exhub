@@ -47,7 +47,9 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFilesTest do
       File.write!(existing_file, "I exist")
 
       frame = %{}
-      {:reply, resp, _frame} = ReadMultipleFiles.execute(%{paths: [existing_file, missing_file]}, frame)
+
+      {:reply, resp, _frame} =
+        ReadMultipleFiles.execute(%{paths: [existing_file, missing_file]}, frame)
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
@@ -116,7 +118,9 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFilesTest do
 
       # Pass in non-alphabetical order
       frame = %{}
-      {:reply, resp, _frame} = ReadMultipleFiles.execute(%{paths: [file_c, file_a, file_b]}, frame)
+
+      {:reply, resp, _frame} =
+        ReadMultipleFiles.execute(%{paths: [file_c, file_a, file_b]}, frame)
 
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
       {:ok, decoded} = Toon.decode(text)
@@ -165,6 +169,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFilesTest do
 
       # Verify content matches expected pattern
       contents = Enum.map(results, & &1["content"])
+
       for i <- 1..20 do
         assert "Content #{i}" in contents
       end

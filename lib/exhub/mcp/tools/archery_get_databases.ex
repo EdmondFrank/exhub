@@ -18,7 +18,9 @@ defmodule Exhub.MCP.Tools.ArcheryGetDatabases do
   end
 
   schema do
-    field(:instance_name, {:required, :string}, description: "Name of the database instance (from get_instances)")
+    field(:instance_name, {:required, :string},
+      description: "Name of the database instance (from get_instances)"
+    )
   end
 
   @impl true
@@ -35,6 +37,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetDatabases do
           "count" => length(databases),
           "databases" => databases
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(result))
         {:reply, resp, frame}
 
@@ -44,6 +47,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetDatabases do
           "instance_name" => instance_name,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(result))
         {:reply, resp, frame}
     end

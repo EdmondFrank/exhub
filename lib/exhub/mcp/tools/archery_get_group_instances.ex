@@ -18,7 +18,9 @@ defmodule Exhub.MCP.Tools.ArcheryGetGroupInstances do
   end
 
   schema do
-    field(:group_name, {:required, :string}, description: "Resource group name (from get_resource_groups)")
+    field(:group_name, {:required, :string},
+      description: "Resource group name (from get_resource_groups)"
+    )
   end
 
   @impl true
@@ -35,6 +37,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetGroupInstances do
           "count" => length(instances),
           "instances" => instances
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -44,6 +47,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetGroupInstances do
           "group_name" => group_name,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

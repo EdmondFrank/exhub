@@ -27,8 +27,13 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
   end
 
   schema do
-    field(:source, {:required, :string}, description: "Absolute path or ~ shorthand of the file or directory to move")
-    field(:destination, {:required, :string}, description: "Absolute path or ~ shorthand of the new location")
+    field(:source, {:required, :string},
+      description: "Absolute path or ~ shorthand of the file or directory to move"
+    )
+
+    field(:destination, {:required, :string},
+      description: "Absolute path or ~ shorthand of the new location"
+    )
   end
 
   @impl true
@@ -97,8 +102,13 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
   defp copy_and_delete(source, destination) do
     case File.cp_r(source, destination) do
       {:ok, _} ->
-        File.rm_rf(source)
-        :ok
+        case File.rm_rf(source) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason, _} ->
+            {:error, "Failed to remove source after copy: #{inspect(reason)}"}
+        end
 
       {:error, reason, _} ->
         {:error, "Copy failed: #{inspect(reason)}"}

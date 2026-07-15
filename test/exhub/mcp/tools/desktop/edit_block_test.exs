@@ -23,12 +23,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, "hello world")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "world",
-          new_string: "elixir"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "world",
+            new_string: "elixir"
+          },
+          frame
+        )
 
       assert resp.isError == false
       assert File.read!(file_path) == "hello elixir"
@@ -39,12 +43,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, "hello world")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "nonexistent",
-          new_string: "replacement"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "nonexistent",
+            new_string: "replacement"
+          },
+          frame
+        )
 
       assert resp.isError == true
       assert response_text(resp) =~ "not found"
@@ -55,63 +63,85 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, "hello world")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "",
-          new_string: "replacement"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "",
+            new_string: "replacement"
+          },
+          frame
+        )
 
       assert resp.isError == true
       assert response_text(resp) =~ "cannot be empty"
     end
 
-    test "returns error when occurrence count mismatches expected_replacements", %{tmp_dir: tmp_dir} do
+    test "returns error when occurrence count mismatches expected_replacements", %{
+      tmp_dir: tmp_dir
+    } do
       file_path = Path.join(tmp_dir, "test.txt")
       File.write!(file_path, "foo bar foo baz foo")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "foo",
-          new_string: "qux",
-          expected_replacements: 1
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "foo",
+            new_string: "qux",
+            expected_replacements: 1
+          },
+          frame
+        )
 
       assert resp.isError == true
       assert response_text(resp) =~ "Expected 1 replacement"
       assert response_text(resp) =~ "found 3"
     end
 
-    test "replaces multiple occurrences when expected_replacements matches count", %{tmp_dir: tmp_dir} do
+    test "replaces multiple occurrences when expected_replacements matches count", %{
+      tmp_dir: tmp_dir
+    } do
       file_path = Path.join(tmp_dir, "test.txt")
       File.write!(file_path, "foo bar foo baz foo")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "foo",
-          new_string: "qux",
-          expected_replacements: 3
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "foo",
+            new_string: "qux",
+            expected_replacements: 3
+          },
+          frame
+        )
 
       assert resp.isError == false
       assert File.read!(file_path) == "qux bar qux baz qux"
     end
 
-    test "handles CRLF line endings — search string with LF still matches CRLF file", %{tmp_dir: tmp_dir} do
+    test "handles CRLF line endings — search string with LF still matches CRLF file", %{
+      tmp_dir: tmp_dir
+    } do
       file_path = Path.join(tmp_dir, "test.txt")
       File.write!(file_path, "line one\r\nline two\r\nline three")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "line two\nline three",
-          new_string: "replaced\nnew line"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "line two\nline three",
+            new_string: "replaced\nnew line"
+          },
+          frame
+        )
 
       assert resp.isError == false
       content = File.read!(file_path)
@@ -123,12 +153,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       file_path = Path.join(tmp_dir, "nonexistent.txt")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "foo",
-          new_string: "bar"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "foo",
+            new_string: "bar"
+          },
+          frame
+        )
 
       assert resp.isError == true
       assert response_text(resp) =~ "File not found"
@@ -151,12 +185,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       oversized = String.duplicate("x", 100_001)
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: oversized,
-          new_string: "replacement"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: oversized,
+            new_string: "replacement"
+          },
+          frame
+        )
 
       assert resp.isError == true
       text = response_text(resp)
@@ -172,12 +210,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       oversized = String.duplicate("y", 100_001)
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "content",
-          new_string: oversized
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "content",
+            new_string: oversized
+          },
+          frame
+        )
 
       assert resp.isError == true
       text = response_text(resp)
@@ -193,12 +235,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, exact)
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: exact,
-          new_string: "replaced"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: exact,
+            new_string: "replaced"
+          },
+          frame
+        )
 
       assert resp.isError == false
       assert File.read!(file_path) == "replaced"
@@ -227,12 +273,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       assert jaro >= 0.95, "Expected Jaro >= 0.95, got #{jaro}"
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: search,
-          new_string: "REPLACED"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: search,
+            new_string: "REPLACED"
+          },
+          frame
+        )
 
       assert resp.isError == false
       text = response_text(resp)
@@ -241,7 +291,9 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       assert File.read!(file_path) =~ "REPLACED"
     end
 
-    test "fuzzy match: medium similarity (70%-95%) shows character-level diff", %{tmp_dir: tmp_dir} do
+    test "fuzzy match: medium similarity (70%-95%) shows character-level diff", %{
+      tmp_dir: tmp_dir
+    } do
       file_path = Path.join(tmp_dir, "test.txt")
       original = "function calculateTotalPrice(items, taxRate, discount) {"
       File.write!(file_path, original)
@@ -255,12 +307,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       assert jaro < 0.95, "Expected Jaro < 0.95, got #{jaro}"
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: search,
-          new_string: "REPLACED"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: search,
+            new_string: "REPLACED"
+          },
+          frame
+        )
 
       assert resp.isError == true
       text = response_text(resp)
@@ -282,12 +338,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       search = "xxxx yyyy zzzz"
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: search,
-          new_string: "REPLACED"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: search,
+            new_string: "REPLACED"
+          },
+          frame
+        )
 
       assert resp.isError == true
       text = response_text(resp)
@@ -296,7 +356,9 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       assert File.read!(file_path) == original
     end
 
-    test "fuzzy match: similarity percentage in response matches Jaro distance", %{tmp_dir: tmp_dir} do
+    test "fuzzy match: similarity percentage in response matches Jaro distance", %{
+      tmp_dir: tmp_dir
+    } do
       file_path = Path.join(tmp_dir, "test.txt")
       original = "abcdefghij"
       File.write!(file_path, original)
@@ -308,12 +370,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       expected_pct = round(expected_jaro * 100)
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: search,
-          new_string: "REPLACED"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: search,
+            new_string: "REPLACED"
+          },
+          frame
+        )
 
       text = response_text(resp)
       assert text =~ "#{expected_pct}% similarity"
@@ -335,12 +401,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, large_content)
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "this string does not exist in the file",
-          new_string: "replacement"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "this string does not exist in the file",
+            new_string: "replacement"
+          },
+          frame
+        )
 
       assert resp.isError == true
       text = response_text(resp)
@@ -356,12 +426,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, content)
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "the quick brown fax",
-          new_string: "REPLACED"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "the quick brown fax",
+            new_string: "REPLACED"
+          },
+          frame
+        )
 
       # Should attempt fuzzy search (not bail out)
       text = response_text(resp)
@@ -383,12 +457,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, "line1\r\nline2\r\nline3")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "line2\nline3",
-          new_string: "new2\nnew3"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "line2\nline3",
+            new_string: "new2\nnew3"
+          },
+          frame
+        )
 
       assert resp.isError == false
       content = File.read!(file_path)
@@ -401,12 +479,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlockTest do
       File.write!(file_path, "line1\nline2\nline3")
 
       frame = %{}
+
       {:reply, resp, ^frame} =
-        EditBlock.execute(%{
-          file_path: file_path,
-          old_string: "line2\nline3",
-          new_string: "new2\nnew3"
-        }, frame)
+        EditBlock.execute(
+          %{
+            file_path: file_path,
+            old_string: "line2\nline3",
+            new_string: "new2\nnew3"
+          },
+          frame
+        )
 
       assert resp.isError == false
       content = File.read!(file_path)

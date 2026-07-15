@@ -37,8 +37,7 @@ defmodule Exhub.MCP.Tools.BrowserUse.Security do
     )
 
     field(:scope, :string,
-      description:
-        "(`storage` only) Which storage to dump: local, session, or all. Default: all."
+      description: "(`storage` only) Which storage to dump: local, session, or all. Default: all."
     )
 
     field(:method, :string,
@@ -51,8 +50,7 @@ defmodule Exhub.MCP.Tools.BrowserUse.Security do
     )
 
     field(:data, :string,
-      description:
-        "(`fetch` only) JSON body for POST requests. Example: \"{\\\"score\\\":100}\""
+      description: "(`fetch` only) JSON body for POST requests. Example: \"{\\\"score\\\":100}\""
     )
 
     field(:probe_start, :integer,

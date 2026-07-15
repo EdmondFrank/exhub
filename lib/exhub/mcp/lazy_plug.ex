@@ -90,16 +90,24 @@ defmodule Exhub.MCP.LazyPlug do
       {:ok, pid} ->
         case registry_mod.register_session(registry_name, session_id, pid) do
           :ok ->
-            Logger.info("[MCP LazyPlug] Auto-created MCP session #{session_id} for server #{server}")
+            Logger.info(
+              "[MCP LazyPlug] Auto-created MCP session #{session_id} for server #{server}"
+            )
+
             # Mark session as initialized so it can accept any request
             mark_session_initialized(pid, session_id)
 
           {:error, reason} ->
-            Logger.error("[MCP LazyPlug] Failed to register session #{session_id}: #{inspect(reason)}")
+            Logger.error(
+              "[MCP LazyPlug] Failed to register session #{session_id}: #{inspect(reason)}"
+            )
         end
 
       {:error, {:already_started, pid}} ->
-        Logger.warning("[MCP LazyPlug] Session #{session_id} already started, registering existing pid")
+        Logger.warning(
+          "[MCP LazyPlug] Session #{session_id} already started, registering existing pid"
+        )
+
         registry_mod.register_session(registry_name, session_id, pid)
 
         # The session may have been restarted by DynamicSupervisor with fresh state
@@ -111,7 +119,9 @@ defmodule Exhub.MCP.LazyPlug do
     end
   rescue
     error ->
-      Logger.error("[MCP LazyPlug] Exception in auto_create_session for #{session_id}: #{inspect(error)}")
+      Logger.error(
+        "[MCP LazyPlug] Exception in auto_create_session for #{session_id}: #{inspect(error)}"
+      )
   end
 
   defp mark_session_initialized(session_pid, session_id) do
@@ -126,6 +136,8 @@ defmodule Exhub.MCP.LazyPlug do
     Logger.debug("[MCP LazyPlug] Marked session #{session_id} as initialized")
   rescue
     error ->
-      Logger.warning("[MCP LazyPlug] Failed to mark session #{session_id} as initialized: #{inspect(error)}")
+      Logger.warning(
+        "[MCP LazyPlug] Failed to mark session #{session_id} as initialized: #{inspect(error)}"
+      )
   end
 end

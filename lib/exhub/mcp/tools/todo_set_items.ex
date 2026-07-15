@@ -41,14 +41,27 @@ defmodule Exhub.MCP.Tools.TodoSetItems do
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "A short, stable string scoping this list to a specific task or conversation (e.g. a conversation ID, username, or task slug like \"refactor-auth\"). Must stay the same across all todo tool calls for the same task."
+    field(:tenant_id, {:required, :string},
+      description:
+        "A short, stable string scoping this list to a specific task or conversation (e.g. a conversation ID, username, or task slug like \"refactor-auth\"). Must stay the same across all todo tool calls for the same task."
+    )
 
     embeds_many :items, description: "The ordered list of steps or sub-tasks to complete." do
-      field :name, {:required, :string}, description: "A clear, concise description of the step or task."
-      field :completed, :boolean, description: "Whether this item is already done. Defaults to false.", default: false
+      field(:name, {:required, :string},
+        description: "A clear, concise description of the step or task."
+      )
+
+      field(:completed, :boolean,
+        description: "Whether this item is already done. Defaults to false.",
+        default: false
+      )
     end
 
-    field :initial_user_prompt, :string, description: "The user's original request, copied verbatim. Stored for context and returned by get_items.", default: ""
+    field(:initial_user_prompt, :string,
+      description:
+        "The user's original request, copied verbatim. Stored for context and returned by get_items.",
+      default: ""
+    )
   end
 
   @impl true

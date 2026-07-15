@@ -303,7 +303,7 @@ defmodule Exhub.Sagents.Hub do
           Task.async(fn ->
             # Subscribe this task process to agent events
             Sagents.AgentServer.subscribe(name)
-            
+
             user_message = LangChain.Message.new_user!(message)
             Sagents.AgentServer.add_message(name, user_message)
             collect_events(name, 120_000)
@@ -338,7 +338,9 @@ defmodule Exhub.Sagents.Hub do
     else
       receive do
         {:agent, {:llm_deltas, deltas}} ->
-          events = Enum.map(deltas, fn delta -> %{type: :delta, text: extract_delta_text(delta)} end)
+          events =
+            Enum.map(deltas, fn delta -> %{type: :delta, text: extract_delta_text(delta)} end)
+
           do_collect_events(name, deadline, Enum.reverse(events) ++ acc)
 
         {:agent, {:tool_execution_update, :executing, info}} ->

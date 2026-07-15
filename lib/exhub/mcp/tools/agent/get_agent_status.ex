@@ -16,6 +16,7 @@ defmodule Exhub.MCP.Tools.Agent.GetAgentStatus do
     case Exhub.MCP.Agent.Store.get(agent_id) do
       {:ok, entry} ->
         connection_status = ExMCP.ACP.Client.status(entry.client)
+
         result = %{
           agent_id: entry.agent_id,
           command: entry.command,
@@ -24,8 +25,10 @@ defmodule Exhub.MCP.Tools.Agent.GetAgentStatus do
           connection_status: connection_status,
           sessions: MapSet.to_list(entry.sessions)
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(result))
         {:reply, resp, frame}
+
       {:error, :not_found} ->
         {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
     end

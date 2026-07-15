@@ -30,7 +30,10 @@ defmodule Exhub.MCP.Desktop.PortListener do
         do_loop(process_id, new_port)
     after
       @port_timeout_ms ->
-        Logger.error("[PortListener] No port received for process #{process_id} within 30 seconds")
+        Logger.error(
+          "[PortListener] No port received for process #{process_id} within 30 seconds"
+        )
+
         ProcessStore.set_status(process_id, :error)
         ProcessStore.set_exit_code(process_id, -1)
     end
@@ -48,18 +51,15 @@ defmodule Exhub.MCP.Desktop.PortListener do
 
       {^port, {:exit_status, status}} when is_port(port) ->
         ProcessStore.set_exit_code(process_id, status)
-        ProcessStore.set_status(process_id, :completed)
         Logger.debug("[PortListener] Port exited for process #{process_id} with status #{status}")
 
       {^port, :closed} when is_port(port) ->
         ProcessStore.set_exit_code(process_id, 0)
-        ProcessStore.set_status(process_id, :completed)
         Logger.debug("[PortListener] Port closed for process #{process_id}")
 
       {:EXIT, ^port, reason} when is_port(port) ->
         exit_code = exit_code_from_reason(reason)
         ProcessStore.set_exit_code(process_id, exit_code)
-        ProcessStore.set_status(process_id, :completed)
         Logger.debug("[PortListener] Port exited for process #{process_id}: #{inspect(reason)}")
 
       {:EXIT, _pid, _reason} ->

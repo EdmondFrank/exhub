@@ -28,7 +28,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
   end
 
   schema do
-    field :filter, :string, default: nil
+    field(:filter, :string, default: nil)
   end
 
   @impl true
@@ -45,7 +45,8 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
           "exit_code" => entry.exit_code,
           "pid" => entry.pid,
           "started_at" => format_time(entry.started_at),
-          "interactive" => entry.interactive || false
+          "interactive" => entry.interactive || false,
+          "pty" => entry.backend == :erlexec
         }
       end)
       |> filter_processes(filter)
@@ -67,11 +68,13 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
   end
 
   defp format_time(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+
   defp format_time(timestamp) when is_integer(timestamp) do
     DateTime.from_unix!(div(timestamp, 1000), :millisecond)
     |> DateTime.to_iso8601()
   rescue
     _ -> to_string(timestamp)
   end
+
   defp format_time(other), do: to_string(other)
 end

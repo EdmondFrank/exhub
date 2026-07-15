@@ -313,7 +313,9 @@ defmodule Exhub.Router.Config do
   """
   @spec get_bailiancloud_target() :: provider_url()
   def get_bailiancloud_target do
-    Application.get_env(:exhub, :bailiancloud_endpoint,
+    Application.get_env(
+      :exhub,
+      :bailiancloud_endpoint,
       "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
     )
   end
@@ -323,9 +325,7 @@ defmodule Exhub.Router.Config do
   """
   @spec get_baidu_anthropic_target() :: provider_url()
   def get_baidu_anthropic_target do
-    Application.get_env(:exhub, :baidu_anthropic_endpoint,
-      "http://211.23.3.236:27545/v1"
-    )
+    Application.get_env(:exhub, :baidu_anthropic_endpoint, "http://211.23.3.236:27545/v1")
   end
 
   @doc """
@@ -378,7 +378,15 @@ defmodule Exhub.Router.Config do
 
   # Models that require reasoning_content to be present in assistant tool-call
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
-  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "kimi-k2.7-code", "inf-kimi-k2.5", "inf-kimi-k2.7-code", "mimo-v2.5-pro", "mimo-v2.5"]
+  @kimi_reasoning_models [
+    "kimi-k2.5",
+    "kimi-k2.6",
+    "kimi-k2.7-code",
+    "inf-kimi-k2.5",
+    "inf-kimi-k2.7-code",
+    "mimo-v2.5-pro",
+    "mimo-v2.5"
+  ]
 
   @doc """
   Transforms request body for model-specific requirements.
@@ -449,7 +457,13 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :giteeai_api_key, fetch_secret.("gitee_api_key"))
     Application.put_env(:exhub, :openai_api_key, fetch_secret.("openai_api_key"))
     Application.put_env(:exhub, :burncloud_api_key, fetch_secret.("burncloud_api_key"))
-    Application.put_env(:exhub, :burncloud_gemini_api_key, fetch_secret.("burncloud_gemini_api_key"))
+
+    Application.put_env(
+      :exhub,
+      :burncloud_gemini_api_key,
+      fetch_secret.("burncloud_gemini_api_key")
+    )
+
     Application.put_env(:exhub, :bailiancloud_api_key, fetch_secret.("bailiancloud_api_key"))
     Application.put_env(:exhub, :infini_api_key, fetch_secret.("infini_api_key"))
     Application.put_env(:exhub, :minimax_api_key, fetch_secret.("minimax_api_key"))
@@ -458,7 +472,12 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :anthropic_api_key, fetch_secret.("anthropic_api_key"))
     Application.put_env(:exhub, :openrouter_api_key, fetch_secret.("openrouter_api_key"))
     Application.put_env(:exhub, :nvidia_api_key, fetch_secret.("nvidia_api_key"))
-    Application.put_env(:exhub, :baidu_anthropic_api_key, fetch_secret.("baidu_anthropic_api_key"))
+
+    Application.put_env(
+      :exhub,
+      :baidu_anthropic_api_key,
+      fetch_secret.("baidu_anthropic_api_key")
+    )
   end
 
   defp transform_kimi_reasoning_body(body) do

@@ -7,6 +7,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.ExecListener
   alias Exhub.MCP.Desktop.PortListener
   alias Exhub.MCP.Desktop.ProcessStore
 
@@ -33,13 +34,29 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     - working_dir: Working directory for the command. Required unless the command
       contains absolute paths (starting with / or ~/) or includes 'cd'.
       (Current server pwd: #{Helpers.current_pwd()})
+    - interactive: Enable interactive mode for sending input via interact_with_process
+    - pty: Enable pseudo-terminal (PTY) support via erlexec. When true, interactive
+      must also be true. Defaults to true when interactive is true (set pty: false
+      explicitly to use pipe-based I/O instead). Use this for SSH sessions, REPLs,
+      and other programs that require a TTY (e.g. start_process(command: "ssh user@host",
+      interactive: true)). PTY mode enables terminal features like password prompts,
+      line editing, and ANSI escape sequences that pipe-based I/O cannot support.
     """
   end
 
   schema do
     field(:command, :string, description: "The shell command to execute")
     field(:working_dir, :string, description: "Working directory for the command")
-    field(:interactive, :boolean, default: false, description: "Enable interactive mode for sending input")
+
+    field(:interactive, :boolean,
+      default: false,
+      description: "Enable interactive mode for sending input"
+    )
+
+    field(:pty, :boolean,
+      description:
+        "Enable PTY support (requires interactive: true). Defaults to true when interactive is true. Use for SSH sessions and TTY-dependent programs."
+    )
   end
 
   @impl true
@@ -47,6 +64,8 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     command = Map.get(params, :command)
     working_dir = Map.get(params, :working_dir)
     interactive = Map.get(params, :interactive, false)
+    # When interactive is true, default pty to true unless explicitly set
+    pty = if is_nil(Map.get(params, :pty)), do: interactive, else: Map.get(params, :pty)
 
     cond do
       is_nil(command) ->
@@ -62,18 +81,26 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
         {:reply, resp, frame}
 
+      pty == true and interactive != true ->
+        resp =
+          Response.tool()
+          |> Response.error("pty: true requires interactive: true. Set both parameters to enable PTY mode.")
+
+        {:reply, resp, frame}
+
       true ->
         with {:ok, working_dir} <- Helpers.validate_absolute_path(working_dir) do
           process_id = generate_process_id()
 
-          case start_managed_process(process_id, command, working_dir, interactive) do
+          case start_managed_process(process_id, command, working_dir, interactive, pty) do
             {:ok, entry} ->
               resp =
                 Response.tool()
                 |> Helpers.toon_response(%{
                   "process_id" => process_id,
                   "pid" => entry.pid,
-                  "interactive" => entry.interactive
+                  "interactive" => entry.interactive,
+                  "pty" => entry.backend == :erlexec
                 })
 
               {:reply, resp, frame}
@@ -86,11 +113,16 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     end
   end
 
-  defp start_managed_process(process_id, command, working_dir, interactive) do
-    if interactive do
-      start_interactive_process(process_id, command, working_dir)
-    else
-      start_streaming_process(process_id, command, working_dir)
+  defp start_managed_process(process_id, command, working_dir, interactive, pty) do
+    cond do
+      interactive and pty ->
+        start_pty_process(process_id, command, working_dir)
+
+      interactive ->
+        start_interactive_process(process_id, command, working_dir)
+
+      true ->
+        start_streaming_process(process_id, command, working_dir)
     end
   end
 
@@ -146,6 +178,70 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
     entry = ProcessStore.get(process_id)
     {:ok, entry}
+  end
+
+  defp start_pty_process(process_id, command, working_dir) do
+    # Register the process FIRST so append_output calls don't get dropped
+    entry_attrs = %{
+      pid: nil,
+      command: command,
+      working_dir: working_dir,
+      interactive: true,
+      backend: :erlexec,
+      ospid: nil
+    }
+
+    {:ok, _entry} = ProcessStore.register(process_id, entry_attrs)
+
+    # Build erlexec options with PTY support
+    # - :stdin    — enable stdin communication via exec:send/2
+    # - :stdout   — capture stdout (sent to the calling process)
+    # - {:stderr, :stdout} — merge stderr into stdout (PTY multiplexes both)
+    # - :pty      — allocate a pseudo-terminal
+    # - :pty_echo — enable terminal echo
+    # - :monitor  — receive DOWN messages on process exit
+    exec_opts = [:stdin, :stdout, {:stderr, :stdout}, :pty, :pty_echo, :monitor]
+
+    exec_opts =
+      if working_dir do
+        [{:cd, working_dir} | exec_opts]
+      else
+        exec_opts
+      end
+
+    # Spawn the listener process — it calls exec:run itself so it receives
+    # all stdout/stderr/DOWN messages directly from erlexec
+    parent = self()
+
+    listener_pid =
+      spawn(fn ->
+        ExecListener.run(process_id, command, exec_opts, parent)
+      end)
+
+    # Wait for the listener to report the OsPid (or error)
+    receive do
+      {:exec_started, ospid} ->
+        ProcessStore.set_ospid(process_id, ospid)
+        ProcessStore.update_pid(process_id, ospid)
+
+        entry = ProcessStore.get(process_id)
+        {:ok, entry}
+
+      {:exec_error, reason} ->
+        ProcessStore.set_status(process_id, :error)
+
+        Logger.error(
+          "[StartProcess] PTY process #{process_id} failed to start: #{inspect(reason)}"
+        )
+
+        {:error, inspect(reason)}
+    after
+      10_000 ->
+        # Kill the listener process to prevent orphaned listener + OS process
+        Process.exit(listener_pid, :kill)
+        ProcessStore.set_status(process_id, :error)
+        {:error, :timeout}
+    end
   end
 
   defp spawn_port_listener(process_id) do

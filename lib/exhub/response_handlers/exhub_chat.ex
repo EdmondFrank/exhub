@@ -8,8 +8,17 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
     end
   end
 
-  def call(["exhub-chat", "generate-git-commit-message-with-content", diff, commits, buffer_name, region_begin, region_end]) do
+  def call([
+        "exhub-chat",
+        "generate-git-commit-message-with-content",
+        diff,
+        commits,
+        buffer_name,
+        region_begin,
+        region_end
+      ]) do
     notify("Generating...")
+
     if diff != "" do
       generate_commit_message(diff, commits, buffer_name, region_begin, region_end)
     else
@@ -17,8 +26,16 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
     end
   end
 
-  def call(["exhub-chat", "generate-git-commit-message", dir, buffer_name, region_begin, region_end]) do
+  def call([
+        "exhub-chat",
+        "generate-git-commit-message",
+        dir,
+        buffer_name,
+        region_begin,
+        region_end
+      ]) do
     notify("Generating...")
+
     case Exhub.Utils.git_cmd(["diff", "--staged"], dir) do
       {:ok, diff} when diff != "" ->
         commits =
@@ -26,9 +43,12 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
             {:ok, output} -> output
             {:error, _} -> ""
           end
+
         generate_commit_message(diff, commits, buffer_name, region_begin, region_end)
+
       {:ok, ""} ->
         notify("Please Staged changes at first")
+
       {:error, reason} ->
         notify("Unknown error: #{inf_inspect(reason)}")
     end
@@ -36,25 +56,44 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
 
   def call(["exhub-chat", prompt, buffer_name, text, notify_start, notify_end]) do
     notify(notify_start)
-    user_message = if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+
+    user_message =
+      if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+
     with {:ok, reply} <- Chat.execute(user_message) do
       Exhub.send_message(~s[(exhub-chat-response 1 #{inf_inspect(reply)} "#{buffer_name}")])
     end
+
     notify(notify_end)
   end
 
   def call(["exhub-chat", system_prompt, prompt, buffer_name, text, notify_start, notify_end]) do
     notify(notify_start)
     sys_message = system_prompt |> String.trim()
-    user_message = if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+
+    user_message =
+      if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+
     with {:ok, reply} <- Chat.execute(sys_message, user_message) do
       Exhub.send_message(~s[(exhub-chat-response 1 #{inf_inspect(reply)} "#{buffer_name}")])
     end
+
     notify(notify_end)
   end
 
-  def call(["exhub-chat", "improve-document", system_prompt, buffer_name, text, notify_start, notify_end, region_begin, region_end]) do
+  def call([
+        "exhub-chat",
+        "improve-document",
+        system_prompt,
+        buffer_name,
+        text,
+        notify_start,
+        notify_end,
+        region_begin,
+        region_end
+      ]) do
     notify(notify_start)
+
     json_schema = %{
       type: "object",
       properties: %{
@@ -65,23 +104,43 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
       },
       required: ["improved_text"]
     }
+
     with {:ok, reply} <- Chat.execute_with_schema(system_prompt, text, json_schema),
          {:ok, decoded} <- Jason.decode(reply),
          improved_text when is_binary(improved_text) <- decoded["improved_text"] do
-      Exhub.send_message(~s[(exhub-chat-return-text 1 #{inf_inspect(improved_text)} "#{buffer_name}" #{region_begin} #{region_end})])
+      Exhub.send_message(
+        ~s[(exhub-chat-return-text 1 #{inf_inspect(improved_text)} "#{buffer_name}" #{region_begin} #{region_end})]
+      )
     else
       error ->
         notify("Error parsing structured response: #{inf_inspect(error)}")
     end
+
     notify(notify_end)
   end
 
-  def call(["exhub-chat", prompt, buffer_name, text, notify_start, notify_end, region_begin, region_end, func]) do
+  def call([
+        "exhub-chat",
+        prompt,
+        buffer_name,
+        text,
+        notify_start,
+        notify_end,
+        region_begin,
+        region_end,
+        func
+      ]) do
     notify(notify_start)
-    user_message = if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+
+    user_message =
+      if text |> String.trim() |> String.length() == 0, do: prompt, else: "#{prompt}:\n#{text}"
+
     with {:ok, reply} <- Chat.execute(user_message) do
-      Exhub.send_message(~s[(#{func} 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
+      Exhub.send_message(
+        ~s[(#{func} 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})]
+      )
     end
+
     notify(notify_end)
   end
 
@@ -94,9 +153,13 @@ defmodule Exhub.ResponseHandlers.ExhubChat do
   defp generate_commit_message(diff, commits, buffer_name, region_begin, region_end) do
     sys_message = commit_message_sys_prompt()
     user_message = "Recent commit messages:\n#{commits}\n\nCurrent changes:\n#{diff}"
+
     with {:ok, reply} <- Chat.execute(sys_message, user_message) do
-      Exhub.send_message(~s[(exhub-chat-return-text 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})])
+      Exhub.send_message(
+        ~s[(exhub-chat-return-text 1 #{inf_inspect(reply)} "#{buffer_name}" #{region_begin} #{region_end})]
+      )
     end
+
     notify("Generate messages done.")
   end
 

@@ -33,7 +33,10 @@ defmodule Exhub.MCP.Tools.TodoGetItems do
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+    field(:tenant_id, {:required, :string},
+      description:
+        "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+    )
   end
 
   @impl true
@@ -73,6 +76,8 @@ defmodule Exhub.MCP.Tools.TodoGetItems do
     end
   end
 
-  defp item_to_map(%{name: name, completed: completed}), do: %{"name" => name, "completed" => completed}
+  defp item_to_map(%{name: name, completed: completed}),
+    do: %{"name" => name, "completed" => completed}
+
   defp item_to_map(item), do: item
 end

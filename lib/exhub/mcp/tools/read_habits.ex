@@ -33,9 +33,20 @@ defmodule Exhub.MCP.Tools.ReadHabits do
   end
 
   schema do
-    field :key, :string, description: "Specific entry key to retrieve. If not provided, it returns all information."
-    field :category, :string, description: "Filter entries by category (e.g., 'editor', 'workflow', 'environment'). Only used when key is not specified."
-    field :include_metadata, :boolean, description: "Whether to include metadata (modifiable status, description, category) in the response. Defaults to true.", default: true
+    field(:key, :string,
+      description: "Specific entry key to retrieve. If not provided, it returns all information."
+    )
+
+    field(:category, :string,
+      description:
+        "Filter entries by category (e.g., 'editor', 'workflow', 'environment'). Only used when key is not specified."
+    )
+
+    field(:include_metadata, :boolean,
+      description:
+        "Whether to include metadata (modifiable status, description, category) in the response. Defaults to true.",
+      default: true
+    )
   end
 
   @impl true
@@ -90,9 +101,11 @@ defmodule Exhub.MCP.Tools.ReadHabits do
   defp get_habits_by_category(category) do
     case HabitStore.get_all() do
       {:ok, habits} ->
-        filtered = Enum.filter(habits, fn habit ->
-          String.downcase(habit["category"] || "") == String.downcase(category)
-        end)
+        filtered =
+          Enum.filter(habits, fn habit ->
+            String.downcase(habit["category"] || "") == String.downcase(category)
+          end)
+
         {:ok, filtered}
 
       error ->

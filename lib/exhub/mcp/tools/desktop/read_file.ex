@@ -38,10 +38,25 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file to read")
-    field(:offset, :integer, description: "Line number to start reading from (0-based, e.g. 100 skips first 100 lines, default 0) - only for text files", default: 0)
-    field(:length, :integer, description: "Maximum number of lines to read (default 1000) - only for text files", default: 1000)
-    field(:extract, :boolean, description: "Whether to extract text from document files (default: true)", default: true)
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the file to read"
+    )
+
+    field(:offset, :integer,
+      description:
+        "Line number to start reading from (0-based, e.g. 100 skips first 100 lines, default 0) - only for text files",
+      default: 0
+    )
+
+    field(:length, :integer,
+      description: "Maximum number of lines to read (default 1000) - only for text files",
+      default: 1000
+    )
+
+    field(:extract, :boolean,
+      description: "Whether to extract text from document files (default: true)",
+      default: true
+    )
   end
 
   @impl true

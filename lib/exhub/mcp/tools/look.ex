@@ -54,20 +54,15 @@ defmodule Exhub.MCP.Tools.Look do
 
   schema do
     field(:image, {:required, :string},
-      description: "Local file path: Absolute path or ~ shorthand to the file (e.g. /path/to/img.png) or remote URL: (https://...)"
+      description:
+        "Local file path: Absolute path or ~ shorthand to the file (e.g. /path/to/img.png) or remote URL: (https://...)"
     )
 
-    field(:prompt, {:required, :string},
-      description: "What to extract or analyze from the image"
-    )
+    field(:prompt, {:required, :string}, description: "What to extract or analyze from the image")
 
-    field(:model, :string,
-      description: "Vision model to use. Default: kimi-k2.6"
-    )
+    field(:model, :string, description: "Vision model to use. Default: kimi-k2.6")
 
-    field(:response_format, :string,
-      description: "Output format: 'text' (default) or 'json'"
-    )
+    field(:response_format, :string, description: "Output format: 'text' (default) or 'json'")
   end
 
   @impl true
@@ -79,22 +74,37 @@ defmodule Exhub.MCP.Tools.Look do
 
     cond do
       is_nil(image) or image == "" ->
-        resp = Response.tool() |> Response.error("`image` is required — provide a local path or URL")
+        resp =
+          Response.tool() |> Response.error("`image` is required — provide a local path or URL")
+
         {:reply, resp, frame}
 
       is_nil(prompt) or prompt == "" ->
-        resp = Response.tool() |> Response.error("`prompt` is required — describe what to extract or analyze")
+        resp =
+          Response.tool()
+          |> Response.error("`prompt` is required — describe what to extract or analyze")
+
         {:reply, resp, frame}
 
       model not in @valid_models ->
-        resp = Response.tool() |> Response.error("Invalid model: #{model}. Valid models: #{Enum.join(@valid_models, ", ")}")
+        resp =
+          Response.tool()
+          |> Response.error(
+            "Invalid model: #{model}. Valid models: #{Enum.join(@valid_models, ", ")}"
+          )
+
         {:reply, resp, frame}
 
       true ->
         api_key = Application.get_env(:exhub, :giteeai_api_key, "")
 
         if api_key == "" do
-          resp = Response.tool() |> Response.error("Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\"")
+          resp =
+            Response.tool()
+            |> Response.error(
+              "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""
+            )
+
           {:reply, resp, frame}
         else
           do_analyze(image, prompt, model, response_format, api_key, frame)
@@ -114,12 +124,17 @@ defmodule Exhub.MCP.Tools.Look do
         {"Authorization", "Bearer #{api_key}"}
       ]
 
-      case HTTPoison.post(@api_url, Jason.encode!(body), headers, recv_timeout: 120_000, timeout: 120_000) do
+      case HTTPoison.post(@api_url, Jason.encode!(body), headers,
+             recv_timeout: 120_000,
+             timeout: 120_000
+           ) do
         {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
           handle_success(resp_body, frame)
 
         {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
-          resp = Response.tool() |> Response.error("Gitee AI API error (HTTP #{status}): #{resp_body}")
+          resp =
+            Response.tool() |> Response.error("Gitee AI API error (HTTP #{status}): #{resp_body}")
+
           {:reply, resp, frame}
 
         {:error, %HTTPoison.Error{reason: reason}} ->
@@ -157,7 +172,8 @@ defmodule Exhub.MCP.Tools.Look do
                     {:error, "Cannot read file #{expanded_path}: #{inspect(reason)}"}
                 end
               else
-                {:error, "Unsupported image format: #{ext}. Supported: #{Enum.join(@supported_image_exts, ", ")}"}
+                {:error,
+                 "Unsupported image format: #{ext}. Supported: #{Enum.join(@supported_image_exts, ", ")}"}
               end
             else
               {:error, "File not found: #{expanded_path}"}
@@ -168,7 +184,8 @@ defmodule Exhub.MCP.Tools.Look do
         end
 
       true ->
-        {:error, "Relative paths are not supported: '#{image}'. Use an absolute path (e.g. /path/to/image.png), ~ shorthand (e.g. ~/path/to/image.png), or a URL (https://...)."}
+        {:error,
+         "Relative paths are not supported: '#{image}'. Use an absolute path (e.g. /path/to/image.png), ~ shorthand (e.g. ~/path/to/image.png), or a URL (https://...)."}
     end
   end
 
@@ -220,7 +237,9 @@ defmodule Exhub.MCP.Tools.Look do
         {:reply, resp, frame}
 
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to decode API response: #{inspect(reason)}")
+        resp =
+          Response.tool() |> Response.error("Failed to decode API response: #{inspect(reason)}")
+
         {:reply, resp, frame}
     end
   end

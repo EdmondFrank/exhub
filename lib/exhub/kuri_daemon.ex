@@ -132,7 +132,10 @@ defmodule Exhub.KuriDaemon do
     # Check if a server is already running on this port
     case check_existing_server(state.host, state.port) do
       {:ok, _body} ->
-        Logger.info("[KuriDaemon] ✓ kuri server already running at http://#{state.host}:#{state.port}")
+        Logger.info(
+          "[KuriDaemon] ✓ kuri server already running at http://#{state.host}:#{state.port}"
+        )
+
         timer = schedule_health_check()
         {:noreply, %{state | status: :healthy, health_timer: timer}}
 
@@ -141,6 +144,7 @@ defmodule Exhub.KuriDaemon do
           "[KuriDaemon] Port #{state.port} is in use but returned status #{status}. " <>
             "Proceeding with caution — may conflict with existing service."
         )
+
         start_new_daemon(state)
 
       {:error, :no_server} ->
@@ -156,7 +160,15 @@ defmodule Exhub.KuriDaemon do
     cancel_timer(state.health_timer)
     timer = Process.send_after(self(), :start_daemon, @restart_delay_ms)
 
-    {:noreply, %{state | status: :stopped, daemon_ref: nil, daemon_pid: nil, health_timer: nil, restart_timer: timer}}
+    {:noreply,
+     %{
+       state
+       | status: :stopped,
+         daemon_ref: nil,
+         daemon_pid: nil,
+         health_timer: nil,
+         restart_timer: timer
+     }}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{daemon_ref: ref} = state) do
@@ -165,7 +177,15 @@ defmodule Exhub.KuriDaemon do
     cancel_timer(state.health_timer)
     timer = Process.send_after(self(), :start_daemon, @restart_delay_ms)
 
-    {:noreply, %{state | status: :stopped, daemon_ref: nil, daemon_pid: nil, health_timer: nil, restart_timer: timer}}
+    {:noreply,
+     %{
+       state
+       | status: :stopped,
+         daemon_ref: nil,
+         daemon_pid: nil,
+         health_timer: nil,
+         restart_timer: timer
+     }}
   end
 
   def handle_info(:health_check, state) do
@@ -222,7 +242,9 @@ defmodule Exhub.KuriDaemon do
       Process.demonitor(state.daemon_ref, [:flush])
 
       # Send SIGTERM to the kuri process for graceful shutdown
-      case System.cmd("kill", ["-TERM", Integer.to_string(state.daemon_pid)], stderr_to_stdout: true) do
+      case System.cmd("kill", ["-TERM", Integer.to_string(state.daemon_pid)],
+             stderr_to_stdout: true
+           ) do
         {_, 0} -> :ok
         _ -> :ok
       end

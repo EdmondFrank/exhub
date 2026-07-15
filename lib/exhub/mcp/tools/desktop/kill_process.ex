@@ -38,7 +38,11 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
   schema do
     field(:pid, :integer, description: "The OS process ID (integer)")
     field(:process_id, :string, description: "The managed process ID from start_process (string)")
-    field(:force, :boolean, description: "If true, send SIGKILL instead of SIGTERM (default false)", default: false)
+
+    field(:force, :boolean,
+      description: "If true, send SIGKILL instead of SIGTERM (default false)",
+      default: false
+    )
   end
 
   @impl true
@@ -111,7 +115,9 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
       else
         resp =
           Response.tool()
-          |> Response.error("Failed to kill process #{pid} (exit #{exit_code}): #{String.trim(output)}")
+          |> Response.error(
+            "Failed to kill process #{pid} (exit #{exit_code}): #{String.trim(output)}"
+          )
 
         {:reply, resp, frame}
       end

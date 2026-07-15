@@ -155,7 +155,9 @@ defmodule Exhub.HealthCheck do
   defp build_feishu_text(payload) when is_binary(payload), do: payload
   defp build_feishu_text(payload), do: inspect(payload)
 
-  defp format_failure_reason({:unexpected_status, status}), do: "Unexpected status code: #{status}"
+  defp format_failure_reason({:unexpected_status, status}),
+    do: "Unexpected status code: #{status}"
+
   defp format_failure_reason(:timeout), do: "Request timeout"
   defp format_failure_reason(:econnrefused), do: "Connection refused"
   defp format_failure_reason(reason) when is_atom(reason), do: to_string(reason)
@@ -232,6 +234,7 @@ defmodule Exhub.HealthCheck do
         if webhook_url do
           notify_failures(webhook_url, [error], provider)
         end
+
         error
     end
   end

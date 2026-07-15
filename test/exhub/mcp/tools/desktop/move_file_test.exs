@@ -54,7 +54,9 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFileTest do
       dest = Path.join(tmp_dir, "dest.txt")
 
       frame = %{}
-      {:reply, resp, ^frame} = MoveFile.execute(%{source: "/nonexistent/file.txt", destination: dest}, frame)
+
+      {:reply, resp, ^frame} =
+        MoveFile.execute(%{source: "/nonexistent/file.txt", destination: dest}, frame)
 
       assert resp.isError == true
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")

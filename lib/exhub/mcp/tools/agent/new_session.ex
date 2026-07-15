@@ -16,6 +16,7 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
   def execute(params, frame) do
     agent_id = Map.get(params, :agent_id)
     cwd = Map.get(params, :cwd, File.cwd!())
+
     case Exhub.MCP.Agent.Store.get(agent_id) do
       {:ok, entry} ->
         case ExMCP.ACP.Client.new_session(entry.client, cwd) do
@@ -25,9 +26,13 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
             slim = Map.take(result, ["sessionId", "status", "cwd", "mode"])
             resp = Response.tool() |> Response.text(Jason.encode!(slim))
             {:reply, resp, frame}
+
           {:error, reason} ->
-            {:reply, Response.tool() |> Response.error("Failed to create session: #{inspect(reason)}"), frame}
+            {:reply,
+             Response.tool() |> Response.error("Failed to create session: #{inspect(reason)}"),
+             frame}
         end
+
       {:error, :not_found} ->
         {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
     end

@@ -28,14 +28,14 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
   end
 
   schema do
-    field :filter, :string, default: nil
-    field :limit, :integer, default: 20
+    field(:filter, :string, default: nil)
+    field(:limit, :integer, default: 20)
   end
 
   @impl true
   def execute(params, frame) do
     filter = Map.get(params, :filter)
-    limit  = Map.get(params, :limit, 20)
+    limit = Map.get(params, :limit, 20)
 
     case list_processes(filter) do
       {:ok, processes} ->
@@ -66,10 +66,10 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
           |> Enum.drop(1)
           |> Enum.reject(&(&1 == ""))
           |> Enum.map(&parse_ps_line/1)
-         |> Enum.reject(&is_nil/1)
-         |> filter_processes(filter)
+          |> Enum.reject(&is_nil/1)
+          |> filter_processes(filter)
 
-      {:ok, processes}
+        {:ok, processes}
       end
     rescue
       e -> {:error, Exception.message(e)}
@@ -94,9 +94,9 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
         cmd = command_col |> String.split(~r/\s+/, parts: 2) |> hd() |> String.trim()
 
         %{
-          "pid"     => String.to_integer(pid),
-          "cpu"     => cpu,
-          "mem"     => mem,
+          "pid" => String.to_integer(pid),
+          "cpu" => cpu,
+          "mem" => mem,
           "command" => Path.basename(cmd)
         }
 
@@ -106,5 +106,4 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
   rescue
     _ -> nil
   end
-
 end

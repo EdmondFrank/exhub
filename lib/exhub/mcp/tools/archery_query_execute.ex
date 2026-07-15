@@ -19,8 +19,15 @@ defmodule Exhub.MCP.Tools.ArcheryQueryExecute do
 
   schema do
     field(:sql_content, {:required, :string}, description: "SQL SELECT statement to execute")
-    field(:instance_name, {:required, :string}, description: "Target instance name (from get_instances)")
-    field(:db_name, {:required, :string}, description: "Target database name (from get_databases)")
+
+    field(:instance_name, {:required, :string},
+      description: "Target instance name (from get_instances)"
+    )
+
+    field(:db_name, {:required, :string},
+      description: "Target database name (from get_databases)"
+    )
+
     field(:limit, :integer, description: "Maximum rows to return (default 100, max 1000)")
   end
 
@@ -41,6 +48,7 @@ defmodule Exhub.MCP.Tools.ArcheryQueryExecute do
           "db_name" => db_name,
           "result" => result
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -51,6 +59,7 @@ defmodule Exhub.MCP.Tools.ArcheryQueryExecute do
           "db_name" => db_name,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

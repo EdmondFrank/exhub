@@ -22,6 +22,7 @@ defmodule Exhub.MCP.Hub.ToolSearch do
   Returns a list of scored results sorted by relevance.
   """
   def search(index_tuple, query, opts \\ [])
+
   def search({docs, index}, query, opts) when is_binary(query) do
     limit = Keyword.get(opts, :limit, 5)
     tokens = tokenize(query)

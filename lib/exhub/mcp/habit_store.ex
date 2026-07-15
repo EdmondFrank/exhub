@@ -102,7 +102,7 @@ defmodule Exhub.MCP.HabitStore do
     table = :ets.new(@table, [:set, :protected, :named_table, read_concurrency: true])
 
     data_path = data_file_path()
-    
+
     state = %{
       table: table,
       data_path: data_path,

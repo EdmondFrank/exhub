@@ -32,8 +32,17 @@ defmodule Exhub.MCP.Tools.MacUse.Scroll do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:selector, :string, description: "CSS-like selector for the scrollable element", required: true)
-    field(:direction, :string, description: "Scroll direction: up, down, left, right", required: true)
+
+    field(:selector, :string,
+      description: "CSS-like selector for the scrollable element",
+      required: true
+    )
+
+    field(:direction, :string,
+      description: "Scroll direction: up, down, left, right",
+      required: true
+    )
+
     field(:amount, :integer, description: "Scroll amount in pixels", required: true)
     field(:strategy, :string, description: "Scroll strategy: auto, cg-pid, cg")
   end
@@ -42,7 +51,14 @@ defmodule Exhub.MCP.Tools.MacUse.Scroll do
   def execute(params, frame) do
     args = ["scroll"] ++ Helpers.app_args(params)
     args = args ++ Helpers.strategy_args(params)
-    args = args ++ [Map.get(params, :selector), Map.get(params, :direction), to_string(Map.get(params, :amount))]
+
+    args =
+      args ++
+        [
+          Map.get(params, :selector),
+          Map.get(params, :direction),
+          to_string(Map.get(params, :amount))
+        ]
 
     case Helpers.run_axcli(args) do
       {:ok, output} ->

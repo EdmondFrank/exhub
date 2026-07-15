@@ -18,7 +18,10 @@ defmodule Exhub.MCP.Tools.ArcheryGetInstances do
   end
 
   schema do
-    field(:db_type, :string, description: "Filter by database type: mysql, mssql, oracle, pgsql, redis, mongo, etc. (optional)")
+    field(:db_type, :string,
+      description:
+        "Filter by database type: mysql, mssql, oracle, pgsql, redis, mongo, etc. (optional)"
+    )
   end
 
   @impl true
@@ -28,8 +31,13 @@ defmodule Exhub.MCP.Tools.ArcheryGetInstances do
     client = Client.new()
 
     unless Client.valid_config?(client) do
-      resp = Response.tool() |> Response.error("Archery configuration is incomplete. Please set ARCHERY_URL, ARCHERY_USERNAME, ARCHERY_PASSWORD")
-      return {:reply, resp, frame}
+      resp =
+        Response.tool()
+        |> Response.error(
+          "Archery configuration is incomplete. Please set ARCHERY_URL, ARCHERY_USERNAME, ARCHERY_PASSWORD"
+        )
+
+      return({:reply, resp, frame})
     end
 
     case Client.get_instances(client, db_type) do
@@ -39,6 +47,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetInstances do
           "count" => length(instances),
           "instances" => instances
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(result))
         {:reply, resp, frame}
 
@@ -47,6 +56,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetInstances do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(result))
         {:reply, resp, frame}
     end

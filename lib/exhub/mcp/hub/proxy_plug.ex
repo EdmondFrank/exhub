@@ -56,13 +56,20 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
 
           conn
           |> put_resp_content_type("application/json")
-          |> send_resp(404, Jason.encode!(%{error: "Upstream server '#{group}' not available", reason: inspect(reason)}))
+          |> send_resp(
+            404,
+            Jason.encode!(%{
+              error: "Upstream server '#{group}' not available",
+              reason: inspect(reason)
+            })
+          )
       end
     end
   end
 
   defp handle_request(conn, _client_pid, group) do
     client_ref = Exhub.MCP.Hub.ServerConfig.client_name(group)
+
     case conn.method do
       "POST" -> handle_post(conn, client_ref, group)
       "GET" -> handle_get(conn, client_ref, group)
@@ -134,7 +141,9 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
       "result" => result
     }
 
-    Logger.info("[ProxyPlug] #{group}: initialize (builtin), server_info: #{inspect(server_info)}")
+    Logger.info(
+      "[ProxyPlug] #{group}: initialize (builtin), server_info: #{inspect(server_info)}"
+    )
 
     conn
     |> put_resp_content_type("application/json")
@@ -180,10 +189,18 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
           %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
 
         {:error, %Anubis.MCP.Error{} = error} ->
-          %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => error.message}}
+          %{
+            "jsonrpc" => "2.0",
+            "id" => req["id"],
+            "error" => %{"code" => -32603, "message" => error.message}
+          }
 
         {:error, reason} ->
-          %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => inspect(reason)}}
+          %{
+            "jsonrpc" => "2.0",
+            "id" => req["id"],
+            "error" => %{"code" => -32603, "message" => inspect(reason)}
+          }
       end
 
     conn
@@ -251,13 +268,18 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   end
 
   defp handle_ping(conn, req, client_ref, session_id) do
-    response = case Anubis.Client.ping(client_ref, timeout: 10_000) do
-      :pong ->
-        %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{}}
+    response =
+      case Anubis.Client.ping(client_ref, timeout: 10_000) do
+        :pong ->
+          %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{}}
 
-      {:error, reason} ->
-        %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => inspect(reason)}}
-    end
+        {:error, reason} ->
+          %{
+            "jsonrpc" => "2.0",
+            "id" => req["id"],
+            "error" => %{"code" => -32603, "message" => inspect(reason)}
+          }
+      end
 
     conn
     |> put_resp_content_type("application/json")
@@ -266,14 +288,19 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   end
 
   defp handle_tools_list(conn, req, client_ref, session_id) do
-    response = case Anubis.Client.list_tools(client_ref, timeout: 30_000) do
-      {:ok, %{result: result}} when is_map(result) ->
-        tools = Map.get(result, "tools", [])
-        %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{"tools" => tools}}
+    response =
+      case Anubis.Client.list_tools(client_ref, timeout: 30_000) do
+        {:ok, %{result: result}} when is_map(result) ->
+          tools = Map.get(result, "tools", [])
+          %{"jsonrpc" => "2.0", "id" => req["id"], "result" => %{"tools" => tools}}
 
-      {:error, reason} ->
-        %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => inspect(reason)}}
-    end
+        {:error, reason} ->
+          %{
+            "jsonrpc" => "2.0",
+            "id" => req["id"],
+            "error" => %{"code" => -32603, "message" => inspect(reason)}
+          }
+      end
 
     conn
     |> put_resp_content_type("application/json")
@@ -285,16 +312,21 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     tool_name = get_in(req, ["params", "name"])
     arguments = get_in(req, ["params", "arguments"]) || %{}
 
-    response = case Anubis.Client.call_tool(client_ref, tool_name, arguments, timeout: 600_000) do
-      {:ok, %{result: result}} ->
-        %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
+    response =
+      case Anubis.Client.call_tool(client_ref, tool_name, arguments, timeout: 600_000) do
+        {:ok, %{result: result}} ->
+          %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
 
-      {:ok, result} when is_map(result) ->
-        %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
+        {:ok, result} when is_map(result) ->
+          %{"jsonrpc" => "2.0", "id" => req["id"], "result" => result}
 
-      {:error, reason} ->
-        %{"jsonrpc" => "2.0", "id" => req["id"], "error" => %{"code" => -32603, "message" => inspect(reason)}}
-    end
+        {:error, reason} ->
+          %{
+            "jsonrpc" => "2.0",
+            "id" => req["id"],
+            "error" => %{"code" => -32603, "message" => inspect(reason)}
+          }
+      end
 
     conn
     |> put_resp_content_type("application/json")
@@ -314,7 +346,6 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     |> send_resp(200, "{}")
   end
 
-
   defp get_or_create_session_id(conn) do
     case get_req_header(conn, @session_header) do
       [session_id | _] when is_binary(session_id) and session_id != "" -> session_id
@@ -326,10 +357,12 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 
-
-
   defp store_session(session_id, client_ref, group) do
-    Exhub.MCP.Hub.Store.store_session(session_id, %{client_pid: client_ref, group: group, created_at: DateTime.utc_now()})
+    Exhub.MCP.Hub.Store.store_session(session_id, %{
+      client_pid: client_ref,
+      group: group,
+      created_at: DateTime.utc_now()
+    })
   end
 
   defp fetch_server_info(client_ref, default_name) do
@@ -361,7 +394,11 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
   end
 
   defp send_jsonrpc_error(conn, code, message, id) do
-    response = %{"jsonrpc" => "2.0", "id" => id, "error" => %{"code" => code, "message" => message}}
+    response = %{
+      "jsonrpc" => "2.0",
+      "id" => id,
+      "error" => %{"code" => code, "message" => message}
+    }
 
     conn
     |> put_resp_content_type("application/json")

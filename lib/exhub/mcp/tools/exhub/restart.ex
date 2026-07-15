@@ -80,5 +80,8 @@ defmodule Exhub.MCP.Tools.Exhub.Restart do
 
   defp parse_mode("soft"), do: {:ok, :soft}
   defp parse_mode("hard"), do: {:ok, :hard}
-  defp parse_mode(other), do: {:error, "Unknown restart mode: #{inspect(other)}. Valid values are \"soft\" or \"hard\"."}
+
+  defp parse_mode(other),
+    do:
+      {:error, "Unknown restart mode: #{inspect(other)}. Valid values are \"soft\" or \"hard\"."}
 end

@@ -31,7 +31,12 @@ defmodule Exhub.MCP.Tools.MacUse.Press do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:keys, :string, description: "Key combination (e.g. 'Enter', 'Command+a')", required: true)
+
+    field(:keys, :string,
+      description: "Key combination (e.g. 'Enter', 'Command+a')",
+      required: true
+    )
+
     field(:strategy, :string, description: "Delivery strategy: hid or pid")
   end
 

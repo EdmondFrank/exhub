@@ -1,5 +1,6 @@
 defmodule Exhub.ResponseHandlers.ExhubConfig do
   alias Exhub.Llm.LlmConfigServer
+
   def call(["exhub-config", "switch-model", callback]) do
     llm_names = LlmConfigServer.list_llm_names()
     Exhub.send_message(~s[(#{callback} #{inf_inspect(Jason.encode!(llm_names))})])
@@ -11,7 +12,7 @@ defmodule Exhub.ResponseHandlers.ExhubConfig do
   end
 
   def call(["exhub-config", "current-model", callback]) do
-    llm_name = LlmConfigServer.get_default_llm_name
+    llm_name = LlmConfigServer.get_default_llm_name()
     Exhub.send_message(~s[(#{callback} "#{llm_name}")])
   end
 

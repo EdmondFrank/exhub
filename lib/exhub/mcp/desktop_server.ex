@@ -43,29 +43,29 @@ defmodule Exhub.MCP.DesktopServer do
     capabilities: [:tools]
 
   # Filesystem tools
-  component Exhub.MCP.Tools.Desktop.ReadFile
-  component Exhub.MCP.Tools.Desktop.ReadMultipleFiles
-  component Exhub.MCP.Tools.Desktop.WriteFile
-  component Exhub.MCP.Tools.Desktop.CreateDirectory
-  component Exhub.MCP.Tools.Desktop.ListDirectory
-  component Exhub.MCP.Tools.Desktop.MoveFile
-  component Exhub.MCP.Tools.Desktop.GetFileInfo
-  component Exhub.MCP.Tools.Desktop.DeleteFile
+  component(Exhub.MCP.Tools.Desktop.ReadFile)
+  component(Exhub.MCP.Tools.Desktop.ReadMultipleFiles)
+  component(Exhub.MCP.Tools.Desktop.WriteFile)
+  component(Exhub.MCP.Tools.Desktop.CreateDirectory)
+  component(Exhub.MCP.Tools.Desktop.ListDirectory)
+  component(Exhub.MCP.Tools.Desktop.MoveFile)
+  component(Exhub.MCP.Tools.Desktop.GetFileInfo)
+  component(Exhub.MCP.Tools.Desktop.DeleteFile)
 
   # Edit tools
-  component Exhub.MCP.Tools.Desktop.EditBlock
+  component(Exhub.MCP.Tools.Desktop.EditBlock)
 
   # Process / Terminal tools
-  component Exhub.MCP.Tools.Desktop.ExecuteCommand
-  component Exhub.MCP.Tools.Desktop.StartProcess
-  component Exhub.MCP.Tools.Desktop.ReadProcessOutput
-  component Exhub.MCP.Tools.Desktop.InteractWithProcess
-  component Exhub.MCP.Tools.Desktop.ListManagedProcesses
-  component Exhub.MCP.Tools.Desktop.ListProcesses
-  component Exhub.MCP.Tools.Desktop.KillProcess
+  component(Exhub.MCP.Tools.Desktop.ExecuteCommand)
+  component(Exhub.MCP.Tools.Desktop.StartProcess)
+  component(Exhub.MCP.Tools.Desktop.ReadProcessOutput)
+  component(Exhub.MCP.Tools.Desktop.InteractWithProcess)
+  component(Exhub.MCP.Tools.Desktop.ListManagedProcesses)
+  component(Exhub.MCP.Tools.Desktop.ListProcesses)
+  component(Exhub.MCP.Tools.Desktop.KillProcess)
 
   # Search tools
-  component Exhub.MCP.Tools.Desktop.SearchFiles
+  component(Exhub.MCP.Tools.Desktop.SearchFiles)
 
   @impl true
   def init(client_info, frame) do

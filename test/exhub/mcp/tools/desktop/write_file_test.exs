@@ -15,7 +15,9 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFileTest do
       file_path = Path.join(tmp_dir, "new_file.txt")
 
       frame = %{}
-      {:reply, resp, ^frame} = WriteFile.execute(%{path: file_path, content: "hello world"}, frame)
+
+      {:reply, resp, ^frame} =
+        WriteFile.execute(%{path: file_path, content: "hello world"}, frame)
 
       assert resp.isError == false
       assert File.read!(file_path) == "hello world"
@@ -29,7 +31,9 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFileTest do
       File.write!(file_path, "old content")
 
       frame = %{}
-      {:reply, resp, ^frame} = WriteFile.execute(%{path: file_path, content: "new content"}, frame)
+
+      {:reply, resp, ^frame} =
+        WriteFile.execute(%{path: file_path, content: "new content"}, frame)
 
       assert resp.isError == false
       assert File.read!(file_path) == "new content"
@@ -40,7 +44,9 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFileTest do
       File.write!(file_path, "first ")
 
       frame = %{}
-      {:reply, resp, ^frame} = WriteFile.execute(%{path: file_path, content: "second", mode: "append"}, frame)
+
+      {:reply, resp, ^frame} =
+        WriteFile.execute(%{path: file_path, content: "second", mode: "append"}, frame)
 
       assert resp.isError == false
       assert File.read!(file_path) == "first second"
@@ -50,7 +56,9 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFileTest do
       file_path = Path.join(tmp_dir, "deeply/nested/dir/file.txt")
 
       frame = %{}
-      {:reply, resp, ^frame} = WriteFile.execute(%{path: file_path, content: "nested content"}, frame)
+
+      {:reply, resp, ^frame} =
+        WriteFile.execute(%{path: file_path, content: "nested content"}, frame)
 
       assert resp.isError == false
       assert File.read!(file_path) == "nested content"

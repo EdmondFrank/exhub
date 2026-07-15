@@ -23,6 +23,7 @@ defmodule Exhub.MCP.Tools.Agent.ListRunningAgents do
           sessions: MapSet.to_list(entry.sessions)
         }
       end)
+
     resp = Response.tool() |> Response.text(Jason.encode!(%{agents: agents}))
     {:reply, resp, frame}
   end

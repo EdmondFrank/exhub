@@ -21,9 +21,15 @@ defmodule Exhub.MCP.Tools.Agent.Shutdown do
           :exit, _ -> :ok
           _, _ -> :ok
         end
+
         Exhub.MCP.Agent.Store.unregister(agent_id)
-        resp = Response.tool() |> Response.text(Jason.encode!(%{status: "shutdown", agent_id: agent_id}))
+
+        resp =
+          Response.tool()
+          |> Response.text(Jason.encode!(%{status: "shutdown", agent_id: agent_id}))
+
         {:reply, resp, frame}
+
       {:error, :not_found} ->
         {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
     end

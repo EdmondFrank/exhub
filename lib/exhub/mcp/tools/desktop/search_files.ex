@@ -38,13 +38,35 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the directory to search in")
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the directory to search in"
+    )
+
     field(:pattern, {:required, :string}, description: "The search pattern (substring or regex)")
-    field(:search_type, :string, description: "\"files\" or \"content\" (default \"files\")", default: "files")
-    field(:file_pattern, :string, description: "Optional glob pattern to filter files (e.g. \"*.ex\")")
-    field(:ignore_case, :boolean, description: "Case-insensitive matching (default true)", default: true)
-    field(:max_results, :integer, description: "Maximum number of results to return (default 50)", default: 50)
-    field(:context_lines, :integer, description: "Number of context lines around content matches (default 2)", default: 2)
+
+    field(:search_type, :string,
+      description: "\"files\" or \"content\" (default \"files\")",
+      default: "files"
+    )
+
+    field(:file_pattern, :string,
+      description: "Optional glob pattern to filter files (e.g. \"*.ex\")"
+    )
+
+    field(:ignore_case, :boolean,
+      description: "Case-insensitive matching (default true)",
+      default: true
+    )
+
+    field(:max_results, :integer,
+      description: "Maximum number of results to return (default 50)",
+      default: 50
+    )
+
+    field(:context_lines, :integer,
+      description: "Number of context lines around content matches (default 2)",
+      default: 2
+    )
   end
 
   @impl true
@@ -57,7 +79,15 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       max_results = Map.get(params, :max_results, 50)
       context_lines = Map.get(params, :context_lines, 2)
 
-      case do_search(path, pattern, search_type, file_pattern, ignore_case, max_results, context_lines) do
+      case do_search(
+             path,
+             pattern,
+             search_type,
+             file_pattern,
+             ignore_case,
+             max_results,
+             context_lines
+           ) do
         {:ok, results} ->
           resp =
             Response.tool()
@@ -106,13 +136,34 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     with :ok <- check_directory(path) do
       cond do
         ripgrep_available?() ->
-          search_content_ripgrep(path, pattern, file_pattern, ignore_case, max_results, context_lines)
+          search_content_ripgrep(
+            path,
+            pattern,
+            file_pattern,
+            ignore_case,
+            max_results,
+            context_lines
+          )
 
         grep_available?() ->
-          search_content_grep(path, pattern, file_pattern, ignore_case, max_results, context_lines)
+          search_content_grep(
+            path,
+            pattern,
+            file_pattern,
+            ignore_case,
+            max_results,
+            context_lines
+          )
 
         true ->
-          search_content_native(path, pattern, file_pattern, ignore_case, max_results, context_lines)
+          search_content_native(
+            path,
+            pattern,
+            file_pattern,
+            ignore_case,
+            max_results,
+            context_lines
+          )
       end
     end
   end
@@ -160,7 +211,8 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     args =
       [
         "--files",
-        "--sort", "path"
+        "--sort",
+        "path"
       ]
       |> add_ripgrep_case_flag(ignore_case)
       |> add_ripgrep_max_count(max_results)
@@ -192,12 +244,21 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     end
   end
 
-  defp search_content_ripgrep(path, pattern, file_pattern, ignore_case, max_results, context_lines) do
+  defp search_content_ripgrep(
+         path,
+         pattern,
+         file_pattern,
+         ignore_case,
+         max_results,
+         context_lines
+       ) do
     args =
       [
         "--line-number",
-        "--sort", "path",
-        "-C", to_string(context_lines)
+        "--sort",
+        "path",
+        "-C",
+        to_string(context_lines)
       ]
       |> add_ripgrep_case_flag(ignore_case)
       |> add_ripgrep_max_count(max_results)
@@ -218,7 +279,15 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
       {:error, reason} ->
         Logger.warning("[SearchFiles] ripgrep content search failed: #{reason}, falling back")
-        search_content_native(path, pattern, file_pattern, ignore_case, max_results, context_lines)
+
+        search_content_native(
+          path,
+          pattern,
+          file_pattern,
+          ignore_case,
+          max_results,
+          context_lines
+        )
     end
   end
 
@@ -261,7 +330,15 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
       {:error, reason} ->
         Logger.warning("[SearchFiles] grep failed: #{reason}, falling back to native")
-        search_content_native(path, pattern, file_pattern, ignore_case, max_results, context_lines)
+
+        search_content_native(
+          path,
+          pattern,
+          file_pattern,
+          ignore_case,
+          max_results,
+          context_lines
+        )
     end
   end
 
@@ -538,7 +615,10 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   defp run_shell_command(cmd) do
     try do
       {stdout, _stderr, _exit_code} =
-        Exile.stream(Helpers.shell_command_args(cmd, login: true), stderr: :consume, exit_timeout: 5000)
+        Exile.stream(Helpers.shell_command_args(cmd, login: true),
+          stderr: :consume,
+          exit_timeout: 5000
+        )
         |> Enum.reduce({"", "", 0}, fn
           {:stdout, data}, {out, err, code} -> {out <> data, err, code}
           {:stderr, data}, {out, err, code} -> {out, err <> data, code}
@@ -559,7 +639,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   end
 
   defp escape_shell_arg(arg) do
-    if Regex.match?(~r/['"\s]/, arg) do
+    if Regex.match?(~r/['"\s\*\?\[\]\{\}]/, arg) do
       "'" <> String.replace(arg, "'", "'\"'\"'") <> "'"
     else
       arg

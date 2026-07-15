@@ -154,6 +154,7 @@ defmodule Exhub.MCP.Emacs.Helpers do
         case Regex.run(~r/^"([^"]+)"\s+(\d+)\s+(\S+)$/, entry) do
           [_, name, size_str, mode] ->
             {name, String.to_integer(size_str), mode}
+
           _ ->
             {entry, 0, "unknown"}
         end

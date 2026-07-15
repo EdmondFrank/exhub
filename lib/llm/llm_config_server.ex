@@ -56,6 +56,7 @@ defmodule Exhub.Llm.LlmConfigServer do
   @impl true
   def init(_) do
     config = Application.get_env(:exhub, :llms, %{})
+
     initial_state =
       config
       |> validate_config()

@@ -27,8 +27,14 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file or directory to delete")
-    field(:recursive, :boolean, description: "If true, delete directories recursively (default false)", default: false)
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the file or directory to delete"
+    )
+
+    field(:recursive, :boolean,
+      description: "If true, delete directories recursively (default false)",
+      default: false
+    )
   end
 
   @impl true
@@ -68,10 +74,18 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
           end
         else
           case File.rmdir(path) do
-            :ok -> :ok
-            {:error, :enotempty} -> {:error, "Directory is not empty. Use recursive: true to delete non-empty directories."}
-            {:error, :eacces} -> {:error, "Permission denied: #{path}"}
-            {:error, reason} -> {:error, inspect(reason)}
+            :ok ->
+              :ok
+
+            {:error, :enotempty} ->
+              {:error,
+               "Directory is not empty. Use recursive: true to delete non-empty directories."}
+
+            {:error, :eacces} ->
+              {:error, "Permission denied: #{path}"}
+
+            {:error, reason} ->
+              {:error, inspect(reason)}
           end
         end
 

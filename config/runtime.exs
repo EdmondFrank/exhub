@@ -40,8 +40,10 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       "openai/qwen3-coder-next" => gitee_llm.("openai/qwen3-coder-next"),
       "openai/qwen3-next-80b-a3b-instruct" => gitee_llm.("openai/qwen3-next-80b-a3b-instruct"),
       "openai/qwen3-next-80b-a3b-thinking" => gitee_llm.("openai/qwen3-next-80b-a3b-thinking"),
-      "openai/qwen3-235b-a22b-instruct-2507" => gitee_llm.("openai/qwen3-235b-a22b-instruct-2507"),
-      "openai/qwen3-coder-480b-a35b-instruct" => gitee_llm.("openai/qwen3-coder-480b-a35b-instruct"),
+      "openai/qwen3-235b-a22b-instruct-2507" =>
+        gitee_llm.("openai/qwen3-235b-a22b-instruct-2507"),
+      "openai/qwen3-coder-480b-a35b-instruct" =>
+        gitee_llm.("openai/qwen3-coder-480b-a35b-instruct"),
       "openai/kimi-k2.5" => gitee_llm.("openai/kimi-k2.5"),
       "openai/kimi-k2-instruct" => gitee_llm.("openai/kimi-k2-instruct"),
       "openai/deepseek-v4-flash" => gitee_llm.("openai/deepseek-v4-flash"),

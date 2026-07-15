@@ -25,7 +25,9 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file or directory")
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the file or directory"
+    )
   end
 
   @impl true
@@ -80,14 +82,17 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
   defp format_time(_), do: "unknown"
 
   defp humanize_size(bytes) when bytes < 1024, do: "#{bytes} B"
+
   defp humanize_size(bytes) when bytes < 1_048_576 do
     kb = bytes / 1024
     "#{Float.round(kb, 1)} KB"
   end
+
   defp humanize_size(bytes) when bytes < 1_073_741_824 do
     mb = bytes / 1_048_576
     "#{Float.round(mb, 1)} MB"
   end
+
   defp humanize_size(bytes) do
     gb = bytes / 1_073_741_824
     "#{Float.round(gb, 1)} GB"

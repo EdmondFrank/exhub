@@ -18,7 +18,9 @@ defmodule Exhub.MCP.Tools.ArcheryGetWorkflowDetail do
   end
 
   schema do
-    field(:workflow_id, {:required, :integer}, description: "Workflow ID (from get_workflow_list)")
+    field(:workflow_id, {:required, :integer},
+      description: "Workflow ID (from get_workflow_list)"
+    )
   end
 
   @impl true
@@ -33,6 +35,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetWorkflowDetail do
           "success" => true,
           "workflow" => workflow
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -41,6 +44,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetWorkflowDetail do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

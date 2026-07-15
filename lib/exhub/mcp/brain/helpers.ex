@@ -60,7 +60,9 @@ defmodule Exhub.MCP.Brain.Helpers do
   """
   @spec build_note_path(String.t(), String.t(), String.t() | nil) :: String.t()
   def build_note_path(vault, filename, nil), do: Path.join(vault, ensure_md(filename))
-  def build_note_path(vault, filename, folder), do: Path.join([vault, folder, ensure_md(filename)])
+
+  def build_note_path(vault, filename, folder),
+    do: Path.join([vault, folder, ensure_md(filename)])
 
   @doc """
   Encode a map as TOON and add it as text content to a tool response.
@@ -87,7 +89,7 @@ defmodule Exhub.MCP.Brain.Helpers do
     # Check if gitignore support is enabled (default: true)
     if Application.get_env(:exhub, :brain_gitignore_enabled, true) do
       gitignore_path = Path.join(vault_path, ".gitignore")
-      
+
       case File.read(gitignore_path) do
         {:ok, content} -> GitignoreParser.parse(content)
         {:error, _} -> []
@@ -107,13 +109,13 @@ defmodule Exhub.MCP.Brain.Helpers do
   @spec list_md_files(String.t(), String.t(), keyword()) :: [String.t()]
   def list_md_files(vault_path, dir_path, opts \\ []) do
     gitignore_patterns = Keyword.get(opts, :gitignore_patterns, [])
-    
+
     case File.ls(dir_path) do
       {:ok, entries} ->
         Enum.flat_map(entries, fn entry ->
           full = Path.join(dir_path, entry)
           rel_path = Path.relative_to(full, vault_path)
-          
+
           # Check if this path should be ignored
           if gitignore_patterns != [] and GitignoreParser.ignored?(gitignore_patterns, rel_path) do
             []
@@ -121,10 +123,10 @@ defmodule Exhub.MCP.Brain.Helpers do
             cond do
               File.dir?(full) ->
                 list_md_files(vault_path, full, opts)
-            
+
               String.ends_with?(entry, ".md") ->
                 [rel_path]
-            
+
               true ->
                 []
             end

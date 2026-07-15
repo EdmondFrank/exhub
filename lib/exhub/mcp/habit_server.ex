@@ -23,8 +23,8 @@ defmodule Exhub.MCP.HabitServer do
     capabilities: [:tools]
 
   # Register the tool components
-  component Exhub.MCP.Tools.ReadHabits
-  component Exhub.MCP.Tools.UpdateHabits
+  component(Exhub.MCP.Tools.ReadHabits)
+  component(Exhub.MCP.Tools.UpdateHabits)
 
   @impl true
   def init(client_info, frame) do

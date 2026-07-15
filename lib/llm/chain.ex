@@ -56,14 +56,15 @@ defmodule Exhub.Llm.Chain do
 
   def execute_with_schema(llm_chain, initial_messages, json_schema) do
     # Add response_format to the LLM configuration for structured output
-    updated_llm = Map.put(llm_chain.llm, :response_format, %{
-      type: "json_schema",
-      json_schema: %{
-        name: "improved_document",
-        schema: json_schema,
-        strict: true
-      }
-    })
+    updated_llm =
+      Map.put(llm_chain.llm, :response_format, %{
+        type: "json_schema",
+        json_schema: %{
+          name: "improved_document",
+          schema: json_schema,
+          strict: true
+        }
+      })
 
     updated_chain = %{llm_chain | llm: updated_llm}
 

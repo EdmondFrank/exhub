@@ -32,7 +32,11 @@ defmodule Exhub.MCP.Tools.MacUse.Mouse do
   end
 
   schema do
-    field(:action, :string, description: "Subcommand: pos, move, click, dblclick, scroll", required: true)
+    field(:action, :string,
+      description: "Subcommand: pos, move, click, dblclick, scroll",
+      required: true
+    )
+
     field(:x, :integer, description: "X coordinate or scroll x offset")
     field(:y, :integer, description: "Y coordinate or scroll y offset")
   end
@@ -49,6 +53,7 @@ defmodule Exhub.MCP.Tools.MacUse.Mouse do
         "move" ->
           x = Map.get(params, :x)
           y = Map.get(params, :y)
+
           if x && y do
             ["mouse", "move", to_string(x), to_string(y)]
           else
@@ -58,6 +63,7 @@ defmodule Exhub.MCP.Tools.MacUse.Mouse do
         "click" ->
           x = Map.get(params, :x)
           y = Map.get(params, :y)
+
           if x && y do
             ["mouse", "click", to_string(x), to_string(y)]
           else
@@ -67,6 +73,7 @@ defmodule Exhub.MCP.Tools.MacUse.Mouse do
         "dblclick" ->
           x = Map.get(params, :x)
           y = Map.get(params, :y)
+
           if x && y do
             ["mouse", "dblclick", to_string(x), to_string(y)]
           else

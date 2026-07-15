@@ -27,7 +27,11 @@ defmodule Exhub.MCP.Tools.MacUse.ScrollTo do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:selector, :string, description: "CSS-like selector for the target element", required: true)
+
+    field(:selector, :string,
+      description: "CSS-like selector for the target element",
+      required: true
+    )
   end
 
   @impl true

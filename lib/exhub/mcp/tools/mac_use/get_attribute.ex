@@ -31,8 +31,16 @@ defmodule Exhub.MCP.Tools.MacUse.GetAttribute do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:selector, :string, description: "CSS-like selector for the target element", required: true)
-    field(:attribute, :string, description: "Attribute name (text, value, title, classes, position, size, ...)", required: true)
+
+    field(:selector, :string,
+      description: "CSS-like selector for the target element",
+      required: true
+    )
+
+    field(:attribute, :string,
+      description: "Attribute name (text, value, title, classes, position, size, ...)",
+      required: true
+    )
   end
 
   @impl true

@@ -34,22 +34,37 @@ defmodule Exhub.MCP.Tools.UpdateHabits do
   end
 
   schema do
-    field :operation, {:required, :string}, description: "The operation to perform: 'set' to create/update a single entry, 'delete' to remove a entry, 'batch_set' to update multiple entries at once."
-    field :key, :string, description: "The entry key to set or delete. Required for 'set' and 'delete' operations."
-    field :value, :any, description: "The value to set for the entry. Required for 'set' operation. Can be any JSON-serializable value."
+    field(:operation, {:required, :string},
+      description:
+        "The operation to perform: 'set' to create/update a single entry, 'delete' to remove a entry, 'batch_set' to update multiple entries at once."
+    )
+
+    field(:key, :string,
+      description: "The entry key to set or delete. Required for 'set' and 'delete' operations."
+    )
+
+    field(:value, :any,
+      description:
+        "The value to set for the entry. Required for 'set' operation. Can be any JSON-serializable value."
+    )
 
     field :metadata, description: "Optional metadata for the entry when creating new entries." do
-      field :description, :string, description: "Human-readable description of the entry."
-      field :category, :string, description: "Category for grouping entries (e.g., 'editor', 'workflow', 'environment')."
+      field(:description, :string, description: "Human-readable description of the entry.")
+
+      field(:category, :string,
+        description: "Category for grouping entries (e.g., 'editor', 'workflow', 'environment')."
+      )
     end
 
-    embeds_many :habits, description: "Array of entry updates for 'batch_set' operation. Each item should have 'key' and 'value' fields." do
-      field :key, :string
-      field :value, :any
+    embeds_many :habits,
+      description:
+        "Array of entry updates for 'batch_set' operation. Each item should have 'key' and 'value' fields." do
+      field(:key, :string)
+      field(:value, :any)
 
       field :metadata, description: "Optional metadata for the entry." do
-        field :description, :string
-        field :category, :string
+        field(:description, :string)
+        field(:category, :string)
       end
     end
   end
@@ -80,7 +95,13 @@ defmodule Exhub.MCP.Tools.UpdateHabits do
 
       {:error, :not_modifiable} ->
         key = Map.get(params, :key, "unknown")
-        resp = Response.tool() |> Response.error("Cannot modify protected key: #{key}. This key contains sensitive information and can only be changed by the user directly.")
+
+        resp =
+          Response.tool()
+          |> Response.error(
+            "Cannot modify protected key: #{key}. This key contains sensitive information and can only be changed by the user directly."
+          )
+
         {:reply, resp, frame}
 
       {:error, :not_found} ->
@@ -123,12 +144,13 @@ defmodule Exhub.MCP.Tools.UpdateHabits do
               })
             end
 
-            {:ok, %{
-              "success" => true,
-              "operation" => "set",
-              "key" => key,
-              "message" => "Habit '#{key}' updated successfully"
-            }}
+            {:ok,
+             %{
+               "success" => true,
+               "operation" => "set",
+               "key" => key,
+               "message" => "Habit '#{key}' updated successfully"
+             }}
 
           {:error, :not_modifiable} ->
             {:error, :not_modifiable}
@@ -149,12 +171,13 @@ defmodule Exhub.MCP.Tools.UpdateHabits do
       true ->
         case HabitStore.delete(key) do
           :ok ->
-            {:ok, %{
-              "success" => true,
-              "operation" => "delete",
-              "key" => key,
-              "message" => "Habit '#{key}' deleted successfully"
-            }}
+            {:ok,
+             %{
+               "success" => true,
+               "operation" => "delete",
+               "key" => key,
+               "message" => "Habit '#{key}' deleted successfully"
+             }}
 
           {:error, :not_modifiable} ->
             {:error, :not_modifiable}
@@ -212,14 +235,15 @@ defmodule Exhub.MCP.Tools.UpdateHabits do
       success_count = Enum.count(results, & &1["success"])
       failure_count = length(results) - success_count
 
-      {:ok, %{
-        "success" => true,
-        "operation" => "batch_set",
-        "total" => length(results),
-        "succeeded" => success_count,
-        "failed" => failure_count,
-        "results" => results
-      }}
+      {:ok,
+       %{
+         "success" => true,
+         "operation" => "batch_set",
+         "total" => length(results),
+         "succeeded" => success_count,
+         "failed" => failure_count,
+         "results" => results
+       }}
     end
   end
 end

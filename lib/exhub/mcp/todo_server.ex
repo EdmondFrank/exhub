@@ -40,10 +40,10 @@ defmodule Exhub.MCP.TodoServer do
     version: "1.0.1",
     capabilities: [:tools]
 
-  component Exhub.MCP.Tools.TodoSetItems
-  component Exhub.MCP.Tools.TodoGetItems
-  component Exhub.MCP.Tools.TodoUpdateItem
-  component Exhub.MCP.Tools.TodoClearItems
+  component(Exhub.MCP.Tools.TodoSetItems)
+  component(Exhub.MCP.Tools.TodoGetItems)
+  component(Exhub.MCP.Tools.TodoUpdateItem)
+  component(Exhub.MCP.Tools.TodoClearItems)
 
   @impl true
   def init(client_info, frame) do

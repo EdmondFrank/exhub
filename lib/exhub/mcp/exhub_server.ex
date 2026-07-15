@@ -26,10 +26,10 @@ defmodule Exhub.MCP.ExhubServer do
     capabilities: [:tools]
 
   # Management tools
-  component Exhub.MCP.Tools.Exhub.HotReload
-  component Exhub.MCP.Tools.Exhub.Restart
-  component Exhub.MCP.Tools.Exhub.GetStatus
-  component Exhub.MCP.Tools.Exhub.GetVersion
+  component(Exhub.MCP.Tools.Exhub.HotReload)
+  component(Exhub.MCP.Tools.Exhub.Restart)
+  component(Exhub.MCP.Tools.Exhub.GetStatus)
+  component(Exhub.MCP.Tools.Exhub.GetVersion)
   # component Exhub.MCP.Tools.Exhub.ReloadKeys
 
   @impl true

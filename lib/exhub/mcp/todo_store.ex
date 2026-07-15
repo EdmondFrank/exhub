@@ -20,8 +20,10 @@ defmodule Exhub.MCP.TodoStore do
   require Logger
 
   @table :todo_store
-  @cleanup_interval_ms 30 * 60 * 1_000   # run cleanup every 30 minutes
-  @expiry_seconds 2 * 60 * 60             # expire entries after 2 hours
+  # run cleanup every 30 minutes
+  @cleanup_interval_ms 30 * 60 * 1_000
+  # expire entries after 2 hours
+  @expiry_seconds 2 * 60 * 60
 
   # ---------------------------------------------------------------------------
   # Client API
@@ -111,7 +113,11 @@ defmodule Exhub.MCP.TodoStore do
 
       [] ->
         # Nothing to clear — treat as success
-        :ets.insert(state.table, {tenant_id, %{items: [], initial_user_prompt: "", updated_at: DateTime.utc_now()}})
+        :ets.insert(
+          state.table,
+          {tenant_id, %{items: [], initial_user_prompt: "", updated_at: DateTime.utc_now()}}
+        )
+
         {:reply, :ok, state}
     end
   end

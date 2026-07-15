@@ -38,13 +38,11 @@ defmodule Exhub.MCP.Tools.BrowserUse.AuthHeaders do
     )
 
     field(:name, :string,
-      description:
-        "Header name (required for `set_header`). Example: Authorization"
+      description: "Header name (required for `set_header`). Example: Authorization"
     )
 
     field(:value, :string,
-      description:
-        "Header value (required for `set_header`). Example: Bearer eyJ..."
+      description: "Header value (required for `set_header`). Example: Bearer eyJ..."
     )
   end
 

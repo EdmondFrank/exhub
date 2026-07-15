@@ -217,7 +217,9 @@ defmodule Exhub.ProxyPlug do
     # Normalize model name by stripping prefixes before sending to API
     body_params =
       case Map.get(body_params, "model") do
-        nil -> body_params
+        nil ->
+          body_params
+
         model ->
           normalized_model = Exhub.Router.Config.normalize_model_name(model)
           Map.put(body_params, "model", normalized_model)
@@ -244,7 +246,8 @@ defmodule Exhub.ProxyPlug do
 
         Jason.encode!(Map.put(body_params, "messages", transformed_messages))
 
-      %{"model" => model} when model in ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"] ->
+      %{"model" => model}
+      when model in ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"] ->
         body_params
         |> Map.put("temperature", 1)
         |> Exhub.Router.Config.transform_request_body(model)

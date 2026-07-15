@@ -528,7 +528,7 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
         Map.get(pricing, "claude-3-5-sonnet")
 
       String.starts_with?(normalized, "gpt-") or
-          String.starts_with?(normalized, "o1") or
+        String.starts_with?(normalized, "o1") or
           String.starts_with?(normalized, "o3") ->
         Map.get(pricing, "gpt-4o")
 

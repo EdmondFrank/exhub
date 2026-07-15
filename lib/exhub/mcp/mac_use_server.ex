@@ -57,31 +57,31 @@ defmodule Exhub.MCP.MacUseServer do
     capabilities: [:tools]
 
   # App discovery
-  component Exhub.MCP.Tools.MacUse.ListApps
+  component(Exhub.MCP.Tools.MacUse.ListApps)
 
   # Inspection
-  component Exhub.MCP.Tools.MacUse.Snapshot
-  component Exhub.MCP.Tools.MacUse.GetAttribute
+  component(Exhub.MCP.Tools.MacUse.Snapshot)
+  component(Exhub.MCP.Tools.MacUse.GetAttribute)
 
   # Interaction
-  component Exhub.MCP.Tools.MacUse.Click
-  component Exhub.MCP.Tools.MacUse.DblClick
-  component Exhub.MCP.Tools.MacUse.Input
-  component Exhub.MCP.Tools.MacUse.Fill
-  component Exhub.MCP.Tools.MacUse.Press
-  component Exhub.MCP.Tools.MacUse.Hover
-  component Exhub.MCP.Tools.MacUse.Focus
+  component(Exhub.MCP.Tools.MacUse.Click)
+  component(Exhub.MCP.Tools.MacUse.DblClick)
+  component(Exhub.MCP.Tools.MacUse.Input)
+  component(Exhub.MCP.Tools.MacUse.Fill)
+  component(Exhub.MCP.Tools.MacUse.Press)
+  component(Exhub.MCP.Tools.MacUse.Hover)
+  component(Exhub.MCP.Tools.MacUse.Focus)
 
   # Scrolling
-  component Exhub.MCP.Tools.MacUse.ScrollTo
-  component Exhub.MCP.Tools.MacUse.Scroll
+  component(Exhub.MCP.Tools.MacUse.ScrollTo)
+  component(Exhub.MCP.Tools.MacUse.Scroll)
 
   # Screenshots
-  component Exhub.MCP.Tools.MacUse.Screenshot
+  component(Exhub.MCP.Tools.MacUse.Screenshot)
 
   # Utility
-  component Exhub.MCP.Tools.MacUse.Wait
-  component Exhub.MCP.Tools.MacUse.Activate
+  component(Exhub.MCP.Tools.MacUse.Wait)
+  component(Exhub.MCP.Tools.MacUse.Activate)
 
   # Global input (temporarily disabled — axcli lacks these subcommands)
   # component Exhub.MCP.Tools.MacUse.Mouse

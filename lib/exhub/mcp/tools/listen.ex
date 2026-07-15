@@ -49,9 +49,7 @@ defmodule Exhub.MCP.Tools.Listen do
       description: "Speech recognition model. Default: whisper-large-v3-turbo"
     )
 
-    field(:language, :string,
-      description: "Language hint (e.g. 'zh', 'en'). Optional."
-    )
+    field(:language, :string, description: "Language hint (e.g. 'zh', 'en'). Optional.")
   end
 
   @impl true
@@ -66,14 +64,24 @@ defmodule Exhub.MCP.Tools.Listen do
         {:reply, resp, frame}
 
       model not in @valid_models ->
-        resp = Response.tool() |> Response.error("Invalid model: #{model}. Valid models: #{Enum.join(@valid_models, ", ")}")
+        resp =
+          Response.tool()
+          |> Response.error(
+            "Invalid model: #{model}. Valid models: #{Enum.join(@valid_models, ", ")}"
+          )
+
         {:reply, resp, frame}
 
       true ->
         api_key = Application.get_env(:exhub, :giteeai_api_key, "")
 
         if api_key == "" do
-          resp = Response.tool() |> Response.error("Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\"")
+          resp =
+            Response.tool()
+            |> Response.error(
+              "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""
+            )
+
           {:reply, resp, frame}
         else
           do_transcribe(file, model, language, api_key, frame)
@@ -116,12 +124,18 @@ defmodule Exhub.MCP.Tools.Listen do
         {"Content-Type", content_type}
       ]
 
-      case HTTPoison.post(@api_url, body, headers, recv_timeout: @request_timeout, timeout: @request_timeout) do
+      case HTTPoison.post(@api_url, body, headers,
+             recv_timeout: @request_timeout,
+             timeout: @request_timeout
+           ) do
         {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
           handle_success(resp_body, frame)
 
         {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
-          resp = Response.tool() |> Response.error("Transcription API error (HTTP #{status}): #{resp_body}")
+          resp =
+            Response.tool()
+            |> Response.error("Transcription API error (HTTP #{status}): #{resp_body}")
+
           {:reply, resp, frame}
 
         {:error, %HTTPoison.Error{reason: reason}} ->
@@ -146,7 +160,8 @@ defmodule Exhub.MCP.Tools.Listen do
               if ext in @supported_audio_exts do
                 {:ok, expanded_path}
               else
-                {:error, "Unsupported audio format: #{ext}. Supported: #{Enum.join(@supported_audio_exts, ", ")}"}
+                {:error,
+                 "Unsupported audio format: #{ext}. Supported: #{Enum.join(@supported_audio_exts, ", ")}"}
               end
             else
               {:error, "File not found: #{expanded_path}"}
@@ -157,7 +172,8 @@ defmodule Exhub.MCP.Tools.Listen do
         end
 
       true ->
-        {:error, "Relative paths are not supported: '#{file}'. Use an absolute path (e.g. /path/to/audio.mp3) or ~ shorthand (e.g. ~/path/to/audio.mp3)."}
+        {:error,
+         "Relative paths are not supported: '#{file}'. Use an absolute path (e.g. /path/to/audio.mp3) or ~ shorthand (e.g. ~/path/to/audio.mp3)."}
     end
   end
 
@@ -232,7 +248,9 @@ defmodule Exhub.MCP.Tools.Listen do
         {:reply, resp, frame}
 
       {:error, reason} ->
-        resp = Response.tool() |> Response.error("Failed to decode API response: #{inspect(reason)}")
+        resp =
+          Response.tool() |> Response.error("Failed to decode API response: #{inspect(reason)}")
+
         {:reply, resp, frame}
     end
   end

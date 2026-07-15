@@ -38,12 +38,11 @@ defmodule Exhub.MCP.Tools.Emacs.CloseBuffer do
   end
 
   schema do
-    field(:buffer_name, {:required, :string},
-      description: "Name of the buffer to close"
-    )
+    field(:buffer_name, {:required, :string}, description: "Name of the buffer to close")
 
     field(:action, {:required, :string},
-      description: "Action to take: 'save' (save then close), 'discard' (close without saving), or 'close' (close only if not modified)"
+      description:
+        "Action to take: 'save' (save then close), 'discard' (close without saving), or 'close' (close only if not modified)"
     )
   end
 

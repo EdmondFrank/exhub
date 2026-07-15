@@ -50,11 +50,14 @@ defmodule Exhub.Controllers.MCPHubController do
       {:ok, config} ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(201, Jason.encode!(%{
-          success: true,
-          message: "Server added successfully",
-          server: server_to_json(config)
-        }))
+        |> send_resp(
+          201,
+          Jason.encode!(%{
+            success: true,
+            message: "Server added successfully",
+            server: server_to_json(config)
+          })
+        )
 
       {:error, :name_required} ->
         send_error(conn, 400, "Server name is required")
@@ -102,11 +105,14 @@ defmodule Exhub.Controllers.MCPHubController do
       {:ok, config} ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(200, Jason.encode!(%{
-          success: true,
-          message: "Server updated successfully",
-          server: server_to_json(config)
-        }))
+        |> send_resp(
+          200,
+          Jason.encode!(%{
+            success: true,
+            message: "Server updated successfully",
+            server: server_to_json(config)
+          })
+        )
 
       {:error, :server_not_found} ->
         send_error(conn, 404, "Server not found")
@@ -135,10 +141,13 @@ defmodule Exhub.Controllers.MCPHubController do
       :ok ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(200, Jason.encode!(%{
-          success: true,
-          message: "Server removed successfully"
-        }))
+        |> send_resp(
+          200,
+          Jason.encode!(%{
+            success: true,
+            message: "Server removed successfully"
+          })
+        )
 
       {:error, reason} ->
         send_error(conn, 500, "Failed to remove server: #{inspect(reason)}")
@@ -163,11 +172,14 @@ defmodule Exhub.Controllers.MCPHubController do
         {:ok, config} ->
           conn
           |> put_resp_content_type("application/json")
-          |> send_resp(200, Jason.encode!(%{
-            success: true,
-            message: "Server #{if enabled, do: "enabled", else: "disabled"} successfully",
-            server: server_to_json(config)
-          }))
+          |> send_resp(
+            200,
+            Jason.encode!(%{
+              success: true,
+              message: "Server #{if enabled, do: "enabled", else: "disabled"} successfully",
+              server: server_to_json(config)
+            })
+          )
 
         {:error, :server_not_found} ->
           send_error(conn, 404, "Server not found")

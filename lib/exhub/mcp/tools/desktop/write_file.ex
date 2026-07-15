@@ -31,9 +31,16 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
   end
 
   schema do
-    field(:path, {:required, :string}, description: "Absolute path or ~ shorthand to the file to write")
+    field(:path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the file to write"
+    )
+
     field(:content, {:required, :string}, description: "The text content to write to the file")
-    field(:mode, :string, description: "Write mode: \"overwrite\" (default) or \"append\"", default: "overwrite")
+
+    field(:mode, :string,
+      description: "Write mode: \"overwrite\" (default) or \"append\"",
+      default: "overwrite"
+    )
   end
 
   @impl true

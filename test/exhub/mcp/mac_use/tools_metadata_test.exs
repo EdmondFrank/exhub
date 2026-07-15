@@ -16,7 +16,7 @@ defmodule Exhub.MCP.MacUse.ToolsMetadataTest do
     {Exhub.MCP.Tools.MacUse.Screenshot, "screenshot", []},
     {Exhub.MCP.Tools.MacUse.GetAttribute, "get_attribute", [:selector, :attribute]},
     {Exhub.MCP.Tools.MacUse.Wait, "wait", []},
-    {Exhub.MCP.Tools.MacUse.Activate, "activate", []},
+    {Exhub.MCP.Tools.MacUse.Activate, "activate", []}
   ]
 
   for {module, expected_name, _required_fields} <- @tools do

@@ -40,17 +40,11 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
   end
 
   schema do
-    field(:buffer_name, {:required, :string},
-      description: "Name of the buffer to read"
-    )
+    field(:buffer_name, {:required, :string}, description: "Name of the buffer to read")
 
-    field(:start_line, :integer,
-      description: "Start line number (1-based, optional)"
-    )
+    field(:start_line, :integer, description: "Start line number (1-based, optional)")
 
-    field(:end_line, :integer,
-      description: "End line number (1-based, optional)"
-    )
+    field(:end_line, :integer, description: "End line number (1-based, optional)")
   end
 
   @impl true

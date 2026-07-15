@@ -8,7 +8,7 @@ defmodule Exhub.SocketHandler do
 
   def websocket_init(state) do
     result = Registry.register(Exhub.Registry, "socket_handler", :socket_handler)
-    Logger.debug("Subscribing socket handler (#{inspect result}")
+    Logger.debug("Subscribing socket handler (#{inspect(result)}")
     schedule_ping(state)
     {:ok, state}
   end
@@ -36,10 +36,14 @@ defmodule Exhub.SocketHandler do
     Task.start(fn ->
       case Exhub.Router.Config.reload_from_scr() do
         :ok ->
-          Exhub.send_message("(message \"[Exhub] API keys reloaded from SecretVault successfully.\")")
+          Exhub.send_message(
+            "(message \"[Exhub] API keys reloaded from SecretVault successfully.\")"
+          )
 
         {:error, reason} ->
-          Exhub.send_message("(message \"[Exhub] Failed to reload API keys: #{inspect(reason)}\")")
+          Exhub.send_message(
+            "(message \"[Exhub] Failed to reload API keys: #{inspect(reason)}\")"
+          )
       end
     end)
 
@@ -47,13 +51,14 @@ defmodule Exhub.SocketHandler do
   end
 
   def websocket_handle({:text, message}, state) do
-    Logger.debug("Received message #{inspect message}")
+    Logger.debug("Received message #{inspect(message)}")
     dispatch_message(message)
     # Check if this is an emacs_response message
     case parse_emacs_response(message) do
       {:ok, request_id, response} ->
         dispatch_emacs_response(request_id, response)
         {:reply, {:text, "nil"}, state}
+
       :not_response ->
         case response_handler().call(message) do
           response when is_binary(response) -> {:reply, {:text, response}, state}
@@ -72,7 +77,7 @@ defmodule Exhub.SocketHandler do
   end
 
   def terminate(reason, _req, _state) do
-    Logger.debug("Terminating websocket handler because of #{inspect reason}")
+    Logger.debug("Terminating websocket handler because of #{inspect(reason)}")
   end
 
   defp dispatch_message(message) do
@@ -87,6 +92,7 @@ defmodule Exhub.SocketHandler do
     case Jason.decode(message) do
       {:ok, ["emacs_response", request_id, response]} ->
         {:ok, request_id, response}
+
       _ ->
         :not_response
     end

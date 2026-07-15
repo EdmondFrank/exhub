@@ -617,7 +617,10 @@ defmodule Exhub.Router do
 
         {:error, reason} ->
           {:ok, conn} =
-            Plug.Conn.chunk(conn, "data: #{Jason.encode!(%{type: "error", error: inspect(reason)})}\n\n")
+            Plug.Conn.chunk(
+              conn,
+              "data: #{Jason.encode!(%{type: "error", error: inspect(reason)})}\n\n"
+            )
 
           conn
       end

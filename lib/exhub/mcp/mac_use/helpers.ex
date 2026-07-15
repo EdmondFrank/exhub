@@ -36,7 +36,9 @@ defmodule Exhub.MCP.MacUse.Helpers do
         stderr = String.trim(stderr)
 
         case exit_status do
-          0 -> {:ok, stdout}
+          0 ->
+            {:ok, stdout}
+
           _ ->
             detail = if stderr != "", do: stderr, else: stdout
             {:error, "axcli exited with code #{exit_status}: #{detail}"}
@@ -44,7 +46,9 @@ defmodule Exhub.MCP.MacUse.Helpers do
       end)
 
     case Task.yield(task, timeout) do
-      {:ok, result} -> result
+      {:ok, result} ->
+        result
+
       nil ->
         Task.shutdown(task, :brutal_kill)
         {:error, "axcli command timed out after #{timeout}ms"}

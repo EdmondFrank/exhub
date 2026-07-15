@@ -15,7 +15,10 @@ defmodule Exhub.MCP.Tools.Agent.CloseSession do
   @impl true
   def execute(%{agent_id: agent_id, session_id: session_id}, frame) do
     Exhub.MCP.Agent.Store.remove_session(agent_id, session_id)
-    resp = Response.tool() |> Response.text(Jason.encode!(%{status: "closed", session_id: session_id}))
+
+    resp =
+      Response.tool() |> Response.text(Jason.encode!(%{status: "closed", session_id: session_id}))
+
     {:reply, resp, frame}
   end
 end

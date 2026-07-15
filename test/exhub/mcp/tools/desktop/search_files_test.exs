@@ -44,28 +44,37 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
 
     test "search_type: files — finds files by name pattern", %{tmp_dir: tmp_dir} do
       frame = %{}
+
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{
-          path: tmp_dir,
-          pattern: "fixture",
-          search_type: "files"
-        }, frame)
+        SearchFiles.execute(
+          %{
+            path: tmp_dir,
+            pattern: "fixture",
+            search_type: "files"
+          },
+          frame
+        )
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
       assert text =~ "fixture.txt"
     end
 
-    test "search_type: content, context_lines: 0 — each match context contains only its own line", %{tmp_dir: tmp_dir} do
+    test "search_type: content, context_lines: 0 — each match context contains only its own line",
+         %{tmp_dir: tmp_dir} do
       frame = %{}
+
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{
-          path: tmp_dir,
-          pattern: "MATCH_",
-          search_type: "content",
-          context_lines: 0,
-          file_pattern: "*.txt"
-        }, frame)
+        SearchFiles.execute(
+          %{
+            path: tmp_dir,
+            pattern: "MATCH_",
+            search_type: "content",
+            context_lines: 0,
+            file_pattern: "*.txt"
+          },
+          frame
+        )
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
@@ -77,16 +86,22 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       assert text =~ "MATCH_C"
     end
 
-    test "search_type: content, context_lines: 2 — MATCH_A context does NOT contain MATCH_B", %{tmp_dir: tmp_dir} do
+    test "search_type: content, context_lines: 2 — MATCH_A context does NOT contain MATCH_B", %{
+      tmp_dir: tmp_dir
+    } do
       frame = %{}
+
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{
-          path: tmp_dir,
-          pattern: "MATCH_A",
-          search_type: "content",
-          context_lines: 2,
-          file_pattern: "*.txt"
-        }, frame)
+        SearchFiles.execute(
+          %{
+            path: tmp_dir,
+            pattern: "MATCH_A",
+            search_type: "content",
+            context_lines: 2,
+            file_pattern: "*.txt"
+          },
+          frame
+        )
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
@@ -96,16 +111,22 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       refute text =~ "MATCH_B"
     end
 
-    test "search_type: content, context_lines: 3 — MATCH_B context does NOT contain MATCH_C", %{tmp_dir: tmp_dir} do
+    test "search_type: content, context_lines: 3 — MATCH_B context does NOT contain MATCH_C", %{
+      tmp_dir: tmp_dir
+    } do
       frame = %{}
+
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{
-          path: tmp_dir,
-          pattern: "MATCH_B",
-          search_type: "content",
-          context_lines: 3,
-          file_pattern: "*.txt"
-        }, frame)
+        SearchFiles.execute(
+          %{
+            path: tmp_dir,
+            pattern: "MATCH_B",
+            search_type: "content",
+            context_lines: 3,
+            file_pattern: "*.txt"
+          },
+          frame
+        )
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
@@ -117,13 +138,17 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
 
     test "file_pattern: *.txt filters to only .txt files", %{tmp_dir: tmp_dir} do
       frame = %{}
+
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{
-          path: tmp_dir,
-          pattern: "MATCH_A",
-          search_type: "content",
-          file_pattern: "*.txt"
-        }, frame)
+        SearchFiles.execute(
+          %{
+            path: tmp_dir,
+            pattern: "MATCH_A",
+            search_type: "content",
+            file_pattern: "*.txt"
+          },
+          frame
+        )
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
@@ -135,12 +160,16 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
 
     test "returns error for non-existent directory" do
       frame = %{}
+
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{
-          path: "/nonexistent/directory",
-          pattern: "anything",
-          search_type: "files"
-        }, frame)
+        SearchFiles.execute(
+          %{
+            path: "/nonexistent/directory",
+            pattern: "anything",
+            search_type: "files"
+          },
+          frame
+        )
 
       assert resp.isError == true
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")

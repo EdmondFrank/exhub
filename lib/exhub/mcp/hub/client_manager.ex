@@ -7,26 +7,36 @@ defmodule Exhub.MCP.Hub.ClientState do
   @type health_status :: :healthy | :degraded | :unhealthy
 
   @type t :: %__MODULE__{
-    server_name: String.t(),
-    config: Exhub.MCP.Hub.ServerConfig.t(),
-    pid: pid() | nil,
-    supervisor_pid: pid() | nil,
-    status: status(),
-    tools: [map()] | nil,
-    last_error: String.t() | nil,
-    crash_count: non_neg_integer(),
-    connected_at: DateTime.t() | nil,
-    # Health monitoring fields
-    last_health_check: DateTime.t() | nil,
-    health_status: health_status(),
-    reconnect_attempts: non_neg_integer(),
-    last_reconnect_at: DateTime.t() | nil
-  }
+          server_name: String.t(),
+          config: Exhub.MCP.Hub.ServerConfig.t(),
+          pid: pid() | nil,
+          supervisor_pid: pid() | nil,
+          status: status(),
+          tools: [map()] | nil,
+          last_error: String.t() | nil,
+          crash_count: non_neg_integer(),
+          connected_at: DateTime.t() | nil,
+          # Health monitoring fields
+          last_health_check: DateTime.t() | nil,
+          health_status: health_status(),
+          reconnect_attempts: non_neg_integer(),
+          last_reconnect_at: DateTime.t() | nil
+        }
 
   defstruct [
-    :server_name, :config, :pid, :supervisor_pid, :status, :tools,
-    :last_error, :crash_count, :connected_at,
-    :last_health_check, :health_status, :reconnect_attempts, :last_reconnect_at
+    :server_name,
+    :config,
+    :pid,
+    :supervisor_pid,
+    :status,
+    :tools,
+    :last_error,
+    :crash_count,
+    :connected_at,
+    :last_health_check,
+    :health_status,
+    :reconnect_attempts,
+    :last_reconnect_at
   ]
 end
 
@@ -141,7 +151,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
   Toggles the enabled state of a server.
   """
   @spec toggle_server(String.t(), boolean()) :: {:ok, ServerConfig.t()} | {:error, term()}
-  def toggle_server(name, enabled), do: GenServer.call(__MODULE__, {:toggle_server, name, enabled})
+  def toggle_server(name, enabled),
+    do: GenServer.call(__MODULE__, {:toggle_server, name, enabled})
 
   @doc """
   Gets the status of a specific server.
@@ -165,7 +176,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
   Updates a server configuration.
   """
   @spec update_server(String.t(), map()) :: {:ok, ServerConfig.t()} | {:error, term()}
-  def update_server(name, config_data), do: GenServer.call(__MODULE__, {:update_server, name, config_data})
+  def update_server(name, config_data),
+    do: GenServer.call(__MODULE__, {:update_server, name, config_data})
 
   # Server Callbacks
 
@@ -237,6 +249,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
         |> Enum.reduce({%{}, state.supervisors}, fn config, {tasks_acc, sups_acc} ->
           {:ok, sup_pid} = new_dynamic_supervisor()
           task = spawn_client_task(sup_pid, config)
+
           {
             Map.put(tasks_acc, task.ref, config.name),
             Map.put(sups_acc, config.name, sup_pid)
@@ -262,7 +275,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
           {{from, server_name, tool_name, start_time}, new_pending_calls} ->
             {_server, _tool, _start, actual_result} = result
             duration = System.monotonic_time(:millisecond) - start_time
-            Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
+
+            Logger.info(
+              "[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms"
+            )
+
             GenServer.reply(from, actual_result)
             {:noreply, %{state | pending_tool_calls: new_pending_calls}}
         end
@@ -292,7 +309,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
           {{from, server_name, tool_name, start_time}, new_pending_calls} ->
             duration = System.monotonic_time(:millisecond) - start_time
-            Logger.error("[MCP Hub] Tool call task crashed: #{server_name}:#{tool_name} in #{duration}ms: #{inspect(reason)}")
+
+            Logger.error(
+              "[MCP Hub] Tool call task crashed: #{server_name}:#{tool_name} in #{duration}ms: #{inspect(reason)}"
+            )
+
             GenServer.reply(from, {:error, {:task_crashed, reason}})
             {:noreply, %{state | pending_tool_calls: new_pending_calls}}
         end
@@ -323,28 +344,50 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
         if new_crash_count >= @max_crashes do
           # Permanently disable this client
-          Logger.error("Client #{server_name} exceeded max crashes (#{@max_crashes}), permanently disabling")
+          Logger.error(
+            "Client #{server_name} exceeded max crashes (#{@max_crashes}), permanently disabling"
+          )
 
           new_clients =
             Map.update!(state.clients, server_name, fn client ->
-              %{client | status: :error, pid: nil, supervisor_pid: nil,
-                last_error: "max_crashes_reached: #{inspect(reason)}",
-                crash_count: new_crash_count}
+              %{
+                client
+                | status: :error,
+                  pid: nil,
+                  supervisor_pid: nil,
+                  last_error: "max_crashes_reached: #{inspect(reason)}",
+                  crash_count: new_crash_count
+              }
             end)
 
-          {:noreply, %{state | clients: new_clients, supervisors: Map.delete(state.supervisors, server_name)}}
+          {:noreply,
+           %{
+             state
+             | clients: new_clients,
+               supervisors: Map.delete(state.supervisors, server_name)
+           }}
         else
           # Schedule reconnect for this specific client after delay
           new_clients =
             Map.update!(state.clients, server_name, fn client ->
-              %{client | status: :error, pid: nil, supervisor_pid: nil,
-                last_error: "supervisor_crashed: #{inspect(reason)}",
-                crash_count: new_crash_count}
+              %{
+                client
+                | status: :error,
+                  pid: nil,
+                  supervisor_pid: nil,
+                  last_error: "supervisor_crashed: #{inspect(reason)}",
+                  crash_count: new_crash_count
+              }
             end)
 
           Process.send_after(self(), {:reconnect_client, server_name}, 30_000)
 
-          {:noreply, %{state | clients: new_clients, supervisors: Map.delete(state.supervisors, server_name)}}
+          {:noreply,
+           %{
+             state
+             | clients: new_clients,
+               supervisors: Map.delete(state.supervisors, server_name)
+           }}
         end
 
       nil ->
@@ -370,7 +413,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
   @impl true
   def handle_info({:reconnect_client, server_name}, state) do
     case Map.get(state.clients, server_name) do
-      %{config: %{enabled: true}, crash_count: count} when count < @max_crashes ->
+      %{config: %{enabled: true}, crash_count: count, status: status}
+          when count < @max_crashes and status in [:error, :disconnected] ->
         {:ok, sup_pid} = new_dynamic_supervisor()
 
         task = spawn_client_task(sup_pid, state.clients[server_name].config)
@@ -383,7 +427,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
         new_supervisors = Map.put(state.supervisors, server_name, sup_pid)
         new_pending = Map.put(state.pending_tasks, task.ref, server_name)
 
-        {:noreply, %{state | clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}}
+        {:noreply,
+         %{state | clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}}
 
       _ ->
         {:noreply, state}
@@ -487,7 +532,10 @@ defmodule Exhub.MCP.Hub.ClientManager do
     else
       case Map.get(state.clients, server_name) do
         %{status: :connecting} ->
-          {:reply, {:error, {:connecting, "Server '#{server_name}' is still initializing, please retry later"}}, state}
+          {:reply,
+           {:error,
+            {:connecting, "Server '#{server_name}' is still initializing, please retry later"}},
+           state}
 
         %{status: :connected, pid: pid} ->
           if Process.alive?(pid) do
@@ -501,7 +549,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
                 fn ->
                   result =
                     try do
-                      case Anubis.Client.call_tool(client_reg_name, tool_name, arguments, timeout: 600_000) do
+                      case Anubis.Client.call_tool(client_reg_name, tool_name, arguments,
+                             timeout: 600_000
+                           ) do
                         {:ok, %{is_error: true} = response} ->
                           error_text = extract_error_text(response)
                           {:error, error_text}
@@ -522,7 +572,13 @@ defmodule Exhub.MCP.Hub.ClientManager do
                 end
               )
 
-            new_pending = Map.put(state.pending_tool_calls, task.ref, {from, server_name, tool_name, start_time})
+            new_pending =
+              Map.put(
+                state.pending_tool_calls,
+                task.ref,
+                {from, server_name, tool_name, start_time}
+              )
+
             {:noreply, %{state | pending_tool_calls: new_pending}}
           else
             {:reply, {:error, :server_not_running}, state}
@@ -581,40 +637,55 @@ defmodule Exhub.MCP.Hub.ClientManager do
             {:ok, sup_pid} = new_dynamic_supervisor()
             task = spawn_client_task(sup_pid, updated_config)
 
-            new_clients = Map.put(state.clients, name, %ClientState{
-              server_name: name,
-              config: updated_config,
-              status: :connecting,
-              supervisor_pid: sup_pid,
-              crash_count: 0,
-              health_status: :healthy,
-              reconnect_attempts: 0
-            })
+            new_clients =
+              Map.put(state.clients, name, %ClientState{
+                server_name: name,
+                config: updated_config,
+                status: :connecting,
+                supervisor_pid: sup_pid,
+                crash_count: 0,
+                health_status: :healthy,
+                reconnect_attempts: 0
+              })
 
             new_supervisors = Map.put(state.supervisors, name, sup_pid)
             new_pending = Map.put(state.pending_tasks, task.ref, name)
 
-            %{state | configs: new_configs, clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}
+            %{
+              state
+              | configs: new_configs,
+                clients: new_clients,
+                supervisors: new_supervisors,
+                pending_tasks: new_pending
+            }
           else
             # Terminate the client and its supervisor
             client = state.clients[name]
+
             if client && client.pid && client.supervisor_pid do
               DynamicSupervisor.terminate_child(client.supervisor_pid, client.pid)
             end
+
             if sup_pid = state.supervisors[name] do
               Process.exit(sup_pid, :normal)
             end
 
-            new_clients = Map.put(state.clients, name, %ClientState{
-              server_name: name,
-              config: updated_config,
-              status: :disconnected,
-              crash_count: 0,
-              health_status: :healthy,
-              reconnect_attempts: 0
-            })
+            new_clients =
+              Map.put(state.clients, name, %ClientState{
+                server_name: name,
+                config: updated_config,
+                status: :disconnected,
+                crash_count: 0,
+                health_status: :healthy,
+                reconnect_attempts: 0
+              })
 
-            %{state | configs: new_configs, clients: new_clients, supervisors: Map.delete(state.supervisors, name)}
+            %{
+              state
+              | configs: new_configs,
+                clients: new_clients,
+                supervisors: Map.delete(state.supervisors, name)
+            }
           end
 
         save_configs(new_state.configs, new_state.config_path)
@@ -689,22 +760,25 @@ defmodule Exhub.MCP.Hub.ClientManager do
         {:reply, {:error, :server_not_found}, state}
 
       existing_config ->
-        updated_config = ServerConfig.from_json(
-          Map.merge(
-            ServerConfig.to_json(existing_config),
-            config_data
+        updated_config =
+          ServerConfig.from_json(
+            Map.merge(
+              ServerConfig.to_json(existing_config),
+              config_data
+            )
           )
-        )
-        |> Map.put(:updated_at, DateTime.utc_now())
+          |> Map.put(:updated_at, DateTime.utc_now())
 
         with :ok <- ServerConfig.validate(updated_config) do
           new_configs = Map.put(state.configs, name, updated_config)
 
           # Stop existing client and supervisor
           client = state.clients[name]
+
           if client && client.pid && client.supervisor_pid do
             DynamicSupervisor.terminate_child(client.supervisor_pid, client.pid)
           end
+
           if sup_pid = state.supervisors[name] do
             Process.exit(sup_pid, :normal)
           end
@@ -714,32 +788,41 @@ defmodule Exhub.MCP.Hub.ClientManager do
               {:ok, sup_pid} = new_dynamic_supervisor()
               task = spawn_client_task(sup_pid, updated_config)
 
-              new_clients_map = Map.put(state.clients, name, %ClientState{
-                server_name: name,
-                config: updated_config,
-                status: :connecting,
-                supervisor_pid: sup_pid,
-                crash_count: 0,
-                health_status: :healthy,
-                reconnect_attempts: 0
-              })
+              new_clients_map =
+                Map.put(state.clients, name, %ClientState{
+                  server_name: name,
+                  config: updated_config,
+                  status: :connecting,
+                  supervisor_pid: sup_pid,
+                  crash_count: 0,
+                  health_status: :healthy,
+                  reconnect_attempts: 0
+                })
 
               {new_clients_map, Map.put(state.supervisors, name, sup_pid),
                Map.put(state.pending_tasks, task.ref, name)}
             else
-              new_clients_map = Map.put(state.clients, name, %ClientState{
-                server_name: name,
-                config: updated_config,
-                status: :disconnected,
-                crash_count: 0,
-                health_status: :healthy,
-                reconnect_attempts: 0
-              })
+              new_clients_map =
+                Map.put(state.clients, name, %ClientState{
+                  server_name: name,
+                  config: updated_config,
+                  status: :disconnected,
+                  crash_count: 0,
+                  health_status: :healthy,
+                  reconnect_attempts: 0
+                })
 
               {new_clients_map, Map.delete(state.supervisors, name), state.pending_tasks}
             end
 
-          new_state = %{state | configs: new_configs, clients: new_clients, supervisors: new_supervisors, pending_tasks: new_pending}
+          new_state = %{
+            state
+            | configs: new_configs,
+              clients: new_clients,
+              supervisors: new_supervisors,
+              pending_tasks: new_pending
+          }
+
           save_configs(new_state.configs, new_state.config_path)
           {:reply, {:ok, updated_config}, new_state}
         else
@@ -768,10 +851,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
       Process.exit(sup_pid, :normal)
     end
 
-    new_state = %{state |
-      configs: Map.delete(state.configs, name),
-      clients: Map.delete(state.clients, name),
-      supervisors: Map.delete(state.supervisors, name)
+    new_state = %{
+      state
+      | configs: Map.delete(state.configs, name),
+        clients: Map.delete(state.clients, name),
+        supervisors: Map.delete(state.supervisors, name)
     }
 
     save_configs(new_state.configs, new_state.config_path)
@@ -886,7 +970,10 @@ defmodule Exhub.MCP.Hub.ClientManager do
         # Retry list_tools with backoff to wait for MCP initialize handshake
         tools = fetch_tools_with_retry(client_label, client_reg_name, 5, 1000)
 
-        Logger.info("Client #{client_label} started (PID: #{inspect(pid)}), #{length(tools)} tools")
+        Logger.info(
+          "Client #{client_label} started (PID: #{inspect(pid)}), #{length(tools)} tools"
+        )
+
         {:ok, pid, tools}
 
       {:error, reason} ->
@@ -897,23 +984,21 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   defp apply_client_result(clients, server_name, {:ok, pid, tools}) do
     Map.update!(clients, server_name, fn client ->
-      %{client |
-        pid: pid,
-        status: :connected,
-        tools: tools,
-        connected_at: DateTime.utc_now(),
-        last_error: nil,
-        crash_count: 0
+      %{
+        client
+        | pid: pid,
+          status: :connected,
+          tools: tools,
+          connected_at: DateTime.utc_now(),
+          last_error: nil,
+          crash_count: 0
       }
     end)
   end
 
   defp apply_client_result(clients, server_name, {:error, reason}) do
     Map.update!(clients, server_name, fn client ->
-      %{client |
-        status: :error,
-        last_error: inspect(reason)
-      }
+      %{client | status: :error, last_error: inspect(reason)}
     end)
   end
 
@@ -933,11 +1018,15 @@ defmodule Exhub.MCP.Hub.ClientManager do
     result =
       try do
         case Anubis.Client.list_tools(client_reg_name, timeout: 10_000) do
-          {:ok, %{result: %{"tools" => tool_list}}} when is_list(tool_list) -> {:ok, tool_list}
+          {:ok, %{result: %{"tools" => tool_list}}} when is_list(tool_list) ->
+            {:ok, tool_list}
+
           {:ok, %{result: result}} when is_map(result) ->
             {:ok, Map.get(result, "tools", [])}
+
           {:error, %Anubis.MCP.Error{} = e} ->
             {:error, e}
+
           other ->
             Logger.warning("Client #{client_label} list_tools unexpected: #{inspect(other)}")
             {:error, :unexpected}
@@ -953,7 +1042,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
       end
 
     case result do
-      {:ok, tools} -> tools
+      {:ok, tools} ->
+        tools
+
       {:error, _reason} ->
         Process.sleep(delay)
         do_fetch_tools(client_label, client_reg_name, attempts - 1, delay, [])
@@ -966,15 +1057,16 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
     task = spawn_client_task(sup_pid, config)
 
-    new_clients = Map.put(state.clients, config.name, %ClientState{
-      server_name: config.name,
-      config: config,
-      status: :connecting,
-      supervisor_pid: sup_pid,
-      crash_count: 0,
-      health_status: :healthy,
-      reconnect_attempts: 0
-    })
+    new_clients =
+      Map.put(state.clients, config.name, %ClientState{
+        server_name: config.name,
+        config: config,
+        status: :connecting,
+        supervisor_pid: sup_pid,
+        crash_count: 0,
+        health_status: :healthy,
+        reconnect_attempts: 0
+      })
 
     new_configs = Map.put(state.configs, config.name, config)
     new_supervisors = Map.put(state.supervisors, config.name, sup_pid)
@@ -982,11 +1074,12 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
     save_configs(new_configs, state.config_path)
 
-    %{state |
-      configs: new_configs,
-      clients: new_clients,
-      supervisors: new_supervisors,
-      pending_tasks: new_pending
+    %{
+      state
+      | configs: new_configs,
+        clients: new_clients,
+        supervisors: new_supervisors,
+        pending_tasks: new_pending
     }
   end
 
@@ -1050,19 +1143,18 @@ defmodule Exhub.MCP.Hub.ClientManager do
       case client.status do
         :connected ->
           # For connected clients, just update health check timestamp
-          new_client = %{client |
-            last_health_check: now,
-            health_status: :healthy
-          }
+          new_client = %{client | last_health_check: now, health_status: :healthy}
           {Map.put(acc, name, new_client), reconnects}
 
         :error ->
           if should_reconnect?(client) do
-            new_client = %{client |
-              last_health_check: now,
-              reconnect_attempts: client.reconnect_attempts + 1,
-              last_reconnect_at: now
+            new_client = %{
+              client
+              | last_health_check: now,
+                reconnect_attempts: client.reconnect_attempts + 1,
+                last_reconnect_at: now
             }
+
             {Map.put(acc, name, new_client), [{name, client.reconnect_attempts} | reconnects]}
           else
             new_client = %{client | last_health_check: now}
@@ -1078,7 +1170,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
   defp should_reconnect?(client) do
     client.reconnect_attempts < 3 and
       (is_nil(client.last_reconnect_at) or
-       DateTime.diff(DateTime.utc_now(), client.last_reconnect_at, :second) > 60)
+         DateTime.diff(DateTime.utc_now(), client.last_reconnect_at, :second) > 60)
   end
 
   defp calculate_backoff(attempt) do

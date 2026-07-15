@@ -20,7 +20,7 @@ defmodule Exhub.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger, :tzdata],
+      extra_applications: [:logger, :tzdata, :erlexec],
       mod: {Exhub.Application, []}
     ]
   end
@@ -47,6 +47,7 @@ defmodule Exhub.MixProject do
       {:quantum, "~> 3.0"},
       {:secret_vault, "~> 1.0"},
       {:exile, "~> 0.10"},
+      {:erlexec, "~> 2.0"},
       {:toon, "~> 0.3.0"},
       {:ex_mcp, "~> 0.9.0"},
       {:sagents, "~> 0.7.0"}

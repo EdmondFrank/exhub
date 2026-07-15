@@ -31,6 +31,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetResourceGroups do
           "count" => length(groups),
           "groups" => groups
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -39,6 +40,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetResourceGroups do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

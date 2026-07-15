@@ -38,28 +38,28 @@ defmodule Exhub.MCP.AgentServer do
     capabilities: [:tools]
 
   # Lifecycle tools
-  component Exhub.MCP.Tools.Agent.Initialize
-  component Exhub.MCP.Tools.Agent.Shutdown
-  component Exhub.MCP.Tools.Agent.ListRunningAgents
-  component Exhub.MCP.Tools.Agent.GetAgentStatus
-  component Exhub.MCP.Tools.Agent.SetAgentStatus
+  component(Exhub.MCP.Tools.Agent.Initialize)
+  component(Exhub.MCP.Tools.Agent.Shutdown)
+  component(Exhub.MCP.Tools.Agent.ListRunningAgents)
+  component(Exhub.MCP.Tools.Agent.GetAgentStatus)
+  component(Exhub.MCP.Tools.Agent.SetAgentStatus)
 
   # Session tools
-  component Exhub.MCP.Tools.Agent.NewSession
-  component Exhub.MCP.Tools.Agent.LoadSession
-  component Exhub.MCP.Tools.Agent.ListSessions
-  component Exhub.MCP.Tools.Agent.CloseSession
+  component(Exhub.MCP.Tools.Agent.NewSession)
+  component(Exhub.MCP.Tools.Agent.LoadSession)
+  component(Exhub.MCP.Tools.Agent.ListSessions)
+  component(Exhub.MCP.Tools.Agent.CloseSession)
 
   # Prompt tools
-  component Exhub.MCP.Tools.Agent.PromptStart
-  component Exhub.MCP.Tools.Agent.PromptEvents
-  component Exhub.MCP.Tools.Agent.Cancel
+  component(Exhub.MCP.Tools.Agent.PromptStart)
+  component(Exhub.MCP.Tools.Agent.PromptEvents)
+  component(Exhub.MCP.Tools.Agent.Cancel)
 
   # Permission tools
-  component Exhub.MCP.Tools.Agent.GrantPermission
+  component(Exhub.MCP.Tools.Agent.GrantPermission)
 
   # Mode tools
-  component Exhub.MCP.Tools.Agent.SetMode
+  component(Exhub.MCP.Tools.Agent.SetMode)
 
   @impl true
   def init(client_info, frame) do

@@ -19,9 +19,21 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
 
   schema do
     field(:paths, {:required, {:list, :string}}, description: "List of file paths to read")
-    field(:offset, :integer, description: "Line number to start reading from (0-based, default 0)", default: 0)
-    field(:length, :integer, description: "Maximum number of lines to read (default 2000)", default: 2000)
-    field(:extract, :boolean, description: "Whether to extract text from document files (default: false)", default: false)
+
+    field(:offset, :integer,
+      description: "Line number to start reading from (0-based, default 0)",
+      default: 0
+    )
+
+    field(:length, :integer,
+      description: "Maximum number of lines to read (default 2000)",
+      default: 2000
+    )
+
+    field(:extract, :boolean,
+      description: "Whether to extract text from document files (default: false)",
+      default: false
+    )
   end
 
   @impl true

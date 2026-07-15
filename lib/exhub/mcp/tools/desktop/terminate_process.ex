@@ -27,7 +27,9 @@ defmodule Exhub.MCP.Tools.Desktop.TerminateProcess do
   end
 
   schema do
-    field(:process_id, {:required, :string}, description: "The process ID returned by start_process")
+    field(:process_id, {:required, :string},
+      description: "The process ID returned by start_process"
+    )
   end
 
   @impl true

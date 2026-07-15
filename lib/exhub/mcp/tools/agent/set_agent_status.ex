@@ -15,7 +15,13 @@ defmodule Exhub.MCP.Tools.Agent.SetAgentStatus do
   @impl true
   def execute(%{agent_id: agent_id, status_text: status_text}, frame) do
     Exhub.MCP.Agent.Store.set_status(agent_id, status_text)
-    resp = Response.tool() |> Response.text(Jason.encode!(%{status: "ok", agent_id: agent_id, status_text: status_text}))
+
+    resp =
+      Response.tool()
+      |> Response.text(
+        Jason.encode!(%{status: "ok", agent_id: agent_id, status_text: status_text})
+      )
+
     {:reply, resp, frame}
   end
 end

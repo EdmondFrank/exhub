@@ -27,7 +27,9 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     :working_dir,
     :status,
     :port,
-    :interactive
+    :interactive,
+    :backend,
+    :ospid
   ]
 
   # ============================================================================
@@ -99,6 +101,11 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     GenServer.cast(__MODULE__, {:set_port, id, port})
   end
 
+  @doc "Set the erlexec OsPid for an interactive PTY process"
+  def set_ospid(id, ospid) do
+    GenServer.cast(__MODULE__, {:set_ospid, id, ospid})
+  end
+
   @doc "Send input to an interactive process's stdin"
   def send_input(id, data) do
     GenServer.call(__MODULE__, {:send_input, id, data})
@@ -127,7 +134,9 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       working_dir: attrs[:working_dir],
       status: :running,
       port: attrs[:port],
-      interactive: attrs[:interactive] || false
+      interactive: attrs[:interactive] || false,
+      backend: attrs[:backend] || :port,
+      ospid: attrs[:ospid]
     }
 
     {:reply, {:ok, entry}, Map.put(state, id, entry)}
@@ -183,6 +192,18 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       nil ->
         {:reply, {:error, :not_found}, state}
 
+      %{backend: :erlexec, ospid: ospid, status: :running} when is_integer(ospid) ->
+        _ =
+          try do
+            :exec.stop(ospid)
+          rescue
+            _ -> :ok
+          end
+
+        entry = Map.get(state, id)
+        updated = %{entry | status: :terminated, exit_code: -1, last_read_at: now()}
+        {:reply, {:ok, updated}, Map.put(state, id, updated)}
+
       %{pid: nil} ->
         {:reply, {:error, :no_pid}, state}
 
@@ -212,6 +233,20 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
       %{interactive: false} ->
         {:reply, {:error, :not_interactive}, state}
 
+      %{backend: :erlexec, ospid: ospid, status: :running} when is_integer(ospid) ->
+        case :exec.send(ospid, data) do
+          :ok -> {:reply, :ok, state}
+          {:error, reason} -> {:reply, {:error, reason}, state}
+        end
+
+      %{backend: :erlexec, ospid: nil} ->
+        {:reply, {:error, :no_ospid}, state}
+
+      # Completed erlexec process (ospid set but not running) —
+      # catch before %{port: nil} to avoid misleading :no_port error
+      %{backend: :erlexec} ->
+        {:reply, {:error, :process_not_running}, state}
+
       %{port: nil} ->
         {:reply, {:error, :no_port}, state}
 
@@ -228,45 +263,54 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   @impl true
   def handle_cast({:append_output, id, data}, state) do
-    state = update_entry(state, id, fn entry ->
-      %{entry | output: entry.output <> data, last_read_at: now()}
-    end)
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | output: entry.output <> data, last_read_at: now()}
+      end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:set_exit_code, id, code}, state) do
-    state = update_entry(state, id, fn entry ->
-      %{entry | exit_code: code, status: :completed, last_read_at: now()}
-    end)
+    state =
+      update_entry(state, id, fn entry ->
+        # Only transition to :completed if the process was still :running.
+        # If it was explicitly terminated (:terminated) or errored (:error),
+        # preserve that status and only update the exit code.
+        new_status = if entry.status == :running, do: :completed, else: entry.status
+        %{entry | exit_code: code, status: new_status, last_read_at: now()}
+      end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:set_status, id, status}, state) do
-    state = update_entry(state, id, fn entry ->
-      %{entry | status: status, last_read_at: now()}
-    end)
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | status: status, last_read_at: now()}
+      end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:update_pid, id, pid}, state) do
-    state = update_entry(state, id, fn entry ->
-      %{entry | pid: pid}
-    end)
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | pid: pid}
+      end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:touch, id}, state) do
-    state = update_entry(state, id, fn entry ->
-      %{entry | last_read_at: now()}
-    end)
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | last_read_at: now()}
+      end)
 
     {:noreply, state}
   end
@@ -278,9 +322,20 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   @impl true
   def handle_cast({:set_port, id, port}, state) do
-    state = update_entry(state, id, fn entry ->
-      %{entry | port: port}
-    end)
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | port: port}
+      end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:set_ospid, id, ospid}, state) do
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | ospid: ospid}
+      end)
 
     {:noreply, state}
   end
@@ -299,8 +354,20 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
       # Try to kill any still-running expired processes
       Enum.each(to_remove, fn {id, entry} ->
+        # Kill via erlexec if PTY-based interactive process
+        if not is_nil(entry) and entry.status == :running and entry.backend == :erlexec and
+             is_integer(entry.ospid) do
+          _ =
+            try do
+              :exec.stop(entry.ospid)
+            rescue
+              _ -> :ok
+            end
+        end
+
         # Kill via port if interactive (Port.close terminates the OS process)
-        if not is_nil(entry) and entry.status == :running and entry.interactive and is_port(entry.port) do
+        if not is_nil(entry) and entry.status == :running and entry.interactive and
+             is_port(entry.port) do
           try do
             Port.close(entry.port)
           rescue
@@ -309,7 +376,8 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
         end
 
         # Kill via system pid if available (skip for interactive - already handled above)
-        if not is_nil(entry) and entry.status == :running and not entry.interactive and is_integer(entry.pid) do
+        if not is_nil(entry) and entry.status == :running and not entry.interactive and
+             is_integer(entry.pid) do
           _ =
             try do
               {_, 0} = System.cmd("kill", ["-KILL", to_string(entry.pid)], stderr_to_stdout: true)

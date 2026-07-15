@@ -100,6 +100,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       results =
         if results == [] and search_type in ["content", "both"] do
           words = split_query_into_words(query)
+
           if length(words) > 1 do
             search_content_with_words(vault, search_dir, files, words, case_sensitive)
           else
@@ -112,19 +113,25 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       # Sort by BM25 score descending
       results = Enum.sort_by(results, & &1.score, :desc)
 
-      results = if abs_path do
-        Enum.map(results, fn %{file: file, matches: matches} = result ->
-          abs_file = Path.join(vault, file)
-          new_matches = Enum.map(matches, fn
-            %{line: 0, text: "Filename match: " <> _} = m ->
-              %{m | text: "Filename match: #{abs_file}"}
-            m -> m
+      results =
+        if abs_path do
+          Enum.map(results, fn %{file: file, matches: matches} = result ->
+            abs_file = Path.join(vault, file)
+
+            new_matches =
+              Enum.map(matches, fn
+                %{line: 0, text: "Filename match: " <> _} = m ->
+                  %{m | text: "Filename match: #{abs_file}"}
+
+                m ->
+                  m
+              end)
+
+            %{result | file: abs_file, matches: new_matches}
           end)
-          %{result | file: abs_file, matches: new_matches}
-        end)
-      else
-        results
-      end
+        else
+          results
+        end
 
       total_matches = Enum.reduce(results, 0, fn r, acc -> acc + length(r.matches) end)
 
@@ -182,7 +189,10 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
           else
             doc_length = docs_data[rel_path][:length] || 1
             term_freq = length(matches)
-            doc_freq = calculate_doc_freq(docs_data, query, case_sensitive, is_tag_search, tag_query)
+
+            doc_freq =
+              calculate_doc_freq(docs_data, query, case_sensitive, is_tag_search, tag_query)
+
             score = calculate_bm25(term_freq, doc_length, avgdl, n, doc_freq)
             [%{file: rel_path, matches: matches, score: score}]
           end
@@ -283,6 +293,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
         end)
       else
         q = if case_sensitive, do: query, else: String.downcase(query)
+
         Enum.any?(data.terms, fn term ->
           t = if case_sensitive, do: term, else: String.downcase(term)
           String.contains?(t, q)
@@ -300,7 +311,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     idf = :math.log((n - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
 
     # Term frequency component
-    tf_component = (term_freq * (@k1 + 1)) / (term_freq + @k1 * (1 - @b + @b * doc_length / avgdl))
+    tf_component = term_freq * (@k1 + 1) / (term_freq + @k1 * (1 - @b + @b * doc_length / avgdl))
 
     idf * tf_component
   end

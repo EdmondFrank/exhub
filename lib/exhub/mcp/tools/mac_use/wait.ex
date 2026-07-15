@@ -44,7 +44,9 @@ defmodule Exhub.MCP.Tools.MacUse.Wait do
 
     cond do
       selector && milliseconds ->
-        resp = Response.tool() |> Response.error("Provide either selector or milliseconds, not both")
+        resp =
+          Response.tool() |> Response.error("Provide either selector or milliseconds, not both")
+
         {:reply, resp, frame}
 
       selector ->
@@ -73,7 +75,11 @@ defmodule Exhub.MCP.Tools.MacUse.Wait do
           {:ok, output} ->
             resp =
               Response.tool()
-              |> Helpers.toon_response(%{result: "slept", duration_ms: milliseconds, detail: output})
+              |> Helpers.toon_response(%{
+                result: "slept",
+                duration_ms: milliseconds,
+                detail: output
+              })
 
             {:reply, resp, frame}
 

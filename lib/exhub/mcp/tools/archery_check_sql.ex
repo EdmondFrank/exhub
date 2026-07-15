@@ -18,7 +18,10 @@ defmodule Exhub.MCP.Tools.ArcheryCheckSql do
   end
 
   schema do
-    field(:instance_name, {:required, :string}, description: "Instance name (from get_group_instances)")
+    field(:instance_name, {:required, :string},
+      description: "Instance name (from get_group_instances)"
+    )
+
     field(:db_name, {:required, :string}, description: "Target database name")
     field(:sql_content, {:required, :string}, description: "SQL content to check (DDL/DML)")
     field(:group_name, :string, description: "Resource group name (default: TiDB)")
@@ -36,7 +39,6 @@ defmodule Exhub.MCP.Tools.ArcheryCheckSql do
     # First get instances to find the instance ID
     with {:ok, instances, client} <- Client.get_group_instances(client, group_name),
          {:ok, instance_id, client} <- find_instance_id(instances, instance_name, client) do
-
       case Client.check_sql_for_workflow(client, instance_id, db_name, sql_content) do
         {:ok, result, _} ->
           is_critical = result["is_critical"] || false
@@ -50,6 +52,7 @@ defmodule Exhub.MCP.Tools.ArcheryCheckSql do
             "warning_count" => warning_count,
             "check_result" => result
           }
+
           resp = Response.tool() |> Response.text(Jason.encode!(response))
           {:reply, resp, frame}
 
@@ -58,6 +61,7 @@ defmodule Exhub.MCP.Tools.ArcheryCheckSql do
             "success" => false,
             "error" => reason
           }
+
           resp = Response.tool() |> Response.text(Jason.encode!(response))
           {:reply, resp, frame}
       end
@@ -67,6 +71,7 @@ defmodule Exhub.MCP.Tools.ArcheryCheckSql do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end
@@ -76,8 +81,10 @@ defmodule Exhub.MCP.Tools.ArcheryCheckSql do
     case Enum.find(instances, fn inst -> inst["instance_name"] == instance_name end) do
       nil ->
         {:error, "Instance '#{instance_name}' not found in group", client}
+
       inst ->
         id = trunc(inst["id"] || 0)
+
         if id > 0 do
           {:ok, id, client}
         else

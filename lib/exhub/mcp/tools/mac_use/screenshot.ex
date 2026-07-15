@@ -55,14 +55,15 @@ defmodule Exhub.MCP.Tools.MacUse.Screenshot do
 
     case Helpers.run_axcli(args, timeout: 60_000) do
       {:ok, output} ->
-        result = if Map.get(params, :ocr, false) do
-          %{ocr_text: output}
-        else
-          case Map.get(params, :output) do
-            nil -> %{image_base64: output}
-            path -> %{saved_to: path, detail: output}
+        result =
+          if Map.get(params, :ocr, false) do
+            %{ocr_text: output}
+          else
+            case Map.get(params, :output) do
+              nil -> %{image_base64: output}
+              path -> %{saved_to: path, detail: output}
+            end
           end
-        end
 
         resp =
           Response.tool()

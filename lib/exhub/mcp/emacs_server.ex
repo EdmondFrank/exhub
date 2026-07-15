@@ -30,10 +30,10 @@ defmodule Exhub.MCP.EmacsServer do
     capabilities: [:tools]
 
   # Buffer operation tools
-  component Exhub.MCP.Tools.Emacs.ListBuffers
-  component Exhub.MCP.Tools.Emacs.ReadBuffer
-  component Exhub.MCP.Tools.Emacs.WriteBuffer
-  component Exhub.MCP.Tools.Emacs.CloseBuffer
+  component(Exhub.MCP.Tools.Emacs.ListBuffers)
+  component(Exhub.MCP.Tools.Emacs.ReadBuffer)
+  component(Exhub.MCP.Tools.Emacs.WriteBuffer)
+  component(Exhub.MCP.Tools.Emacs.CloseBuffer)
 
   @impl true
   def init(client_info, frame) do

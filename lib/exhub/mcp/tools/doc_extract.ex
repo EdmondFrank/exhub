@@ -36,7 +36,8 @@ defmodule Exhub.MCP.Tools.DocExtract do
 
   schema do
     field(:file, {:required, :string},
-      description: "Path to the document file (e.g. /path/to/doc.pdf) or a remote URL (http/https)"
+      description:
+        "Path to the document file (e.g. /path/to/doc.pdf) or a remote URL (http/https)"
     )
 
     field(:include_image, :boolean,
@@ -56,7 +57,9 @@ defmodule Exhub.MCP.Tools.DocExtract do
 
     cond do
       is_nil(file) or file == "" ->
-        resp = Response.tool() |> Response.error("`file` is required — provide a local path or URL")
+        resp =
+          Response.tool() |> Response.error("`file` is required — provide a local path or URL")
+
         {:reply, resp, frame}
 
       true ->

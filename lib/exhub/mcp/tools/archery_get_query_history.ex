@@ -38,6 +38,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetQueryHistory do
           "count" => length(history),
           "history" => history
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -46,6 +47,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetQueryHistory do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

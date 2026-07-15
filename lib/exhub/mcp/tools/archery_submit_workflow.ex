@@ -19,10 +19,21 @@ defmodule Exhub.MCP.Tools.ArcherySubmitWorkflow do
 
   schema do
     field(:workflow_name, {:required, :string}, description: "Name/title for the workflow")
-    field(:group_name, {:required, :string}, description: "Resource group name (from get_resource_groups)")
-    field(:instance_name, {:required, :string}, description: "Instance name (from get_group_instances)")
+
+    field(:group_name, {:required, :string},
+      description: "Resource group name (from get_resource_groups)"
+    )
+
+    field(:instance_name, {:required, :string},
+      description: "Instance name (from get_group_instances)"
+    )
+
     field(:db_name, {:required, :string}, description: "Target database name")
-    field(:sql_content, {:required, :string}, description: "SQL content (DDL/DML statements, NOT SELECT)")
+
+    field(:sql_content, {:required, :string},
+      description: "SQL content (DDL/DML statements, NOT SELECT)"
+    )
+
     field(:is_backup, :boolean, description: "Whether to backup before execution (default true)")
     field(:demand_url, :string, description: "Optional demand/ticket URL for reference")
   end
@@ -39,13 +50,23 @@ defmodule Exhub.MCP.Tools.ArcherySubmitWorkflow do
 
     client = Client.new()
 
-    case Client.submit_workflow(client, workflow_name, group_name, instance_name, db_name, sql_content, is_backup, demand_url) do
+    case Client.submit_workflow(
+           client,
+           workflow_name,
+           group_name,
+           instance_name,
+           db_name,
+           sql_content,
+           is_backup,
+           demand_url
+         ) do
       {:ok, result, _} ->
         response = %{
           "success" => true,
           "workflow_name" => workflow_name,
           "result" => result
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -55,6 +76,7 @@ defmodule Exhub.MCP.Tools.ArcherySubmitWorkflow do
           "workflow_name" => workflow_name,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

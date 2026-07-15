@@ -23,9 +23,9 @@ defmodule Exhub.MCP.Hub.Server do
     capabilities: [:tools]
 
   # Register the retrieve_tools component
-  component Exhub.MCP.Tools.Hub.RetrieveTools
+  component(Exhub.MCP.Tools.Hub.RetrieveTools)
   # Register the call_tools component
-  component Exhub.MCP.Tools.Hub.CallTools
+  component(Exhub.MCP.Tools.Hub.CallTools)
 
   require Logger
 
@@ -78,10 +78,10 @@ defmodule Exhub.MCP.Hub.Server do
         Logger.info("Routing tool call: #{tool_name} -> #{server_name}:#{actual_tool_name}")
 
         case Exhub.MCP.Hub.ClientManager.call_tool(
-          server_name,
-          actual_tool_name,
-          arguments
-        ) do
+               server_name,
+               actual_tool_name,
+               arguments
+             ) do
           {:ok, result} ->
             {:ok, result, frame}
 

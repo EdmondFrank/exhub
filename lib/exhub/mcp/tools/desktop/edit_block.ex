@@ -74,7 +74,10 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
   end
 
   schema do
-    field(:file_path, {:required, :string}, description: "Absolute path or ~ shorthand to the file to edit")
+    field(:file_path, {:required, :string},
+      description: "Absolute path or ~ shorthand to the file to edit"
+    )
+
     field(:old_string, {:required, :string}, description: "The exact text to find and replace")
     field(:new_string, {:required, :string}, description: "The replacement text")
 
@@ -132,7 +135,14 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
       cond do
         count == 0 ->
           # Exact match failed – try fuzzy search as a helpful fallback.
-          handle_fuzzy_fallback(content, old_string, new_string, expected, file_path, file_line_ending)
+          handle_fuzzy_fallback(
+            content,
+            old_string,
+            new_string,
+            expected,
+            file_path,
+            file_line_ending
+          )
 
         count != expected ->
           {:error,
@@ -144,7 +154,9 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
 
         true ->
           normalized_replace = normalize_line_endings(new_string, file_line_ending)
-          new_content = apply_replacement(content, normalized_search, normalized_replace, expected)
+
+          new_content =
+            apply_replacement(content, normalized_search, normalized_replace, expected)
 
           warning = build_line_warning(old_string, new_string)
 
@@ -199,7 +211,14 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
   # Fuzzy-match fallback  (Task-wrapped with timeout)
   # ---------------------------------------------------------------------------
 
-  defp handle_fuzzy_fallback(content, search_string, new_string, expected, file_path, file_line_ending) do
+  defp handle_fuzzy_fallback(
+         content,
+         search_string,
+         new_string,
+         expected,
+         file_path,
+         file_line_ending
+       ) do
     content_bytes = byte_size(content)
 
     if content_bytes > @max_fuzzy_file_bytes do
@@ -219,8 +238,14 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
       case Task.yield(task, @fuzzy_timeout_ms) || Task.shutdown(task, :brutal_kill) do
         {:ok, {found_text, similarity}} ->
           apply_fuzzy_result(
-            content, found_text, similarity, search_string, new_string,
-            expected, file_path, file_line_ending
+            content,
+            found_text,
+            similarity,
+            search_string,
+            new_string,
+            expected,
+            file_path,
+            file_line_ending
           )
 
         nil ->
@@ -232,7 +257,16 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
     end
   end
 
-  defp apply_fuzzy_result(content, found_text, similarity, search_string, new_string, expected, file_path, file_line_ending) do
+  defp apply_fuzzy_result(
+         content,
+         found_text,
+         similarity,
+         search_string,
+         new_string,
+         expected,
+         file_path,
+         file_line_ending
+       ) do
     cond do
       similarity >= @direct_replace_threshold ->
         # Direct replacement with warning
@@ -329,6 +363,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
 
   # Trim bytes from the end until we have valid UTF-8
   defp trim_to_valid_utf8(<<>>), do: <<>>
+
   defp trim_to_valid_utf8(binary) do
     case String.valid?(binary) do
       true -> binary
@@ -359,7 +394,9 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
       |> length()
 
     common_prefix = Enum.take(exp_chars, prefix_len) |> Enum.join()
-    common_suffix = Enum.take(Enum.reverse(exp_chars), suffix_len) |> Enum.reverse() |> Enum.join()
+
+    common_suffix =
+      Enum.take(Enum.reverse(exp_chars), suffix_len) |> Enum.reverse() |> Enum.join()
 
     exp_diff =
       exp_chars |> Enum.drop(prefix_len) |> Enum.drop(-suffix_len) |> Enum.join()

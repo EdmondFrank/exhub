@@ -17,8 +17,13 @@ defmodule Exhub.MCP.Tools.Agent.Cancel do
     case Exhub.MCP.Agent.Store.get(agent_id) do
       {:ok, entry} ->
         ExMCP.ACP.Client.cancel(entry.client, session_id)
-        resp = Response.tool() |> Response.text(Jason.encode!(%{status: "cancelled", session_id: session_id}))
+
+        resp =
+          Response.tool()
+          |> Response.text(Jason.encode!(%{status: "cancelled", session_id: session_id}))
+
         {:reply, resp, frame}
+
       {:error, :not_found} ->
         {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
     end

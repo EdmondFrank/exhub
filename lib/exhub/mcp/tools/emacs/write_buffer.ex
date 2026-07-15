@@ -37,13 +37,9 @@ defmodule Exhub.MCP.Tools.Emacs.WriteBuffer do
   end
 
   schema do
-    field(:buffer_name, {:required, :string},
-      description: "Name of the buffer to write to"
-    )
+    field(:buffer_name, {:required, :string}, description: "Name of the buffer to write to")
 
-    field(:content, {:required, :string},
-      description: "Content to write to the buffer"
-    )
+    field(:content, {:required, :string}, description: "Content to write to the buffer")
 
     field(:mode, :string,
       description: "Write mode: 'replace' (default), 'insert', or 'append'",

@@ -28,9 +28,7 @@ defmodule Exhub.MCP.Tools.BrowserUse.Navigate do
   end
 
   schema do
-    field(:command, {:required, :string},
-      description: "One of: go, back, forward, reload"
-    )
+    field(:command, {:required, :string}, description: "One of: go, back, forward, reload")
 
     field(:url, :string,
       description: "URL to navigate to (required for `go` command). Example: https://example.com"

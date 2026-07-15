@@ -40,26 +40,33 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   @type transport_type :: :stdio | :sse | :streamable_http | :websocket
 
   @type t :: %__MODULE__{
-    name: String.t(),
-    transport: transport_type(),
-    enabled: boolean(),
-    command: String.t() | nil,
-    args: [String.t()] | nil,
-    env: map() | nil,
-    url: String.t() | nil,
-    headers: map() | nil,
-    expose_route: String.t() | nil,
-    builtin: boolean(),
-    created_at: DateTime.t(),
-    updated_at: DateTime.t()
-  }
+          name: String.t(),
+          transport: transport_type(),
+          enabled: boolean(),
+          command: String.t() | nil,
+          args: [String.t()] | nil,
+          env: map() | nil,
+          url: String.t() | nil,
+          headers: map() | nil,
+          expose_route: String.t() | nil,
+          builtin: boolean(),
+          created_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   defstruct [
-    :name, :transport, :enabled,
-    :command, :args, :env,
-    :url, :headers, :expose_route,
-    :builtin, false,
-    :created_at, :updated_at
+    :name,
+    :transport,
+    :enabled,
+    :command,
+    :args,
+    :env,
+    :url,
+    :headers,
+    :expose_route,
+    :created_at,
+    :updated_at,
+    builtin: false
   ]
 
   @doc """
@@ -125,6 +132,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
     # Anubis.Transport.StreamableHTTP appends "/mcp" (default mcp_path) to base_url
     # via URI.append_path/2, so strip a trailing "/mcp" to avoid doubling the path.
     base_url = strip_mcp_path(config.url)
+
     [
       name: client_name(config.name),
       transport_name: transport_name(config.name),
@@ -178,16 +186,23 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   @spec validate(t()) :: :ok | {:error, atom()}
   def validate(%__MODULE__{name: nil}), do: {:error, :name_required}
   def validate(%__MODULE__{name: ""}), do: {:error, :name_required}
-  def validate(%__MODULE__{transport: :stdio, command: nil}), do: {:error, :command_required_for_stdio}
-  def validate(%__MODULE__{transport: :stdio, command: ""}), do: {:error, :command_required_for_stdio}
+
+  def validate(%__MODULE__{transport: :stdio, command: nil}),
+    do: {:error, :command_required_for_stdio}
+
+  def validate(%__MODULE__{transport: :stdio, command: ""}),
+    do: {:error, :command_required_for_stdio}
+
   def validate(%__MODULE__{transport: transport, url: nil})
       when transport in [:sse, :streamable_http, :websocket] do
     {:error, :url_required}
   end
+
   def validate(%__MODULE__{transport: transport, url: ""})
       when transport in [:sse, :streamable_http, :websocket] do
     {:error, :url_required}
   end
+
   def validate(_), do: :ok
 
   defp parse_transport("stdio"), do: :stdio
@@ -207,6 +222,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
 
   defp parse_datetime(nil), do: DateTime.utc_now()
   defp parse_datetime(%DateTime{} = dt), do: dt
+
   defp parse_datetime(str) when is_binary(str) do
     case DateTime.from_iso8601(str) do
       {:ok, dt, _} -> dt

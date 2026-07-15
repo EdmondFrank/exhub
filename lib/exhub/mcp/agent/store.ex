@@ -61,15 +61,26 @@ defmodule Exhub.MCP.Agent.Store do
   end
 
   def wait_for_events(agent_id, session_id, timeout_ms) do
-    GenServer.call(__MODULE__, {:wait_for_events, agent_id, session_id, timeout_ms}, timeout_ms + 5000)
+    GenServer.call(
+      __MODULE__,
+      {:wait_for_events, agent_id, session_id, timeout_ms},
+      timeout_ms + 5000
+    )
   end
 
   def wait_for_terminal_event(agent_id, session_id, timeout_ms) do
-    GenServer.call(__MODULE__, {:wait_for_terminal_event, agent_id, session_id, timeout_ms}, timeout_ms + 10_000)
+    GenServer.call(
+      __MODULE__,
+      {:wait_for_terminal_event, agent_id, session_id, timeout_ms},
+      timeout_ms + 10_000
+    )
   end
 
   def set_pending_permission(agent_id, session_id, tool_call, options, from) do
-    GenServer.cast(__MODULE__, {:set_pending_permission, agent_id, session_id, tool_call, options, from})
+    GenServer.cast(
+      __MODULE__,
+      {:set_pending_permission, agent_id, session_id, tool_call, options, from}
+    )
   end
 
   def resolve_permission(agent_id, session_id, option_id) do
@@ -81,7 +92,11 @@ defmodule Exhub.MCP.Agent.Store do
   end
 
   def collect_events(agent_id, session_id, collect_ms, idle_ms) do
-    GenServer.call(__MODULE__, {:collect_events, agent_id, session_id, collect_ms, idle_ms}, collect_ms + 10_000)
+    GenServer.call(
+      __MODULE__,
+      {:collect_events, agent_id, session_id, collect_ms, idle_ms},
+      collect_ms + 10_000
+    )
   end
 
   # Server callbacks
@@ -139,7 +154,9 @@ defmodule Exhub.MCP.Agent.Store do
 
         # Cancel any terminal waiters (skip nil entries — already consumed)
         Enum.each(entry.terminal_waiters, fn
-          {_session_id, nil} -> :ok
+          {_session_id, nil} ->
+            :ok
+
           {_session_id, {from, timer_ref}} ->
             Process.cancel_timer(timer_ref)
             GenServer.reply(from, {:ok, merge_chunks([])})
@@ -147,7 +164,9 @@ defmodule Exhub.MCP.Agent.Store do
 
         # Cancel any collect waiters
         Enum.each(entry.collect_waiters, fn
-          {_session_id, nil} -> :ok
+          {_session_id, nil} ->
+            :ok
+
           {_session_id, {from, collect_ref, idle_ref, _idle_ms, acc}} ->
             Process.cancel_timer(collect_ref)
             Process.cancel_timer(idle_ref)
@@ -198,10 +217,13 @@ defmodule Exhub.MCP.Agent.Store do
             # Register a waiter
             timer_ref = Process.send_after(self(), {:timeout, session_id, agent_id}, timeout_ms)
             waiter = {from, timer_ref}
-            new_state = update_in(state, [:agents, agent_id, :waiters, session_id], fn
-              nil -> [waiter]
-              waiters -> waiters ++ [waiter]
-            end)
+
+            new_state =
+              update_in(state, [:agents, agent_id, :waiters, session_id], fn
+                nil -> [waiter]
+                waiters -> waiters ++ [waiter]
+              end)
+
             {:noreply, new_state}
         end
     end
@@ -214,7 +236,10 @@ defmodule Exhub.MCP.Agent.Store do
 
       {_tool_call, _options, {pid, ref}} ->
         send(pid, {ref, {:ok, %{"optionId" => option_id}}})
-        new_state = update_in(state, [:agents, agent_id, :pending_permissions], &Map.delete(&1, session_id))
+
+        new_state =
+          update_in(state, [:agents, agent_id, :pending_permissions], &Map.delete(&1, session_id))
+
         {:reply, {:ok, %{status: "granted", option_id: option_id}}, new_state}
     end
   end
@@ -226,7 +251,10 @@ defmodule Exhub.MCP.Agent.Store do
 
       {_tool_call, _options, {pid, ref}} ->
         send(pid, {ref, {:ok, %{"cancelled" => true}}})
-        new_state = update_in(state, [:agents, agent_id, :pending_permissions], &Map.delete(&1, session_id))
+
+        new_state =
+          update_in(state, [:agents, agent_id, :pending_permissions], &Map.delete(&1, session_id))
+
         {:reply, {:ok, %{status: "cancelled"}}, new_state}
     end
   end
@@ -243,12 +271,17 @@ defmodule Exhub.MCP.Agent.Store do
           new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
           {:reply, {:ok, merge_chunks(existing)}, new_state}
         else
-          collect_ref = Process.send_after(self(), {:collect_timeout, session_id, agent_id}, collect_ms)
+          collect_ref =
+            Process.send_after(self(), {:collect_timeout, session_id, agent_id}, collect_ms)
+
           idle_ref = Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
 
           new_state =
             state
-            |> put_in([:agents, agent_id, :collect_waiters, session_id], {from, collect_ref, idle_ref, idle_ms, existing})
+            |> put_in(
+              [:agents, agent_id, :collect_waiters, session_id],
+              {from, collect_ref, idle_ref, idle_ms, existing}
+            )
             |> put_in([:agents, agent_id, :event_queues, session_id], [])
 
           {:noreply, new_state}
@@ -270,8 +303,12 @@ defmodule Exhub.MCP.Agent.Store do
           {:reply, {:ok, merge_chunks(existing_events)}, new_state}
         else
           # Register a terminal waiter
-          timer_ref = Process.send_after(self(), {:terminal_timeout, session_id, agent_id}, timeout_ms)
-          new_state = put_in(state, [:agents, agent_id, :terminal_waiters, session_id], {from, timer_ref})
+          timer_ref =
+            Process.send_after(self(), {:terminal_timeout, session_id, agent_id}, timeout_ms)
+
+          new_state =
+            put_in(state, [:agents, agent_id, :terminal_waiters, session_id], {from, timer_ref})
+
           {:noreply, new_state}
         end
     end
@@ -285,10 +322,12 @@ defmodule Exhub.MCP.Agent.Store do
 
   @impl true
   def handle_cast({:add_session, agent_id, session_id}, state) do
-    new_state = update_in(state, [:agents, agent_id, :sessions], fn
-      nil -> MapSet.new([session_id])
-      sessions -> MapSet.put(sessions, session_id)
-    end)
+    new_state =
+      update_in(state, [:agents, agent_id, :sessions], fn
+        nil -> MapSet.new([session_id])
+        sessions -> MapSet.put(sessions, session_id)
+      end)
+
     {:noreply, new_state}
   end
 
@@ -350,6 +389,7 @@ defmodule Exhub.MCP.Agent.Store do
 
               {from, timer_ref} ->
                 Process.cancel_timer(timer_ref)
+
                 # Drain the full queue from state1 (already includes this event if no regular waiter took it)
                 queued = get_in(state1, [:agents, agent_id, :event_queues, session_id]) || []
                 GenServer.reply(from, {:ok, merge_chunks(queued)})
@@ -389,10 +429,15 @@ defmodule Exhub.MCP.Agent.Store do
                 else
                   # New events — reset idle timer
                   Process.cancel_timer(idle_ref)
-                  new_idle_ref = Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
+
+                  new_idle_ref =
+                    Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
 
                   state2
-                  |> put_in([:agents, agent_id, :collect_waiters, session_id], {from, collect_ref, new_idle_ref, idle_ms, new_acc})
+                  |> put_in(
+                    [:agents, agent_id, :collect_waiters, session_id],
+                    {from, collect_ref, new_idle_ref, idle_ms, new_acc}
+                  )
                   |> put_in([:agents, agent_id, :event_queues, session_id], [])
                 end
               end
@@ -402,8 +447,17 @@ defmodule Exhub.MCP.Agent.Store do
     end
   end
 
-  def handle_cast({:set_pending_permission, agent_id, session_id, tool_call, options, from}, state) do
-    new_state = put_in(state, [:agents, agent_id, :pending_permissions, session_id], {tool_call, options, from})
+  def handle_cast(
+        {:set_pending_permission, agent_id, session_id, tool_call, options, from},
+        state
+      ) do
+    new_state =
+      put_in(
+        state,
+        [:agents, agent_id, :pending_permissions, session_id],
+        {tool_call, options, from}
+      )
+
     {:noreply, new_state}
   end
 
@@ -494,7 +548,6 @@ defmodule Exhub.MCP.Agent.Store do
 
   defp merge_chunks(events), do: events
 
-
   @impl true
   def handle_info({:timeout, session_id, agent_id}, state) do
     case get_in(state, [:agents, agent_id, :waiters, session_id]) do
@@ -502,16 +555,23 @@ defmodule Exhub.MCP.Agent.Store do
         {:noreply, state}
 
       waiters ->
-        # Find and remove the timed-out waiter
-        case Enum.split_with(waiters, fn {_from, timer_ref} ->
-          # The timer that triggered this will already be expired
-          Process.read_timer(timer_ref) == false
-        end) do
-          {[], _} ->
+        # Find and remove all timed-out waiters (multiple may expire simultaneously)
+        {timed_out, rest_waiters} =
+          Enum.split_with(waiters, fn {_from, timer_ref} ->
+            # The timer that triggered this will already be expired
+            Process.read_timer(timer_ref) == false
+          end)
+
+        case timed_out do
+          [] ->
             {:noreply, state}
 
-          {[{from, _timer_ref}], rest_waiters} ->
-            GenServer.reply(from, {:ok, merge_chunks([])})
+          _ ->
+            # Reply to all timed-out waiters
+            Enum.each(timed_out, fn {from, _timer_ref} ->
+              GenServer.reply(from, {:ok, merge_chunks([])})
+            end)
+
             new_state = put_in(state, [:agents, agent_id, :waiters, session_id], rest_waiters)
             {:noreply, new_state}
         end
@@ -548,10 +608,12 @@ defmodule Exhub.MCP.Agent.Store do
         queued = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
         all_events = acc ++ queued
         GenServer.reply(from, {:ok, merge_chunks(all_events)})
+
         new_state =
           state
           |> put_in([:agents, agent_id, :collect_waiters, session_id], nil)
           |> put_in([:agents, agent_id, :event_queues, session_id], [])
+
         {:noreply, new_state}
     end
   end
@@ -567,10 +629,12 @@ defmodule Exhub.MCP.Agent.Store do
         queued = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
         all_events = acc ++ queued
         GenServer.reply(from, {:ok, merge_chunks(all_events)})
+
         new_state =
           state
           |> put_in([:agents, agent_id, :collect_waiters, session_id], nil)
           |> put_in([:agents, agent_id, :event_queues, session_id], [])
+
         {:noreply, new_state}
     end
   end
@@ -584,8 +648,8 @@ defmodule Exhub.MCP.Agent.Store do
         # Agent process died, clean up
         entry = Map.get(state.agents, agent_id)
 
-       if entry do
-         # Cancel any waiters
+        if entry do
+          # Cancel any waiters
           Enum.each(entry.waiters, fn {_session_id, waiters} ->
             Enum.each(waiters, fn {from, timer_ref} ->
               Process.cancel_timer(timer_ref)
@@ -597,6 +661,7 @@ defmodule Exhub.MCP.Agent.Store do
           Enum.each(entry.terminal_waiters, fn
             {_session_id, nil} ->
               :ok
+
             {_session_id, {from, timer_ref}} ->
               Process.cancel_timer(timer_ref)
               GenServer.reply(from, {:ok, merge_chunks([])})
@@ -604,7 +669,9 @@ defmodule Exhub.MCP.Agent.Store do
 
           # Cancel any collect waiters
           Enum.each(entry.collect_waiters, fn
-            {_session_id, nil} -> :ok
+            {_session_id, nil} ->
+              :ok
+
             {_session_id, {from, collect_ref, idle_ref, _idle_ms, acc}} ->
               Process.cancel_timer(collect_ref)
               Process.cancel_timer(idle_ref)

@@ -30,7 +30,12 @@ defmodule Exhub.MCP.Tools.MacUse.Hover do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:selector, :string, description: "CSS-like selector for the target element", required: true)
+
+    field(:selector, :string,
+      description: "CSS-like selector for the target element",
+      required: true
+    )
+
     field(:no_visual_cursor, :boolean, description: "Disable crosshair overlay", default: false)
   end
 

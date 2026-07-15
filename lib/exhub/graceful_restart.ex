@@ -125,7 +125,10 @@ defmodule Exhub.GracefulRestart do
             [port: 0, net: :inet, transport_options: [socket: socket]]
 
           :error ->
-            Logger.warning("[GracefulRestart] FD #{fd} unusable, falling back to normal port binding")
+            Logger.warning(
+              "[GracefulRestart] FD #{fd} unusable, falling back to normal port binding"
+            )
+
             []
         end
 
@@ -152,7 +155,9 @@ defmodule Exhub.GracefulRestart do
     # on Linux/macOS.  We use `:inet` (IPv4) as the address family.
     # This returns a socket that Cowboy will treat as already-bound.
     case :gen_tcp.fdopen(fd, [:binary, packet: :raw, active: false]) do
-      {:ok, socket} -> {:ok, socket}
+      {:ok, socket} ->
+        {:ok, socket}
+
       {:error, reason} ->
         Logger.warning("[GracefulRestart] Failed to adopt FD #{fd}: #{inspect(reason)}")
         :error

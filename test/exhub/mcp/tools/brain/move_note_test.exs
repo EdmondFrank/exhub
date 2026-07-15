@@ -3,7 +3,10 @@ defmodule Exhub.MCP.Tools.Brain.MoveNoteTest do
 
   alias Exhub.MCP.Tools.Brain.MoveNote
 
-  @test_vault Path.join(System.tmp_dir!(), "brain_move_note_test_#{System.unique_integer([:positive])}")
+  @test_vault Path.join(
+                System.tmp_dir!(),
+                "brain_move_note_test_#{System.unique_integer([:positive])}"
+              )
 
   setup do
     File.mkdir_p!(@test_vault)
@@ -83,7 +86,12 @@ defmodule Exhub.MCP.Tools.Brain.MoveNoteTest do
 
       {:reply, _resp, ^frame} = MoveNote.execute(params, frame)
 
-      nested = Path.join(Path.join(Path.join(Path.join(@test_vault, "deep"), "nested"), "path"), "loose.md")
+      nested =
+        Path.join(
+          Path.join(Path.join(Path.join(@test_vault, "deep"), "nested"), "path"),
+          "loose.md"
+        )
+
       assert File.exists?(nested)
     end
 

@@ -34,7 +34,10 @@ defmodule Exhub.MCP.Tools.TodoClearItems do
   end
 
   schema do
-    field :tenant_id, {:required, :string}, description: "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+    field(:tenant_id, {:required, :string},
+      description:
+        "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+    )
   end
 
   @impl true

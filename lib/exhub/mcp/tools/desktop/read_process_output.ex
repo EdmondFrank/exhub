@@ -32,9 +32,19 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
   end
 
   schema do
-    field(:process_id, {:required, :string}, description: "The process ID returned by start_process")
-    field(:offset, :integer, description: "Line offset to start reading from (default 0)", default: 0)
-    field(:length, :integer, description: "Maximum number of lines to return (default 1000)", default: 1000)
+    field(:process_id, {:required, :string},
+      description: "The process ID returned by start_process"
+    )
+
+    field(:offset, :integer,
+      description: "Line offset to start reading from (default 0)",
+      default: 0
+    )
+
+    field(:length, :integer,
+      description: "Maximum number of lines to return (default 1000)",
+      default: 1000
+    )
   end
 
   @impl true
@@ -57,7 +67,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
         # has_more is true if there are lines beyond what we returned,
         # OR if process is running and we returned exactly 'length' lines (buffer may grow)
         has_more =
-          (length(lines) > offset + length) or
+          length(lines) > offset + length or
             (result.status == :running and lines_returned == length)
 
         resp =
@@ -77,7 +87,9 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
       {:error, :not_found} ->
         resp =
           Response.tool()
-          |> Response.error("Process not found: #{process_id}. Process may have expired (1 hour TTL).")
+          |> Response.error(
+            "Process not found: #{process_id}. Process may have expired (1 hour TTL)."
+          )
 
         {:reply, resp, frame}
     end

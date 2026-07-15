@@ -34,7 +34,12 @@ defmodule Exhub.MCP.Tools.MacUse.Click do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:selector, :string, description: "CSS-like selector for the target element", required: true)
+
+    field(:selector, :string,
+      description: "CSS-like selector for the target element",
+      required: true
+    )
+
     field(:strategy, :string, description: "Click strategy: auto, ax, cg, cg-pid")
     field(:hover, :boolean, description: "Pre-move cursor to trigger hover UI", default: false)
     field(:activate, :boolean, description: "Bring app to foreground", default: false)

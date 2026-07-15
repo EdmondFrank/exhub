@@ -27,12 +27,11 @@ defmodule Exhub.MCP.Tools.BrowserUse.Tabs do
   end
 
   schema do
-    field(:command, {:required, :string},
-      description: "One of: tabs, use, status"
-    )
+    field(:command, {:required, :string}, description: "One of: tabs, use, status")
 
     field(:ws_url, :string,
-      description: "WebSocket URL of the tab to attach to (required for `use` command). Example: ws://127.0.0.1:9222/devtools/page/ABC..."
+      description:
+        "WebSocket URL of the tab to attach to (required for `use` command). Example: ws://127.0.0.1:9222/devtools/page/ABC..."
     )
 
     field(:port, :integer,

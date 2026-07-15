@@ -28,9 +28,7 @@ defmodule Exhub.MCP.Tools.BrowserUse.Inspect do
   end
 
   schema do
-    field(:command, {:required, :string},
-      description: "One of: snap, text, eval, shot"
-    )
+    field(:command, {:required, :string}, description: "One of: snap, text, eval, shot")
 
     field(:interactive, :boolean,
       description: "(`snap` only) Return only interactive elements. Default false."
@@ -40,9 +38,7 @@ defmodule Exhub.MCP.Tools.BrowserUse.Inspect do
       description: "(`snap` only) Return plain-text output instead of JSON. Default false."
     )
 
-    field(:depth, :integer,
-      description: "(`snap` only) Limit the a11y tree depth. Example: 3"
-    )
+    field(:depth, :integer, description: "(`snap` only) Limit the a11y tree depth. Example: 3")
 
     field(:selector, :string,
       description: "(`text` only) CSS selector to scope text extraction. Example: \"#main\""

@@ -20,9 +20,20 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
   end
 
   schema do
-    field :server_name, :string, description: "Name of the upstream server to call the tool on", required: true
-    field :tool_name, :string, description: "Name of the tool to execute (without server prefix)", required: true
-    field :arguments, :any, description: "Arguments to pass to the tool (map or JSON string)", default: %{}
+    field(:server_name, :string,
+      description: "Name of the upstream server to call the tool on",
+      required: true
+    )
+
+    field(:tool_name, :string,
+      description: "Name of the tool to execute (without server prefix)",
+      required: true
+    )
+
+    field(:arguments, :any,
+      description: "Arguments to pass to the tool (map or JSON string)",
+      default: %{}
+    )
   end
 
   @impl true
@@ -43,6 +54,7 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
         case strip_server_prefix(tool_name) do
           {:ok, bare_name} ->
             Logger.info("[MCP Hub] Retrying call_tools with stripped prefix: #{bare_name}")
+
             case Exhub.MCP.Hub.ClientManager.call_tool(server_name, bare_name, arguments) do
               {:ok, result} ->
                 resp = Response.tool() |> Response.structured(%{result: result})
@@ -74,6 +86,7 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
   defp strip_server_prefix(_), do: :error
 
   defp parse_arguments(args) when is_map(args), do: args
+
   defp parse_arguments(args) when is_binary(args) do
     case Jason.decode(args) do
       {:ok, decoded} when is_map(decoded) -> decoded

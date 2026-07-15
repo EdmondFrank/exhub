@@ -37,7 +37,9 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
   end
 
   schema do
-    field(:agent_id, {:required, :string}, description: "Unique identifier for this agent instance")
+    field(:agent_id, {:required, :string},
+      description: "Unique identifier for this agent instance"
+    )
   end
 
   @impl true
@@ -48,7 +50,12 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
     case Store.get(agent_id) do
       {:ok, entry} ->
         if Process.alive?(entry.client) do
-          resp = Response.tool() |> Response.error("Agent '#{agent_id}' is already running. Call agent_shutdown first.")
+          resp =
+            Response.tool()
+            |> Response.error(
+              "Agent '#{agent_id}' is already running. Call agent_shutdown first."
+            )
+
           {:reply, resp, frame}
         else
           # Stale entry — clean up and fall through to fresh start
@@ -91,18 +98,34 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
               {:reply, resp, frame}
             else
               Store.unregister(agent_id)
-              resp = Response.tool() |> Response.error("Agent '#{agent_id}' started but died immediately")
+
+              resp =
+                Response.tool()
+                |> Response.error("Agent '#{agent_id}' started but died immediately")
+
               {:reply, resp, frame}
             end
 
           {:error, {:exit, {:timeout, _}}} ->
             Store.unregister(agent_id)
-            resp = Response.tool() |> Response.error("Agent '#{agent_id}' timed out during initialization. The agent process may be slow to start.")
+
+            resp =
+              Response.tool()
+              |> Response.error(
+                "Agent '#{agent_id}' timed out during initialization. The agent process may be slow to start."
+              )
+
             {:reply, resp, frame}
 
           {:error, {:exit, reason}} ->
             Store.unregister(agent_id)
-            resp = Response.tool() |> Response.error("Agent '#{agent_id}' crashed during initialization: #{inspect(reason)}")
+
+            resp =
+              Response.tool()
+              |> Response.error(
+                "Agent '#{agent_id}' crashed during initialization: #{inspect(reason)}"
+              )
+
             {:reply, resp, frame}
 
           {:error, reason} ->

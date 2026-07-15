@@ -35,16 +35,16 @@ defmodule Exhub.MCP.ArcheryServer do
     capabilities: [:tools]
 
   # Register the tool components
-  component Exhub.MCP.Tools.ArcheryGetInstances
-  component Exhub.MCP.Tools.ArcheryGetDatabases
-  component Exhub.MCP.Tools.ArcheryQueryExecute
+  component(Exhub.MCP.Tools.ArcheryGetInstances)
+  component(Exhub.MCP.Tools.ArcheryGetDatabases)
+  component(Exhub.MCP.Tools.ArcheryQueryExecute)
   # component Exhub.MCP.Tools.ArcherySqlCheck
   # component Exhub.MCP.Tools.ArcherySqlReview
   # component Exhub.MCP.Tools.ArcheryGetWorkflowList
   # component Exhub.MCP.Tools.ArcheryGetWorkflowDetail
-  component Exhub.MCP.Tools.ArcheryGetQueryHistory
-  component Exhub.MCP.Tools.ArcheryGetResourceGroups
-  component Exhub.MCP.Tools.ArcheryGetGroupInstances
+  component(Exhub.MCP.Tools.ArcheryGetQueryHistory)
+  component(Exhub.MCP.Tools.ArcheryGetResourceGroups)
+  component(Exhub.MCP.Tools.ArcheryGetGroupInstances)
   # component Exhub.MCP.Tools.ArcheryCheckSql
   # component Exhub.MCP.Tools.ArcherySubmitWorkflow
 

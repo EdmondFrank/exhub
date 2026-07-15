@@ -56,7 +56,8 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
     api_key = Application.get_env(:exhub, :giteeai_api_key, "")
 
     if api_key == "" do
-      {:error, "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""}
+      {:error,
+       "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""}
     else
       do_extract(file, include_image, output_format, api_key)
     end
@@ -125,7 +126,10 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
           {:ok, %HTTPoison.Response{status_code: 200, body: content, headers: resp_headers}} ->
             filename = file |> URI.parse() |> Map.get(:path, "document") |> Path.basename()
             filename = if filename == "" or filename == "/", do: "document", else: filename
-            content_type = get_content_type_from_headers(resp_headers) || "application/octet-stream"
+
+            content_type =
+              get_content_type_from_headers(resp_headers) || "application/octet-stream"
+
             {:ok, {"file", {filename, content, content_type}}}
 
           {:ok, %HTTPoison.Response{status_code: status}} ->
@@ -155,7 +159,8 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   defp poll_task(task_id, api_key, attempt \\ 0)
 
   defp poll_task(_task_id, _api_key, attempt) when attempt >= @max_poll_attempts do
-    {:error, "Timed out after #{@max_poll_attempts} attempts (#{@max_poll_attempts * @poll_interval_ms / 1000}s)"}
+    {:error,
+     "Timed out after #{@max_poll_attempts} attempts (#{@max_poll_attempts * @poll_interval_ms / 1000}s)"}
   end
 
   defp poll_task(task_id, api_key, attempt) do
@@ -164,7 +169,10 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
     url = "#{@task_url}/#{task_id}"
     headers = [{"Authorization", "Bearer #{api_key}"}]
 
-    case HTTPoison.get(url, headers, recv_timeout: @poll_http_timeout_ms, timeout: @poll_http_timeout_ms) do
+    case HTTPoison.get(url, headers,
+           recv_timeout: @poll_http_timeout_ms,
+           timeout: @poll_http_timeout_ms
+         ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
         case Jason.decode(resp_body) do
           {:ok, result} ->
@@ -217,7 +225,10 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
       Map.has_key?(output, "file_url") ->
         file_url = Map.get(output, "file_url")
 
-        case HTTPoison.get(file_url, [], recv_timeout: @http_timeout_ms, timeout: @http_timeout_ms) do
+        case HTTPoison.get(file_url, [],
+               recv_timeout: @http_timeout_ms,
+               timeout: @http_timeout_ms
+             ) do
           {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
             String.trim(body)
 
@@ -263,18 +274,18 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   """
   def guess_mime(filename) do
     case Path.extname(filename) |> String.downcase() do
-      ".pdf"  -> "application/pdf"
+      ".pdf" -> "application/pdf"
       ".docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      ".doc"  -> "application/msword"
-      ".png"  -> "image/png"
-      ".jpg"  -> "image/jpeg"
+      ".doc" -> "application/msword"
+      ".png" -> "image/png"
+      ".jpg" -> "image/jpeg"
       ".jpeg" -> "image/jpeg"
       ".tiff" -> "image/tiff"
-      ".tif"  -> "image/tiff"
-      ".bmp"  -> "image/bmp"
-      ".gif"  -> "image/gif"
+      ".tif" -> "image/tiff"
+      ".bmp" -> "image/bmp"
+      ".gif" -> "image/gif"
       ".webp" -> "image/webp"
-      _       -> "application/octet-stream"
+      _ -> "application/octet-stream"
     end
   end
 

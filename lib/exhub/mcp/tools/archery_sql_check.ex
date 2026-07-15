@@ -37,6 +37,7 @@ defmodule Exhub.MCP.Tools.ArcherySqlCheck do
           "success" => true,
           "check_result" => result
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -45,6 +46,7 @@ defmodule Exhub.MCP.Tools.ArcherySqlCheck do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

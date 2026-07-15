@@ -18,7 +18,10 @@ defmodule Exhub.MCP.Tools.ArcheryGetWorkflowList do
   end
 
   schema do
-    field(:status, :string, description: "Filter by status: pending, executing, finished, rejected, etc. (optional)")
+    field(:status, :string,
+      description: "Filter by status: pending, executing, finished, rejected, etc. (optional)"
+    )
+
     field(:start_date, :string, description: "Start date filter in YYYY-MM-DD format (optional)")
     field(:end_date, :string, description: "End date filter in YYYY-MM-DD format (optional)")
     field(:limit, :integer, description: "Maximum workflows to return (default 50)")
@@ -40,6 +43,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetWorkflowList do
           "count" => length(workflows),
           "workflows" => workflows
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
 
@@ -48,6 +52,7 @@ defmodule Exhub.MCP.Tools.ArcheryGetWorkflowList do
           "success" => false,
           "error" => reason
         }
+
         resp = Response.tool() |> Response.text(Jason.encode!(response))
         {:reply, resp, frame}
     end

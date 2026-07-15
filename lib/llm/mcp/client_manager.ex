@@ -49,7 +49,14 @@ defmodule Exhub.Llm.Mcp.ClientManager do
           )
 
         Logger.info("Client started on PID #{inspect(client)}")
-        new_registry = Map.put(state.registry, client_name, %{client: client, server_name: server_name, client_name: client_name})
+
+        new_registry =
+          Map.put(state.registry, client_name, %{
+            client: client,
+            server_name: server_name,
+            client_name: client_name
+          })
+
         {:reply, {:ok, client}, %{state | registry: new_registry}}
 
       %{client: client} ->
@@ -60,7 +67,9 @@ defmodule Exhub.Llm.Mcp.ClientManager do
   @impl true
   def handle_call({:kill, client_name}, _from, state) do
     case Map.get(state.registry, client_name) do
-      nil -> {:reply, :not_found, state}
+      nil ->
+        {:reply, :not_found, state}
+
       %{client: client} ->
         Process.exit(client, :kill)
         new_registry = Map.delete(state.registry, client_name)

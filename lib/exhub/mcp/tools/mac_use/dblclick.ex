@@ -31,7 +31,12 @@ defmodule Exhub.MCP.Tools.MacUse.DblClick do
   schema do
     field(:app, :string, description: "Application name")
     field(:pid, :integer, description: "Process ID")
-    field(:selector, :string, description: "CSS-like selector for the target element", required: true)
+
+    field(:selector, :string,
+      description: "CSS-like selector for the target element",
+      required: true
+    )
+
     field(:strategy, :string, description: "Click strategy: auto, ax, cg, cg-pid")
     field(:no_visual_cursor, :boolean, description: "Disable crosshair overlay", default: false)
   end

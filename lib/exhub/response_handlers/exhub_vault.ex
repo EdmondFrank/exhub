@@ -51,6 +51,7 @@ defmodule Exhub.ResponseHandlers.ExhubVault do
     try do
       key = derive_key(password)
       iv = :crypto.strong_rand_bytes(@iv_length)
+
       {ciphertext, tag} =
         :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, plaintext, "", true)
 
@@ -73,7 +74,13 @@ defmodule Exhub.ResponseHandlers.ExhubVault do
           else
             iv = binary_part(decoded, 0, @iv_length)
             tag = binary_part(decoded, @iv_length, @tag_length)
-            ct = binary_part(decoded, @iv_length + @tag_length, byte_size(decoded) - @iv_length - @tag_length)
+
+            ct =
+              binary_part(
+                decoded,
+                @iv_length + @tag_length,
+                byte_size(decoded) - @iv_length - @tag_length
+              )
 
             case :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, ct, "", tag, false) do
               :error -> {:error, "decryption failed (wrong password or tampered data)"}

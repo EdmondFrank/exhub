@@ -25,11 +25,13 @@ defmodule Exhub.MCP.Tools.ConvertTime do
     )
 
     field(:datetime, :string,
-      description: "ISO8601 datetime string to convert (e.g., '2024-01-15T14:30:00'). If provided, 'time' field is ignored."
+      description:
+        "ISO8601 datetime string to convert (e.g., '2024-01-15T14:30:00'). If provided, 'time' field is ignored."
     )
 
     field(:time, :string,
-      description: "Time to convert in 24-hour format (HH:MM). Used if 'datetime' is not provided."
+      description:
+        "Time to convert in 24-hour format (HH:MM). Used if 'datetime' is not provided."
     )
 
     field(:target_timezone, {:required, :string},
@@ -44,44 +46,45 @@ defmodule Exhub.MCP.Tools.ConvertTime do
     time_str = Map.get(params, :time)
     target_tz = Map.get(params, :target_timezone)
 
-    result = with {:ok, source_dt} <- get_source_datetime(datetime_str, time_str, source_tz),
-                  {:ok, target_dt} <- DateTime.shift_zone(source_dt, target_tz) do
-      source_offset = source_dt.utc_offset + source_dt.std_offset
-      target_offset = target_dt.utc_offset + target_dt.std_offset
-      diff_hours = (target_offset - source_offset) / 3600
+    result =
+      with {:ok, source_dt} <- get_source_datetime(datetime_str, time_str, source_tz),
+           {:ok, target_dt} <- DateTime.shift_zone(source_dt, target_tz) do
+        source_offset = source_dt.utc_offset + source_dt.std_offset
+        target_offset = target_dt.utc_offset + target_dt.std_offset
+        diff_hours = (target_offset - source_offset) / 3600
 
-      time_diff_str = format_time_diff(diff_hours)
+        time_diff_str = format_time_diff(diff_hours)
 
-      result_map = %{
-        source: %{
-          timezone: source_tz,
-          datetime: DateTime.to_iso8601(source_dt),
-          day_of_week: Calendar.strftime(source_dt, "%A"),
-          is_dst: source_dt.std_offset != 0
-        },
-        target: %{
-          timezone: target_tz,
-          datetime: DateTime.to_iso8601(target_dt),
-          day_of_week: Calendar.strftime(target_dt, "%A"),
-          is_dst: target_dt.std_offset != 0
-        },
-        time_difference: time_diff_str
-      }
+        result_map = %{
+          source: %{
+            timezone: source_tz,
+            datetime: DateTime.to_iso8601(source_dt),
+            day_of_week: Calendar.strftime(source_dt, "%A"),
+            is_dst: source_dt.std_offset != 0
+          },
+          target: %{
+            timezone: target_tz,
+            datetime: DateTime.to_iso8601(target_dt),
+            day_of_week: Calendar.strftime(target_dt, "%A"),
+            is_dst: target_dt.std_offset != 0
+          },
+          time_difference: time_diff_str
+        }
 
-      {:ok, Jason.encode!(result_map, pretty: true)}
-    else
-      {:error, :invalid_time_format} ->
-        {:error, "Invalid time format '#{time_str}'. Expected HH:MM in 24-hour format."}
+        {:ok, Jason.encode!(result_map, pretty: true)}
+      else
+        {:error, :invalid_time_format} ->
+          {:error, "Invalid time format '#{time_str}'. Expected HH:MM in 24-hour format."}
 
-      {:error, :invalid_datetime_format} ->
-        {:error, "Invalid datetime format '#{datetime_str}'. Expected ISO8601 format."}
+        {:error, :invalid_datetime_format} ->
+          {:error, "Invalid datetime format '#{datetime_str}'. Expected ISO8601 format."}
 
-      {:error, :no_time_provided} ->
-        {:error, "Either 'datetime' or 'time' parameter must be provided."}
+        {:error, :no_time_provided} ->
+          {:error, "Either 'datetime' or 'time' parameter must be provided."}
 
-      {:error, reason} ->
-        {:error, "Error converting time: #{inspect(reason)}"}
-    end
+        {:error, reason} ->
+          {:error, "Error converting time: #{inspect(reason)}"}
+      end
 
     case result do
       {:ok, json} ->
@@ -158,6 +161,7 @@ defmodule Exhub.MCP.Tools.ConvertTime do
       "#{sign}#{trunc(hours)}h"
     else
       sign = if hours >= 0, do: "+", else: ""
+
       formatted =
         :erlang.float_to_binary(abs(hours), decimals: 2)
         |> String.trim_trailing("0")
