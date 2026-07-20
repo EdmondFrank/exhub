@@ -11,8 +11,7 @@ defmodule Exhub.Genclaw.Tools.CodeSceneDraft do
 
   require Logger
 
-  alias Exhub.Genclaw.{Session, ToolCards}
-  alias Exhub.Llm.LlmConfigServer
+  alias Exhub.Genclaw.{Session, ToolCards, LLMHelper, RenderHelper}
   alias Exhub.MCP.Hub.BuiltInRegistry
 
   @planning_delim "===PLANNING_START==="
@@ -463,190 +462,16 @@ defmodule Exhub.Genclaw.Tools.CodeSceneDraft do
   # ─── Rendering ─────────────────────────────────────────────────────────────
 
   defp render_to_png(code, output_path, code_type) do
-    File.mkdir_p!(Path.dirname(output_path))
-
-    html_content = if code_type == "html", do: code, else: wrap_svg_in_html(code)
-
-    # Parse canvas size from SVG
-    {w, h} = parse_canvas_size(code)
-    Logger.info("[Genclaw.CodeSceneDraft] render #{code_type} #{w}x#{h} -> #{output_path}")
-
-    tmp_html = Path.join(System.tmp_dir!(), "genclaw_render_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}.html")
-    File.write!(tmp_html, html_content)
-
-    try do
-      chrome = chrome_path()
-
-      args = [
-        "--headless",
-        "--disable-gpu",
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-        "--screenshot=#{output_path}",
-        "--window-size=#{w},#{h}",
-        "file://#{tmp_html}"
-      ]
-
-      case Exile.stream([chrome | args], stderr: :consume) |> Enum.reduce({0, ""}, fn
-        {:stdout, _}, {code, acc} -> {code, acc}
-        {:exit, code}, {_, acc} -> {code, acc}
-      end) do
-        {0, _} ->
-          Logger.info("[Genclaw.CodeSceneDraft] render done: #{output_path}")
-          output_path
-
-        {code, _} ->
-          Logger.warning("[Genclaw.CodeSceneDraft] chrome exited #{code}, trying qlmanage fallback")
-          render_with_qlmanage(tmp_html, output_path)
-      end
-    rescue
-      e ->
-        Logger.warning("[Genclaw.CodeSceneDraft] chrome render failed: #{inspect(e)}, trying qlmanage")
-        render_with_qlmanage(tmp_html, output_path)
-    after
-      File.rm(tmp_html)
-    end
-  end
-
-  defp render_with_qlmanage(input_file, output_path) do
-    out_dir = Path.dirname(output_path)
-    File.mkdir_p!(out_dir)
-
-    {_, 0} = System.cmd("qlmanage", ["-t", "-s", "1024", "-o", out_dir, input_file])
-
-    # qlmanage outputs <basename>.png
-    ql_output = Path.join(out_dir, Path.basename(input_file, ".html") <> ".png")
-
-    if File.exists?(ql_output) do
-      File.rename(ql_output, output_path)
-      output_path
-    else
-      raise RuntimeError, "rendering failed: neither chrome nor qlmanage produced output"
-    end
-  end
-
-  defp wrap_svg_in_html(svg_code) do
-    """
-    <!DOCTYPE html>
-    <html><head><meta charset="utf-8">
-    <style>
-    body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: white; }
-    svg { max-width: 100%; max-height: 100vh; }
-    </style>
-    </head><body>
-    #{svg_code}
-    </body></html>
-    """
-  end
-
-  defp parse_canvas_size(code, default \\ {1024, 1024}) do
-    max_side = 2048
-    min_side = 64
-
-    svg_tag = case Regex.run(~r/<svg\b[^>]*>/, code, return: :index) do
-      [{s, len}] -> String.slice(code, s, len)
-      _ -> code
-    end
-
-    w = extract_num(svg_tag, "width")
-    h = extract_num(svg_tag, "height")
-
-    {w, h} =
-      if (is_nil(w) or is_nil(h)) do
-        case Regex.run(~r/viewBox\s*=\s*["']\s*[-0-9.]+\s+[-0-9.]+\s+([0-9.]+)\s+([0-9.]+)/, svg_tag) do
-          [_, vw, vh] ->
-            {w || String.to_float(vw), h || String.to_float(vh)}
-          _ ->
-            {w || elem(default, 0), h || elem(default, 1)}
-        end
-      else
-        {w, h}
-      end
-
-    wi = max(min_side, min(round(w), max_side))
-    hi = max(min_side, min(round(h), max_side))
-    {wi, hi}
-  end
-
-  defp extract_num(str, attr) do
-    case Regex.run(~r/#{attr}\s*=\s*["']?\s*([0-9]+(?:\.[0-9]+)?)/, str) do
-      [_, n] -> String.to_float(n)
-      _ -> nil
-    end
-  end
-
-  defp chrome_path do
-    System.get_env("CHROME_PATH") ||
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    RenderHelper.render_to_png(code, output_path, code_type)
   end
 
   # ─── LLM ───────────────────────────────────────────────────────────────────
 
   defp call_llm(system_prompt, user_prompt) do
-    case LlmConfigServer.get_default_llm_config() do
-      {:ok, llm_config} ->
-        model = build_langchain_model(llm_config)
-
-        messages = [
-          LangChain.Message.new_system!(system_prompt),
-          LangChain.Message.new_user!(user_prompt)
-        ]
-
-        chain =
-          LangChain.Chains.LLMChain.new!(%{llm: model})
-          |> LangChain.Chains.LLMChain.add_messages(messages)
-
-        case LangChain.Chains.LLMChain.run(chain) do
-          {:ok, chain} ->
-            case List.last(chain.messages) do
-              %LangChain.Message{role: :assistant, content: content} ->
-                {:ok, extract_text(content)}
-              _ ->
-                {:error, "no assistant response", llm_config[:model]}
-            end
-
-          {:error, _chain, reason} ->
-            {:error, reason, llm_config[:model]}
-        end
-
-      {:error, e} ->
-        {:error, e, nil}
-    end
+    LLMHelper.call_llm(system_prompt, user_prompt, receive_timeout: @llm_receive_timeout)
   end
 
-  defp extract_text(content) when is_binary(content), do: content
-  defp extract_text(content) when is_list(content) do
-    content |> Enum.map_join("", fn
-      text when is_binary(text) -> text
-      %LangChain.Message.ContentPart{type: :text, content: c} -> c || ""
-      %LangChain.Message.ContentPart{content: c} when is_binary(c) -> c
-      %{content: c} when is_binary(c) -> c
-      _ -> ""
-    end)
-  end
-  defp extract_text(%LangChain.Message.ContentPart{type: :text, content: c}), do: c || ""
-  defp extract_text(%LangChain.Message.ContentPart{content: c}) when is_binary(c), do: c
-  defp extract_text(_), do: ""
-
-  defp build_langchain_model(config) do
-    [provider, model_name] = String.split(config[:model], "/", parts: 2)
-
-    base = %{model: model_name, api_key: config[:api_key], receive_timeout: @llm_receive_timeout}
-
-    case provider do
-      "google" ->
-        Map.put(base, :endpoint, config[:api_base])
-        |> LangChain.ChatModels.ChatGoogleAI.new!()
-
-      "anthropic" ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/messages")
-        |> LangChain.ChatModels.ChatAnthropic.new!()
-
-      _ ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/chat/completions")
-        |> LangChain.ChatModels.ChatOpenAI.new!()
-    end
-  end
+  defp extract_text(content), do: LLMHelper.extract_text(content)
 
   defp default_description do
     "Code-draw an SVG draft to lock precise multi-object geometry (count, colour, position). Output is a draft PNG; refine it to photoreal with i2i."

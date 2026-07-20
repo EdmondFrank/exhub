@@ -12,8 +12,7 @@ defmodule Exhub.Genclaw.Tools.CodeTextDraft do
 
   require Logger
 
-  alias Exhub.Genclaw.{Session, ToolCards}
-  alias Exhub.Llm.LlmConfigServer
+  alias Exhub.Genclaw.{Session, ToolCards, LLMHelper, RenderHelper}
 
   @code_delim "===SVG_CODE_START==="
   @max_retries 3
@@ -179,16 +178,25 @@ defmodule Exhub.Genclaw.Tools.CodeTextDraft do
 
     File.write!(Path.join(out_dir, "final.html"), html_code)
 
-    render_type = "pure_code"
+    # Determine render type: if the prompt suggests artistic styling/background,
+    # the text image is a reference for i2i beautification; otherwise it's final.
+    {render_type, requires_i2i, output_role, next_step_hint} =
+      if needs_artistic_restyle?(prompt) do
+        {"embedded_text", true, "text_reference",
+         "Call i2i with image_path=this final_path and a prompt that preserves all readable text while adding artistic background/style."}
+      else
+        {"pure_code", false, "final_image", nil}
+      end
+
     status = if final_path != "" and File.exists?(final_path), do: "success", else: "failed"
 
     %{
       "final_path" => final_path,
       "render_type" => render_type,
       "expected_texts_used" => expected_texts,
-      "output_role" => "final_image",
-      "requires_i2i" => false,
-      "next_step_hint" => nil,
+      "output_role" => output_role,
+      "requires_i2i" => requires_i2i,
+      "next_step_hint" => next_step_hint,
       "review_passed" => review_passed,
       "status" => status
     }
@@ -344,133 +352,32 @@ defmodule Exhub.Genclaw.Tools.CodeTextDraft do
   # ─── Rendering ─────────────────────────────────────────────────────────────
 
   defp render_html_to_png(html_code, output_path) do
-    File.mkdir_p!(Path.dirname(output_path))
-
-    tmp_html = Path.join(System.tmp_dir!(), "genclaw_text_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}.html")
-    File.write!(tmp_html, html_code)
-
-    try do
-      chrome = chrome_path()
-
-      args = [
-        "--headless",
-        "--disable-gpu",
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-        "--screenshot=#{output_path}",
-        "--window-size=1024,1024",
-        "file://#{tmp_html}"
-      ]
-
-      case Exile.stream([chrome | args], stderr: :consume) |> Enum.reduce({0, ""}, fn
-        {:stdout, _}, {code, acc} -> {code, acc}
-        {:exit, code}, {_, acc} -> {code, acc}
-      end) do
-        {0, _} ->
-          Logger.info("[Genclaw.CodeTextDraft] render done: #{output_path}")
-          output_path
-
-        {code, _} ->
-          Logger.warning("[Genclaw.CodeTextDraft] chrome exited #{code}, trying qlmanage")
-          render_with_qlmanage(tmp_html, output_path)
-      end
-    rescue
-      e ->
-        Logger.warning("[Genclaw.CodeTextDraft] chrome render failed: #{inspect(e)}, trying qlmanage")
-        render_with_qlmanage(tmp_html, output_path)
-    after
-      File.rm(tmp_html)
-    end
+    RenderHelper.render_to_png(html_code, output_path, "html", window_size: {1024, 1024})
   end
 
-  defp render_with_qlmanage(input_file, output_path) do
-    out_dir = Path.dirname(output_path)
-    File.mkdir_p!(out_dir)
+  # ─── Style Detection ──────────────────────────────────────────────────────
 
-    {_, 0} = System.cmd("qlmanage", ["-t", "-s", "1024", "-o", out_dir, input_file])
+  @artistic_keywords ~w(
+    artistic art style stylized painterly watercolor oil-painting
+    illustration cinematic dramatic background scene decorative
+    艺术 风格 水彩 油画 插画 电影感 背景 装饰 唯美 海报 宣传
+  )
 
-    ql_output = Path.join(out_dir, Path.basename(input_file, ".html") <> ".png")
-
-    if File.exists?(ql_output) do
-      File.rename(ql_output, output_path)
-      output_path
-    else
-      raise RuntimeError, "rendering failed: neither chrome nor qlmanage produced output"
-    end
-  end
-
-  defp chrome_path do
-    System.get_env("CHROME_PATH") ||
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  defp needs_artistic_restyle?(prompt) do
+    downcased = String.downcase(prompt)
+    Enum.any?(@artistic_keywords, &String.contains?(downcased, &1))
   end
 
   # ─── LLM ───────────────────────────────────────────────────────────────────
 
   defp call_llm(system_prompt, user_prompt) do
-    case LlmConfigServer.get_default_llm_config() do
-      {:ok, llm_config} ->
-        model = build_langchain_model(llm_config)
-
-        messages = [
-          LangChain.Message.new_system!(system_prompt),
-          LangChain.Message.new_user!(user_prompt)
-        ]
-
-        chain =
-          LangChain.Chains.LLMChain.new!(%{llm: model})
-          |> LangChain.Chains.LLMChain.add_messages(messages)
-
-        case LangChain.Chains.LLMChain.run(chain) do
-          {:ok, chain} ->
-            case List.last(chain.messages) do
-              %LangChain.Message{role: :assistant, content: content} ->
-                {:ok, extract_text(content)}
-              _ ->
-                {:error, "no assistant response"}
-            end
-
-          {:error, e} ->
-            {:error, e}
-        end
-
-      {:error, e} ->
-        {:error, e}
+    case LLMHelper.call_llm(system_prompt, user_prompt) do
+      {:ok, text} -> {:ok, text}
+      {:error, e, _model} -> {:error, e}
     end
   end
 
-  defp extract_text(content) when is_binary(content), do: content
-  defp extract_text(content) when is_list(content) do
-    content |> Enum.map_join("", fn
-      text when is_binary(text) -> text
-      %LangChain.Message.ContentPart{type: :text, content: c} -> c || ""
-      %LangChain.Message.ContentPart{content: c} when is_binary(c) -> c
-      %{content: c} when is_binary(c) -> c
-      _ -> ""
-    end)
-  end
-  defp extract_text(%LangChain.Message.ContentPart{type: :text, content: c}), do: c || ""
-  defp extract_text(%LangChain.Message.ContentPart{content: c}) when is_binary(c), do: c
-  defp extract_text(_), do: ""
-
-  defp build_langchain_model(config) do
-    [provider, model_name] = String.split(config[:model], "/", parts: 2)
-
-    base = %{model: model_name, api_key: config[:api_key]}
-
-    case provider do
-      "google" ->
-        Map.put(base, :endpoint, config[:api_base])
-        |> LangChain.ChatModels.ChatGoogleAI.new!()
-
-      "anthropic" ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/messages")
-        |> LangChain.ChatModels.ChatAnthropic.new!()
-
-      _ ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/chat/completions")
-        |> LangChain.ChatModels.ChatOpenAI.new!()
-    end
-  end
+  defp extract_text(content), do: LLMHelper.extract_text(content)
 
   defp default_description do
     "Render exact literal text into an image via HTML/CSS. For menus, posters, scoreboards, and multi-line text."

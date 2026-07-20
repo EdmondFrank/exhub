@@ -15,7 +15,7 @@ defmodule Exhub.Genclaw.Middleware.Perception do
 
   require Logger
 
-  alias Exhub.Llm.LlmConfigServer
+  alias Exhub.Genclaw.LLMHelper
 
   @perception_prompt_path "genclaw/perception_prompt.yaml"
 
@@ -59,18 +59,22 @@ defmodule Exhub.Genclaw.Middleware.Perception do
     # Store perception state in runtime
     state = %{state | runtime: Map.put(state.runtime, :genclaw_perception, perception_state)}
 
-    # Inject painter notes as a <system-reminder> user message
-    reminder = render_reminder(perception_state)
-
-    if reminder != "" do
-      reminder_msg =
-        LangChain.Message.new_user!(
-          "<system-reminder>\n#{reminder}\n</system-reminder>"
-        )
-
-      {:ok, Sagents.State.add_message(state, reminder_msg)}
-    else
+    # Only inject painter notes if not already present in messages (dedup)
+    if already_has_reminder?(state.messages) do
       {:ok, state}
+    else
+      reminder = render_reminder(perception_state)
+
+      if reminder != "" do
+        reminder_msg =
+          LangChain.Message.new_user!(
+            "<system-reminder>\n#{reminder}\n</system-reminder>"
+          )
+
+        {:ok, Sagents.State.add_message(state, reminder_msg)}
+      else
+        {:ok, state}
+      end
     end
   end
 
@@ -80,6 +84,14 @@ defmodule Exhub.Genclaw.Middleware.Perception do
   end
 
   # ─── Private Functions ───────────────────────────────────────────────────
+
+  defp already_has_reminder?(messages) do
+    Enum.any?(messages, fn msg ->
+      msg.role == :user and
+        is_binary(msg.content) and
+        String.contains?(msg.content, "[PAINTER NOTES — perception output]")
+    end)
+  end
 
   defp extract_user_prompt(messages) do
     msg = Enum.find(messages, fn msg -> msg.role == :user end)
@@ -151,39 +163,9 @@ defmodule Exhub.Genclaw.Middleware.Perception do
   end
 
   defp call_perception_llm(system_prompt, user_prompt) do
-    case LlmConfigServer.get_default_llm_config() do
-      {:ok, llm_config} ->
-        model = build_langchain_model(llm_config)
-
-        messages = [
-          LangChain.Message.new_system!(system_prompt),
-          LangChain.Message.new_user!(user_prompt)
-        ]
-
-        chain =
-          LangChain.Chains.LLMChain.new!(%{llm: model})
-          |> LangChain.Chains.LLMChain.add_messages(messages)
-
-        case LangChain.Chains.LLMChain.run(chain) do
-          {:ok, chain} ->
-            case List.last(chain.messages) do
-              %LangChain.Message{role: :assistant, content: content} ->
-                text = extract_text(content)
-                Logger.info("[Genclaw.Perception] assistant content type: #{inspect(content) |> String.slice(0, 100)}, extracted: #{String.slice(text, 0, 100)}")
-                {:ok, text}
-
-              other ->
-                Logger.warning("[Genclaw.Perception] last message not assistant: #{inspect(other) |> String.slice(0, 100)}")
-                {:error, "no assistant response"}
-            end
-
-          {:error, e} ->
-            Logger.warning("[Genclaw.Perception] LLMChain.run failed: #{inspect(e)}")
-            {:error, e}
-        end
-
-      {:error, e} ->
-        {:error, e}
+    case LLMHelper.call_llm(system_prompt, user_prompt) do
+      {:ok, text} -> {:ok, text}
+      {:error, e, _model} -> {:error, e}
     end
   end
 
@@ -297,38 +279,4 @@ defmodule Exhub.Genclaw.Middleware.Perception do
   end
 
   defp render_reminder(_), do: ""
-
-  defp extract_text(content) when is_binary(content), do: content
-  defp extract_text(content) when is_list(content) do
-    content |> Enum.map_join("", fn
-      text when is_binary(text) -> text
-      %LangChain.Message.ContentPart{type: :text, content: c} -> c || ""
-      %LangChain.Message.ContentPart{content: c} when is_binary(c) -> c
-      %{content: c} when is_binary(c) -> c
-      _ -> ""
-    end)
-  end
-  defp extract_text(%LangChain.Message.ContentPart{type: :text, content: c}), do: c || ""
-  defp extract_text(%LangChain.Message.ContentPart{content: c}) when is_binary(c), do: c
-  defp extract_text(_), do: ""
-
-  defp build_langchain_model(config) do
-    [provider, model_name] = String.split(config[:model], "/", parts: 2)
-
-    base = %{model: model_name, api_key: config[:api_key]}
-
-    case provider do
-      "google" ->
-        Map.put(base, :endpoint, config[:api_base])
-        |> LangChain.ChatModels.ChatGoogleAI.new!()
-
-      "anthropic" ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/messages")
-        |> LangChain.ChatModels.ChatAnthropic.new!()
-
-      _ ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/chat/completions")
-        |> LangChain.ChatModels.ChatOpenAI.new!()
-    end
-  end
 end

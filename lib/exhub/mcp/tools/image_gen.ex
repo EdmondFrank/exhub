@@ -15,6 +15,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
   # Text-to-image generation models available on Gitee AI Serverless API
   # (excludes editing/upscaling/segmentation/background-removal models)
   @valid_models ~w(
+    qwen-image-2.0
     Qwen-Image
     Qwen-Image-2512
     Kolors
@@ -51,6 +52,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
   # Which extra_body params each model supports
   @supported_params %{
+    "qwen-image-2.0" => [:negative_prompt, :num_inference_steps],
     "Qwen-Image" => [:negative_prompt, :num_inference_steps],
     "Qwen-Image-2512" => [:negative_prompt, :num_inference_steps],
     "Kolors" => [:num_inference_steps, :guidance_scale],
@@ -77,6 +79,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
   }
 
   @model_defaults %{
+    "qwen-image-2.0" => %{num_inference_steps: 30},
     "Qwen-Image" => %{num_inference_steps: 30},
     "Qwen-Image-2512" => %{num_inference_steps: 30},
     "Kolors" => %{num_inference_steps: 25, guidance_scale: 7.5},
@@ -108,7 +111,8 @@ defmodule Exhub.MCP.Tools.ImageGen do
     Generate high-quality images from text descriptions using Gitee AI image generation API.
 
     Supported models (text-to-image):
-    - `Qwen-Image` (default) — Alibaba 20B MMDiT, excellent text rendering in Chinese & English
+    - `qwen-image-2.0` (default) — Alibaba latest Qwen-Image 2.0, superior quality and text rendering
+    - `Qwen-Image` — Alibaba 20B MMDiT, excellent text rendering in Chinese & English
     - `Qwen-Image-2512` — Latest Qwen-Image with improved realism and text rendering
     - `Kolors` — Kuaishou model, strong Chinese semantic understanding
     - `GLM-Image` — Zhipu AI multimodal image generation
@@ -145,7 +149,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     field(:model, :string,
       description:
-        "Model to use. One of: Qwen-Image (default), Qwen-Image-2512, Kolors, GLM-Image, FLUX.1-schnell, FLUX.1-dev, FLUX.1-Krea-dev, FLUX.2-dev, FLUX.2-klein-9B, FLUX.2-klein-4B, HunyuanDiT-v1.2, stable-diffusion-xl-base-1.0, stable-diffusion-3.5-large-turbo, stable-diffusion-3-medium, CogView4-6B, HiDream-I1-Full, z-image-turbo, Z-Image, LongCat-Image"
+        "Model to use. One of: qwen-image-2.0 (default), Qwen-Image, Qwen-Image-2512, Kolors, GLM-Image, FLUX.1-schnell, FLUX.1-dev, FLUX.1-Krea-dev, FLUX.2-dev, FLUX.2-klein-9B, FLUX.2-klein-4B, HunyuanDiT-v1.2, stable-diffusion-xl-base-1.0, stable-diffusion-3.5-large-turbo, stable-diffusion-3-medium, CogView4-6B, HiDream-I1-Full, z-image-turbo, Z-Image, LongCat-Image"
     )
 
     field(:size, :string,
@@ -160,19 +164,19 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     field(:guidance_scale, :number,
       description:
-        "How closely the model follows the prompt (float). Not supported by Qwen-Image, Qwen-Image-2512. Model defaults: Kolors=7.5, GLM-Image=1.5, FLUX.1-schnell=0.0, FLUX.1-dev=3.5, FLUX.2-dev=7.5, FLUX.2-klein=3.5, HunyuanDiT-v1.2=5.0, SD-XL=7.5, SD-3.5-turbo=1.0, SD-3-medium=7.0, CogView4=7.5, HiDream=7.0, z-image-turbo=3.5, Z-Image=5.0, LongCat=5.0"
+        "How closely the model follows the prompt (float). Not supported by qwen-image-2.0, Qwen-Image, Qwen-Image-2512. Model defaults: Kolors=7.5, GLM-Image=1.5, FLUX.1-schnell=0.0, FLUX.1-dev=3.5, FLUX.2-dev=7.5, FLUX.2-klein=3.5, HunyuanDiT-v1.2=5.0, SD-XL=7.5, SD-3.5-turbo=1.0, SD-3-medium=7.0, CogView4=7.5, HiDream=7.0, z-image-turbo=3.5, Z-Image=5.0, LongCat=5.0"
     )
 
     field(:num_inference_steps, :integer,
       description:
-        "Number of denoising steps (integer). Higher = better quality but slower. Model defaults: Qwen-Image=30, Kolors=25, GLM-Image=30, FLUX.1-schnell=4, FLUX.1-dev=28, FLUX.2-dev=20, FLUX.2-klein=8, HunyuanDiT-v1.2=25, SD-XL=30, SD-3.5-turbo=8, SD-3-medium=28, CogView4=50, HiDream=50, z-image-turbo=8, Z-Image=28, LongCat=28"
+        "Number of denoising steps (integer). Higher = better quality but slower. Model defaults: qwen-image-2.0=30, Qwen-Image=30, Kolors=25, GLM-Image=30, FLUX.1-schnell=4, FLUX.1-dev=28, FLUX.2-dev=20, FLUX.2-klein=8, HunyuanDiT-v1.2=25, SD-XL=30, SD-3.5-turbo=8, SD-3-medium=28, CogView4=50, HiDream=50, z-image-turbo=8, Z-Image=28, LongCat=28"
     )
   end
 
   @impl true
   def execute(params, frame) do
     prompt = Map.get(params, :prompt)
-    model = Map.get(params, :model, "Qwen-Image") || "Qwen-Image"
+    model = Map.get(params, :model, "qwen-image-2.0") || "qwen-image-2.0"
     size = Map.get(params, :size, "1024x1024") || "1024x1024"
 
     cond do
@@ -221,6 +225,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
   defp do_generate(prompt, model, size, params, api_key, frame) do
     extra_body = build_extra_body(model, params)
+    size = normalize_size(size, model)
 
     body =
       Jason.encode!(%{
@@ -339,4 +344,8 @@ defmodule Exhub.MCP.Tools.ImageGen do
       acc
     end
   end
+
+  # qwen-image-2.0 uses "*" as size separator (e.g. "1024*1024")
+  defp normalize_size(size, "qwen-image-2.0"), do: String.replace(size, "x", "*")
+  defp normalize_size(size, _model), do: size
 end

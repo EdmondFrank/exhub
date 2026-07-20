@@ -9,7 +9,7 @@ defmodule Exhub.Genclaw.Tools.Reason do
 
   require Logger
 
-  alias Exhub.Genclaw.{Session, ToolCards}
+  alias Exhub.Genclaw.{Session, ToolCards, LLMHelper}
   alias Exhub.Llm.LlmConfigServer
 
   def build do
@@ -63,7 +63,7 @@ defmodule Exhub.Genclaw.Tools.Reason do
   defp run_reasoning(prompt, ref_image_paths) do
     case LlmConfigServer.get_default_llm_config() do
       {:ok, llm_config} ->
-        model = build_langchain_model(llm_config)
+        model = LLMHelper.build_langchain_model(llm_config)
 
         content_parts = [
           LangChain.Message.ContentPart.text!(prompt <> "\n\nThink through this step by step. Return your conclusions as a JSON array of strings.")
@@ -124,26 +124,6 @@ defmodule Exhub.Genclaw.Tools.Reason do
     |> Enum.filter(&is_binary/1)
     |> Enum.join("\n")
     |> List.wrap()
-  end
-
-  defp build_langchain_model(config) do
-    [provider, model_name] = String.split(config[:model], "/", parts: 2)
-
-    base = %{model: model_name, api_key: config[:api_key]}
-
-    case provider do
-      "google" ->
-        Map.put(base, :endpoint, config[:api_base])
-        |> LangChain.ChatModels.ChatGoogleAI.new!()
-
-      "anthropic" ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/messages")
-        |> LangChain.ChatModels.ChatAnthropic.new!()
-
-      _ ->
-        Map.put(base, :endpoint, "#{config[:api_base]}/chat/completions")
-        |> LangChain.ChatModels.ChatOpenAI.new!()
-    end
   end
 
   defp infer_mime(path) do

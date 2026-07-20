@@ -24,8 +24,8 @@ defmodule Exhub.Genclaw.ImageGen do
   @retry_delays [5_000, 15_000, 45_000]
 
   # Default models
-  @default_t2i_model "Qwen-Image-2512"
-  @default_i2i_model "Qwen-Image-2512"
+  @default_t2i_model "qwen-image-2.0"
+  @default_i2i_model "qwen-image-2.0"
   @default_size "1024x1024"
 
   # ─── Public API ───────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ defmodule Exhub.Genclaw.ImageGen do
   """
   def generate_t2i(prompt, opts \\ []) do
     model = Keyword.get(opts, :model, @default_t2i_model)
-    size = Keyword.get(opts, :size, @default_size)
+    size = Keyword.get(opts, :size, @default_size) |> normalize_size(model)
 
     do_generate_with_retry(fn ->
       body = %{
@@ -64,7 +64,7 @@ defmodule Exhub.Genclaw.ImageGen do
   """
   def generate_i2i(prompt, reference_images, opts \\ []) do
     model = Keyword.get(opts, :model, @default_i2i_model)
-    size = Keyword.get(opts, :size, @default_size)
+    size = Keyword.get(opts, :size, @default_size) |> normalize_size(model)
 
     primary_image = List.first(reference_images)
 
@@ -73,24 +73,46 @@ defmodule Exhub.Genclaw.ImageGen do
     end
 
     do_generate_with_retry(fn ->
-      image_data = File.read!(primary_image)
-      image_name = Path.basename(primary_image)
-      mime = infer_mime(primary_image)
-
-      form = [
-        {:model, model},
-        {:prompt, prompt},
-        {:size, size},
-        {:response_format, "url"},
-        {:image, {:bytes, image_name, image_data, [{"Content-Type", mime}]}}
-      ]
-
-      headers = auth_headers(json: false)
       Logger.info("[Genclaw.ImageGen] i2i model=#{model} size=#{size} refs=#{length(reference_images)}")
 
-      resp = Req.post!(@i2i_url, form_multipart: form, headers: headers, receive_timeout: 120_000)
+      if model == "qwen-image-2.0" do
+        # qwen-image-2.0 uses the generations endpoint with images as base64 data URLs
+        images =
+          Enum.map(reference_images, fn path ->
+            data = File.read!(path)
+            mime = infer_mime(path)
+            "data:#{mime};base64,#{Base.encode64(data)}"
+          end)
 
-      handle_response(resp, "i2i")
+        body = %{
+          prompt: prompt,
+          model: model,
+          size: size,
+          response_format: "url",
+          images: images
+        }
+
+        headers = auth_headers(json: true)
+        resp = Req.post!(@t2i_url, json: body, headers: headers, receive_timeout: 120_000)
+        handle_response(resp, "i2i")
+      else
+        # Other models use the multipart edits endpoint
+        image_data = File.read!(primary_image)
+        image_name = Path.basename(primary_image)
+        mime = infer_mime(primary_image)
+
+        form = [
+          {:model, model},
+          {:prompt, prompt},
+          {:size, size},
+          {:response_format, "url"},
+          {:image, {:bytes, image_name, image_data, [{"Content-Type", mime}]}}
+        ]
+
+        headers = auth_headers(json: false)
+        resp = Req.post!(@i2i_url, form_multipart: form, headers: headers, receive_timeout: 120_000)
+        handle_response(resp, "i2i")
+      end
     end)
   end
 
@@ -104,6 +126,10 @@ defmodule Exhub.Genclaw.ImageGen do
   def generate_image(prompt, refs) when is_list(refs), do: generate_i2i(prompt, refs)
 
   # ─── Internal helpers ─────────────────────────────────────────────────────
+
+  # qwen-image-2.0 uses "*" as size separator (e.g. "1024*1024")
+  defp normalize_size(size, "qwen-image-2.0"), do: String.replace(size, "x", "*")
+  defp normalize_size(size, _model), do: size
 
   defp do_generate_with_retry(fun) do
     total = @max_retries + 1

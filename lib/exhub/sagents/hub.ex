@@ -262,7 +262,20 @@ defmodule Exhub.Sagents.Hub do
 
     case Sagents.AgentServer.add_message(name, user_message) do
       :ok ->
-        wait_for_completion(name, 300_000)
+        case wait_for_completion(name, 300_000) do
+          {:error, :timeout} = err ->
+            # Agent is stuck in running state after timeout — cancel to recover
+            Logger.warning("[Sagents.Hub] agent='#{name}' timed out, cancelling to reset state")
+            try do
+              Sagents.AgentServer.cancel(name)
+            rescue
+              _ -> :ok
+            end
+            err
+
+          other ->
+            other
+        end
 
       {:error, reason} ->
         Logger.error("[Sagents.Hub] do_chat: add_message failed: #{inspect(reason)}")

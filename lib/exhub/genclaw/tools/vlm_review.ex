@@ -95,16 +95,34 @@ defmodule Exhub.Genclaw.Tools.VLMReview do
     })
   end
 
-  defp call_vlm(image_path, _ref_paths, prompt) do
-    # Use the look MCP tool for VLM review
-    case BuiltInRegistry.call_tool("look", "look", %{
-      "image" => image_path,
-      "prompt" => prompt
-    }) do
+  defp call_vlm(image_path, ref_paths, prompt) do
+    # Use the look MCP tool for VLM review, passing reference images if available
+    args =
+      %{"image" => image_path, "prompt" => prompt}
+      |> maybe_add_ref_context(ref_paths)
+
+    case BuiltInRegistry.call_tool("look", "look", args) do
       {:ok, result} -> result
       {:error, e} -> raise RuntimeError, "look tool failed: #{inspect(e)}"
     end
   end
+
+  defp maybe_add_ref_context(args, ref_paths) when is_list(ref_paths) and ref_paths != [] do
+    # Append reference image context to the prompt so the VLM can compare
+    existing_refs = Enum.filter(ref_paths, &File.exists?/1)
+
+    if existing_refs != [] do
+      ref_note =
+        "\n\n[Reference images for comparison]: " <>
+          Enum.join(existing_refs, ", ")
+
+      Map.update!(args, "prompt", &(&1 <> ref_note))
+    else
+      args
+    end
+  end
+
+  defp maybe_add_ref_context(args, _), do: args
 
   defp build_review_prompt(original_prompt, criteria, expected_texts, ref_paths, reasoning) do
     """
