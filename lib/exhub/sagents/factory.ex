@@ -13,9 +13,16 @@ defmodule Exhub.Sagents.Factory do
   require Logger
 
   def create_agent(agent_id, config) do
+    Logger.info("[Sagents.Factory] create_agent: '#{agent_id}' config keys: #{inspect(Map.keys(config))}")
+
     with {:ok, model} <- build_langchain_model(config) do
       mcp_tools = McpAdapter.build_tools(config[:mcp_tools] || [])
+      native_tools = config[:tools] || []
       middleware = config[:middleware] || default_middleware()
+
+      all_tools = mcp_tools ++ native_tools
+      Logger.info("[Sagents.Factory] create_agent: '#{agent_id}' mcp_tools=#{length(mcp_tools)} native_tools=#{length(native_tools)} middleware=#{length(middleware)}")
+      Logger.info("[Sagents.Factory] create_agent: '#{agent_id}' tool names: #{inspect(Enum.map(all_tools, & &1.name))}")
 
       agent =
         Sagents.Agent.new!(%{
@@ -23,7 +30,7 @@ defmodule Exhub.Sagents.Factory do
           model: model,
           base_system_prompt: config[:system_prompt] || "You are a helpful assistant.",
           middleware: middleware,
-          tools: mcp_tools
+          tools: all_tools
         })
 
       session_opts = config[:session_opts] || []
@@ -67,7 +74,8 @@ defmodule Exhub.Sagents.Factory do
         tasks including file management, web search, and information retrieval.
         """,
         mcp_tools: [:desktop, :"web-tools", :todo]
-      }
+      },
+      "genclaw" => Exhub.Genclaw.FactoryEntry.agent_config(model: "kimi-k2.6")
     }
   end
 

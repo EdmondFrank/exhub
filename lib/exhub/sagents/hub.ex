@@ -180,6 +180,17 @@ defmodule Exhub.Sagents.Hub do
     end
   end
 
+  @impl true
+  def handle_info({:agent, {:status_changed, :idle, _}}, state) do
+    # Startup idle — ignore (handled in wait_for_completion receive block)
+    {:noreply, state}
+  end
+
+  def handle_info({:agent, event}, state) do
+    Logger.debug("[Sagents.Hub] handle_info: agent event: #{inspect(event)}")
+    {:noreply, state}
+  end
+
   # --- Private Functions ---
 
   defp do_start_agent(name, state) do
@@ -243,13 +254,18 @@ defmodule Exhub.Sagents.Hub do
   end
 
   defp do_chat(name, message) do
+    # Reset GenClaw session directory for each new chat
+    Exhub.Genclaw.Session.reset_session_dir()
+
     user_message = LangChain.Message.new_user!(message)
+    Logger.info("[Sagents.Hub] do_chat: agent='#{name}'")
 
     case Sagents.AgentServer.add_message(name, user_message) do
       :ok ->
-        wait_for_completion(name, 120_000)
+        wait_for_completion(name, 300_000)
 
       {:error, reason} ->
+        Logger.error("[Sagents.Hub] do_chat: add_message failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -258,16 +274,25 @@ defmodule Exhub.Sagents.Hub do
     deadline = System.monotonic_time(:millisecond) + timeout
 
     receive do
+      {:agent, {:status_changed, :running, _}} ->
+        wait_for_completion(name, deadline - System.monotonic_time(:millisecond))
+
       {:agent, {:status_changed, :idle, _}} ->
+        Logger.info("[Sagents.Hub] agent='#{name}' completed")
         extract_last_response(name)
 
       {:agent, {:status_changed, :error, reason}} ->
+        Logger.error("[Sagents.Hub] agent='#{name}' error: #{inspect(reason)}")
         {:error, reason}
 
       {:agent, {:status_changed, :interrupted, _data}} ->
         {:error, :interrupted}
 
-      {:agent, _event} ->
+      {:agent, {:tool_execution_update, status, info}} ->
+        Logger.info("[Sagents.Hub] tool #{info.name} -> #{status}")
+        wait_for_completion(name, deadline - System.monotonic_time(:millisecond))
+
+      {:agent, _other} ->
         remaining = deadline - System.monotonic_time(:millisecond)
 
         if remaining > 0 do
@@ -276,23 +301,54 @@ defmodule Exhub.Sagents.Hub do
           {:error, :timeout}
         end
     after
-      timeout -> {:error, :timeout}
+      timeout ->
+        Logger.warning("[Sagents.Hub] agent='#{name}' timeout after #{timeout}ms")
+        {:error, :timeout}
     end
   end
 
   defp extract_last_response(name) do
     state = Sagents.AgentServer.get_state(name)
+    Logger.info("[Sagents.Hub] extract: agent='#{name}' messages=#{length(state.messages)}")
 
     case List.last(state.messages) do
       %LangChain.Message{role: :assistant, content: content} when is_binary(content) ->
         {:ok, content}
 
       %LangChain.Message{role: :assistant, content: content} when is_list(content) ->
-        text = content |> Enum.filter(&is_binary/1) |> Enum.join("")
+        text = content |> Enum.map_join("", fn
+          s when is_binary(s) -> s
+          %LangChain.Message.ContentPart{type: :text, content: c} -> c || ""
+          %LangChain.Message.ContentPart{content: c} when is_binary(c) -> c
+          _ -> ""
+        end)
         {:ok, text}
 
       _ ->
-        {:ok, ""}
+        # Last message is not assistant (e.g. system-reminder from completion guard).
+        # Find the last assistant message.
+        result =
+          state.messages
+          |> Enum.reverse()
+          |> Enum.find(fn msg -> msg.role == :assistant end)
+
+        case result do
+          %LangChain.Message{content: content} when is_binary(content) ->
+            {:ok, content}
+
+          %LangChain.Message{content: content} when is_list(content) ->
+            text = content |> Enum.map_join("", fn
+              s when is_binary(s) -> s
+              %LangChain.Message.ContentPart{type: :text, content: c} -> c || ""
+              %LangChain.Message.ContentPart{content: c} when is_binary(c) -> c
+              _ -> ""
+            end)
+            {:ok, text}
+
+          _ ->
+            Logger.warning("[Sagents.Hub] extract: no assistant message found at all")
+            {:ok, ""}
+        end
     end
   end
 

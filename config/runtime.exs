@@ -113,16 +113,8 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
         api_key: fetch_secret.("cohere_api_key"),
         model: "openai/command-a-03-2025"
       },
-      "openai/mimo-v2.5-pro" => %{
-        api_base: "https://token-plan-sgp.xiaomimimo.com/v1",
-        api_key: fetch_secret.("mimo_api_key"),
-        model: "openai/mimo-v2.5-pro"
-      },
-      "openai/mimo-v2.5" => %{
-        api_base: "https://token-plan-sgp.xiaomimimo.com/v1",
-        api_key: fetch_secret.("mimo_api_key"),
-        model: "openai/mimo-v2.5"
-      }
+      "openai/mimo-v2.5-pro" => gitee_llm.("openai/mimo-v2.5-pro"),
+      "openai/mimo-v2.5" => gitee_llm.("openai/mimo-v2.5")
     }
 
     config :exhub,

@@ -50,7 +50,8 @@ defmodule Exhub.MixProject do
       {:erlexec, "~> 2.0"},
       {:toon, "~> 0.3.0"},
       {:ex_mcp, "~> 0.9.0"},
-      {:sagents, "~> 0.9.0"}
+      {:sagents, "~> 0.9.0"},
+      {:yamerl, "~> 0.10.0"}
     ]
   end
 end
