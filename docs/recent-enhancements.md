@@ -1,5 +1,42 @@
 # Recent Enhancements
 
+## GenClaw — Image Generation Agent
+
+- **New Agent**: `genclaw` is a specialised `sagents` agent for text-to-image generation, registered in `Exhub.Sagents.Factory` via `Exhub.Genclaw.FactoryEntry`
+- **Model**: Powered by `kimi-k2.6` (via Gitee AI) for main LLM and perception sub-LLM; `Qwen-Image-2512` for image generation
+- **Middleware**:
+  - **Perception** (`Exhub.Genclaw.Middleware.Perception`) — Extracts user prompt, calls sub-LLM for painter notes (JSON with thoughts, image intent, planning needs), injects `<system-reminder>` into agent state
+  - **CompletionGuard** (`Exhub.Genclaw.Middleware.CompletionGuard`) — Scans for `final_path` after each turn; fires a reminder (max 1) if no image was produced
+- **8 Native Tools**:
+  - `t2i` — Text-to-image generation (Gitee AI, Qwen-Image-2512)
+  - `i2i` — Image-to-image refinement / editing
+  - `search` — Web search for visual references and facts
+  - `reason` — Math/physics/logic derivation via sub-LLM
+  - `format_prompt` — Multi-reference prompt fusion for i2i
+  - `vlm_review` — Vision-model self-review with retry strategy
+  - `code_scene_draft` — LLM-generated SVG → headless Chrome PNG for exact object counts/colours/positions, with optional VLM self-review (up to 3 revise rounds). 180 s LLM receive_timeout. Error logs include model name
+  - `code_text_draft` — HTML/CSS rendering for verbatim text in images (menus, posters, scoreboards)
+- **Tool Cards**: Each tool has a YAML description in `priv/genclaw/tool_cards/` with `what`, `when_to_use`, `when_not_to_use`, `usage`, and `failure_modes`
+- **Session Artifacts**: Each chat session creates a directory under `~/.config/exhub/genclaw_runs/` with tool outputs (PNGs, SVGs, HTML, meta.json, layout.json)
+- **Rendering**: Headless Chrome via `Exile.stream/1` with `qlmanage` fallback; `CHROME_PATH` env var override
+- **Architecture Diagrams**: See [priv/genclaw/diagrams.txt](../priv/genclaw/diagrams.txt)
+- **System Prompt**: See [priv/genclaw/system.md](../priv/genclaw/system.md)
+- **Files Changed**:
+  - `lib/exhub/genclaw/factory_entry.ex` — Agent registration helper
+  - `lib/exhub/genclaw/tools/code_scene_draft.ex` — SVG draft tool (180s timeout, model in error logs)
+  - `lib/exhub/genclaw/tools/code_text_draft.ex` — HTML/CSS text rendering tool
+  - `lib/exhub/genclaw/middleware/perception.ex` — Perception middleware
+  - `lib/exhub/genclaw/middleware/completion_guard.ex` — Completion guard middleware
+  - `lib/exhub/genclaw/session.ex` — Session directory and artifact management
+  - `lib/exhub/genclaw/image_gen.ex` — Gitee AI image generation client
+  - `lib/exhub/genclaw/system_prompt.ex` — System prompt renderer
+  - `lib/exhub/genclaw/tool_cards.ex` — Tool card YAML loader
+  - `priv/genclaw/diagrams.txt` — Architecture diagrams
+  - `priv/genclaw/system.md` — System prompt template
+  - `priv/genclaw/tool_cards/*.yaml` — Tool description cards
+
+---
+
 ## Nanoxml Local Office File Extraction
 
 - **New Module**: `Exhub.MCP.Desktop.Nanoxml` wraps the [nanoxml](https://github.com/justrach/nanoxml) CLI binary for fast, local Office Open XML text extraction — no API calls or network access required

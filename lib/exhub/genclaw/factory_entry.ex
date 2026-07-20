@@ -7,7 +7,8 @@ defmodule Exhub.Genclaw.FactoryEntry do
   """
 
   alias Exhub.Genclaw.SystemPrompt
-  alias Exhub.Genclaw.Tools.{T2I, I2I, Search, Reason, FormatPrompt, VLMReview}
+  alias Exhub.Genclaw.Tools.{T2I, I2I, Search, Reason, FormatPrompt, VLMReview,
+                             CodeSceneDraft, CodeTextDraft}
 
   @doc """
   Build the list of LangChain.Function tools for the GenClaw agent.
@@ -19,7 +20,9 @@ defmodule Exhub.Genclaw.FactoryEntry do
       Search.build(),
       Reason.build(),
       FormatPrompt.build(),
-      VLMReview.build()
+      VLMReview.build(),
+      CodeSceneDraft.build(),
+      CodeTextDraft.build()
     ]
   end
 

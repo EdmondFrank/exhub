@@ -68,6 +68,7 @@ Real-time chat interface for a specific agent. Features:
 - **coder** — Coding assistant with desktop + web-tools, HITL for dangerous operations
 - **researcher** — Research assistant with web-tools + brain + look
 - **assistant** — General-purpose with desktop + web-tools + todo
+- **genclaw** — Image generation agent powered by kimi-k2.6. Uses perception middleware (sub-LLM extracts painter notes) and completion guard middleware. Native tools: `t2i`, `i2i`, `search`, `reason`, `format_prompt`, `vlm_review`, `code_scene_draft` (SVG → headless Chrome PNG for exact object counts/positions), `code_text_draft` (HTML/CSS rendering for verbatim text). All image generation via Gitee AI (Qwen-Image-2512). See [priv/genclaw/diagrams.txt](../../priv/genclaw/diagrams.txt) for architecture diagrams.
 
 ## Chat Example
 

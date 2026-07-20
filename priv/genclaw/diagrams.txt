@@ -1,86 +1,163 @@
 ================================================================================
                      GenClaw Elixir Port — Sequence Diagram
-                  (Typical multi-tool flow: search → sketch → i2i)
+         Complex flow: search → code_scene_draft → i2i → vlm_review
 ================================================================================
 
- User        Hub          AgentServer     Perception      LLM (kimi-k2.6)    Tools / External
-  |            |               |              |                |                  |
-  |---msg----->|               |              |                |                  |
-  |            |---reset_sess->|              |                |                  |
-  |            |---add_msg---->|              |                |                  |
-  |            |               |--loop starts>|                |                  |
-  |            |               |              |                |                  |
-  |            |               |   ╔════════ Turn 1: Perception + Plan ════════╗  |
-  |            |               |   ║          |                |               ║  |
-  |            |               |---before_model->|             |               ║  |
-  |            |               |              |---extract_user_prompt          ║  |
-  |            |               |              |---call sub-LLM (kimi-k2.6)---->║  |
-  |            |               |              |<--painter_notes (JSON)---------║  |
-  |            |               |              |---inject <system-reminder>     ║  |
-  |            |               |<--state+notes|                |               ║  |
-  |            |               |---LLM call-->|--------------->|               ║  |
-  |            |               |              |                |---write_todos>   |
-  |            |               |              |                |---search---->(web)
-  |            |               |              |                |<--facts+refs---  |
-  |            |               |---after_model->CompletionGuard                ║  |
-  |            |               |              |  scan: no final_path           ║  |
-  |            |               |              |  perception? yes, fires=0<1    ║  |
-  |            |               |              |---inject reminder msg--------->║  |
-  |            |               |<--state      |                |               ║  |
-  |            |               |   ╚═══════════════════════════════════════════╝  |
-  |            |               |              |                |                  |
-  |            |               |   ╔════════ Turn 2: Reason ═══════════════════╗  |
-  |            |               |   ║---before_model->| reuse cached notes      ║  |
-  |            |               |   ║---LLM call----->|                         ║  |
-  |            |               |   ║                |---reason->(sub-LLM)      ║  |
-  |            |               |   ║                |<--reasoning_output------ ║  |
-  |            |               |   ║---after_model-->Guard: no img, max fires  ║  |
-  |            |               |   ╚═══════════════════════════════════════════╝  |
-  |            |               |              |                |                  |
-  |            |               |   ╔════════ Turn 3: Sketch (code_scene_draft)═╗  |
-  |            |               |   ║---before_model->| reuse                   ║  |
-  |            |               |   ║---LLM call----->|                         ║  |
-  |            |               |   ║                |--code_scene_draft        ║  |
-  |            |               |   ║                |  (SVG render)            ║  |
-  |            |               |   ║                |<--draft_png_path-------- ║  |
-  |            |               |   ║---after_model-->Guard: draft_png ≠ final  ║  |
-  |            |               |   ╚═══════════════════════════════════════════╝  |
-  |            |               |              |                |                  |
-  |            |               |   ╔════════ Turn 4: Color (i2i) ══════════════╗  |
-  |            |               |   ║---before_model->| reuse                   ║  |
-  |            |               |   ║---LLM call----->|                         ║  |
-  |            |               |   ║                |---i2i(image_path=draft)->║  |
-  |            |               |   ║                |   ImageGen.generate_i2i  ║  |
-  |            |               |   ║                |   POST /v1/images/edits  ║  |
-  |            |               |   ║                |       (Gitee AI)         ║  |
-  |            |               |   ║                |   model=Qwen-Image-2512  ║  |
-  |            |               |   ║                |<--final_path-------------║  |
-  |            |               |   ║---after_model-->Guard: final_path FOUND!  ║  |
-  |            |               |   ║                |  image_produced=true     ║  |
-  |            |               |   ╚═══════════════════════════════════════════╝  |
-  |            |               |              |                |                  |
-  |            |               |   ╔════════ Turn 5: Review ═══════════════════╗  |
-  |            |               |   ║---before_model->| reuse                   ║  |
-  |            |               |   ║---LLM call----->|                         ║  |
-  |            |               |   ║                |---vlm_review(image_path)->║ |
-  |            |               |   ║                |   look MCP tool          ║  |
-  |            |               |   ║                |   (vision model)         ║  |
-  |            |               |   ║                |<--{passed, issues, ...}--║  |
-  |            |               |   ║---after_model-->image already produced    ║  |
-  |            |               |   ╚═══════════════════════════════════════════╝  |
-  |            |               |              |                |                  |
-  |            |               |   ╔════════ Turn 6: Final Reply ══════════════╗  |
-  |            |               |   ║---before_model->| reuse                   ║  |
-  |            |               |   ║---LLM call----->|                         ║  |
-  |            |               |   ║                | (text reply +            ║  |
-  |            |               |   ║                |  write_todos complete)   ║  |
-  |            |               |   ║---after_model-->image already produced    ║  |
-  |            |               |   ╚═══════════════════════════════════════════╝  |
-  |            |               |              |                |                  |
-  |            |               |--idle------->|                |                  |
-  |            |<--extract_last_response      |                |                  |
-  |<--final text + image path--|              |                |                  |
-  |            |               |              |                |                  |
+ User    Hub     AgentServer    [Sagents Default MW]    [GenClaw MW]    LLM (kimi-k2.6)    Tools / External
+  |       |           |             |                      |               |                  |
+  |--msg->|           |             |                      |               |                  |
+  |       |---reset-->|             |                      |               |                  |
+  |       |---add_msg>|             |                      |               |                  |
+  |       |           |--loop start>|                      |               |                  |
+  |       |           |             |                      |               |                  |
+  |       |           | ╔════════ Turn 1: Perception + Plan ══════════════════════════════════╗
+  |       |           | ║           |                      |               |                  ║
+  |       |           | ║--before-->|                      |               |                  ║
+  |       |           | ║           |--before_model------->|               |                  ║
+  |       |           | ║           |  (Perception MW)     |               |                  ║
+  |       |           | ║           |  • extract user prompt               |                  ║
+  |       |           | ║           |  • call sub-LLM (kimi-k2.6)--------->|                  ║
+  |       |           | ║           |  <--painter_notes (JSON)-------------|                  ║
+  |       |           | ║           |  • inject <system-reminder>          |                  ║
+  |       |           | ║           |<--state              |               |                  ║
+  |       |           | ║           |                      |               |                  ║
+  |       |           | ║           |--LLM call (kimi-k2.6)--------------->|                  ║
+  |       |           | ║           |                      |               |---write_todos>   ║ (TodoList MW)
+  |       |           | ║           |                      |               |---search---->(web║
+  |       |           | ║           |                      |               |<--facts+refs---  ║
+  |       |           | ║           |                      |               |                  ║
+  |       |           | ║           |--after_model-------->|               |                  ║
+  |       |           | ║           |  (CompletionGuard)   |               |                  ║
+  |       |           | ║           |  scan: no final_path |               |                  ║
+  |       |           | ║           |  perception? yes, fires=0 < 1        |                  ║
+  |       |           | ║           |  • inject reminder msg               |                  ║
+  |       |           | ║           |<--state              |               |                  ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |
+  |       |           | ╔════════ Turn 2: Reason ═════════════════════════════════════════════╗
+  |       |           | ║--before-->|  (Perception: reuse cached notes)   |                   ║
+  |       |           | ║--LLM call--------------------------------->     |                   ║
+  |       |           | ║           |                      |              |---reason->(sub-LLM║
+  |       |           | ║           |                      |              |<--reasoning_output║
+  |       |           | ║--after-->|  (Guard: no img, max fires)          |                   ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |             |                      |               |
+  |       |           | ╔════════ Turn 3: Sketch (code_scene_draft) ══════════════════════════╗
+  |       |           | ║--before-->|  (reuse)             |             | |                  ║
+  |       |           | ║--LLM call--------------------------------->|                        ║
+  |       |           | ║           |                      |           |--code_scene_draft    ║
+  |       |           | ║           |                      |           |  ┌─────────────┐     ║
+  |       |           | ║           |                      |           |  │ 1. LLM gen  │     ║
+  |       |           | ║           |                      |           |  │   SVG code  │     ║
+  |       |           | ║           |                      |           |  │   (kimi-    │     ║
+  |       |           | ║           |                      |           |  │    k2.6)    │     ║
+  |       |           | ║           |                      |           |  ├─────────────┤     ║
+  |       |           | ║           |                      |           |  │ 2. Render   │     ║
+  |       |           | ║           |                      |           |  │   SVG→PNG   │     ║
+  |       |           | ║           |                      |           |  │   (Chrome   │     ║
+  |       |           | ║           |                      |           |  │   headless) │     ║
+  |       |           | ║           |                      |           |  ├─────────────┤     ║
+  |       |           | ║           |                      |           |  │ 3. VLM rev  │     ║
+  |       |           | ║           |                      |           |  │   (look MCP)│     ║
+  |       |           | ║           |                      |           |  ├─────────────┤     ║
+  |       |           | ║           |                      |           |  │ 4. Revise?  │     ║
+  |       |           | ║           |                      |           |  │  FAIL→retry │     ║
+  |       |           | ║           |                      |           |  │  (≤3 rounds)│     ║
+  |       |           | ║           |                      |           |  └──────┬──────┘     ║
+  |       |           | ║           |                      |           |<--draft_png_path-    ║
+  |       |           | ║--after-->|  (Guard: draft_png ≠ final_path)   |                     ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |             |                      |               |
+  |       |           | ╔════════ Turn 4: Color (i2i) ════════════════════════════════════════╗
+  |       |           | ║--before-->|  (reuse)             |               |                  ║
+  |       |           | ║--LLM call--------------------------------->|                        ║
+  |       |           | ║           |                      |           |--i2i(image_path=draft║
+  |       |           | ║           |                      |           |  ImageGen.generate_i2║
+  |       |           | ║           |                      |           |  POST /v1/images/edit║
+  |       |           | ║           |                      |           |       (Gitee AI)     ║
+  |       |           | ║           |                      |           |  model=Qwen-Image-251║
+  |       |           | ║           |                      |           |<--final_path------   ║
+  |       |           | ║--after-->|  (Guard: final_path FOUND!)       |                      ║
+  |       |           | ║           |  image_produced=true             |                      ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |             |                                                          |
+  |       |           | ╔════════ Turn 5: Review ═════════════════════════════════════════════╗
+  |       |           | ║--before-->|  (reuse)             |           |                      ║
+  |       |           | ║--LLM call--------------------------------->  |                      ║
+  |       |           | ║           |                      |           |--vlm_review(image_pat║
+  |       |           | ║           |                      |           |  look MCP tool       ║
+  |       |           | ║           |                      |           |  (vision model)      ║
+  |       |           | ║           |                      |           |<--{passed, issues,...║
+  |       |           | ║--after-->|  (image already produced)          |                     ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |             |                      |               |
+  |       |           | ╔════════ Turn 6: Final Reply ════════════════════════════════════════╗
+  |       |           | ║--before-->|  (reuse)             |               |                  ║
+  |       |           | ║--LLM call--------------------------------->|                        ║
+  |       |           | ║           |                      |           | (text reply +        ║
+  |       |           | ║           |                      |           |  write_todos complete║
+  |       |           | ║--after-->|  (image already produced)          |                     ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |             |                      |               |
+  |       |           |--idle------>|                      |               |
+  |       |<--extract_last_response |                      |               |
+  |<--final text + image path--     |                      |               |
+  |       |           |             |                      |               |
+
+  NOTE: Sagents default middleware (TodoList, FileSystem, SubAgent, Summarization,
+  PatchToolCalls) is auto-prepended before GenClaw custom middleware (Perception,
+  CompletionGuard). The write_todos tool is provided by TodoList middleware.
+
+
+================================================================================
+          GenClaw Elixir Port — Sequence Diagram (Simple Flow)
+              Simple: write_todos → t2i → (done)
+================================================================================
+
+ User    Hub     AgentServer    [Sagents Default MW]    [GenClaw MW]    LLM (kimi-k2.6)    Tools / External
+  |       |           |             |                      |               |                  |
+  |--msg->|           |             |                      |               |                  |
+  |       |---reset-->|             |                      |               |                  |
+  |       |---add_msg>|             |                      |               |                  |
+  |       |           |--loop start>|                      |               |                  |
+  |       |           |             |                      |               |                  |
+  |       |           | ╔════════ Turn 1: Perception + Plan ══════════════════════════════════╗
+  |       |           | ║--before-->|  (Perception MW)     |               |                  ║
+  |       |           | ║           |  • extract prompt    |               |                  ║
+  |       |           | ║           |  • sub-LLM call----->|               |                  ║
+  |       |           | ║           |  <--painter_notes----|               |                  ║
+  |       |           | ║           |  • inject reminder   |               |                  ║
+  |       |           | ║--LLM call--------------------------------->|                        ║
+  |       |           | ║           |                      |           |--write_todos>        ║ (TodoList MW)
+  |       |           | ║---after-->|  (CompletionGuard)   |               |                  ║
+  |       |           | ║           |  no final_path,      |               |                  ║
+  |       |           | ║           |  perception fires=0  |               |                  ║
+  |       |           | ║           |  → inject reminder   |               |                  ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |                                                                       |
+  |       |           | ╔════════ Turn 2: Color (t2i) ════════════════════════════════════════╗
+  |       |           | ║--before-->|  (reuse)             |               |                  ║
+  |       |           | ║--LLM call----------------------->|               |                  ║
+  |       |           | ║           |                      |               |--t2i------->|    ║
+  |       |           | ║           |                      |               |  ImageGen.gen_t2i║
+  |       |           | ║           |                      |               |  POST /v1/images/║
+  |       |           | ║           |                      |               |  generations     ║
+  |       |           | ║           |                      |               |  (Gitee AI)      ║
+  |       |           | ║           |                      |               |  model=Qwen-Image║
+  |       |           | ║           |                      |               |<--final_path--   ║
+  |       |           | ║--after-->|  (Guard: final_path FOUND!)           |                  ║
+  |       |           | ║           |  image_produced=true                 |                  ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |                                                                       |
+  |       |           | ╔════════ Turn 3: Final Reply ════════════════════════════════════════╗
+  |       |           | ║--LLM call----------------------->|               |                  ║
+  |       |           | ║           |                      |               | (text reply +    ║
+  |       |           | ║           |                      |               |  write_todos done║
+  |       |           | ║--after-->|  (image already produced)             |                  ║
+  |       |           | ╚═════════════════════════════════════════════════════════════════════╝
+  |       |           |--idle------>|                      |               |                  |
+  |       |<--extract_last_response                        |               |                  |
+  |<--final text + image path--                            |               |                  |
 
 
 ================================================================================
@@ -111,7 +188,8 @@
 │  │ "genclaw" => FactoryEntry.agent_config(model: "kimi-k2.6")           │   │
 │  │   • system_prompt: SystemPrompt.render(model: "kimi-k2.6")           │   │
 │  │   • middleware: [Perception, CompletionGuard]                        │   │
-│  │   • tools: [T2I, I2I, Search, Reason, FormatPrompt, VLMReview]       │   │
+│  │   • tools: [T2I, I2I, Search, Reason, FormatPrompt,                  │   │
+│  │             VLMReview, CodeSceneDraft, CodeTextDraft]                │   │
 │  │   • model → kimi-k2.6 (via LlmConfigServer)                          │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
@@ -125,17 +203,46 @@
 │    ┌───────────────────────────────────────────────────────────────────┐    │
 │    │                    AGENT TURN LOOP                                │    │
 │    │                                                                   │    │
-│    │  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐         │    │
-│    │  │ before_model│───>│  LLM call    │───>│  after_model  │         │    │
-│    │  │ (middleware)│    │ (kimi-k2.6)  │    │ (middleware)  │         │    │
-│    │  └──────┬──────┘    └──────┬───────┘    └───────┬───────┘         │    │
-│    │         │                  │                    │                 │    │
-│    │         ▼                  ▼                    ▼                 │    │
-│    │  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐         │    │
-│    │  │ Perception  │    │ Tool calls   │    │CompletionGuard│         │    │
-│    │  │ Middleware  │    │ (parallel /  │    │ Middleware    │         │    │
-│    │  │             │    │  sequential) │    │               │         │    │
-│    │  └─────────────┘    └──────────────┘    └───────────────┘         │    │
+│    │  FULL MIDDLEWARE STACK (auto-prepended + custom):                 │    │
+│    │                                                                   │    │
+│    │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐            │    │
+│    │  │ TodoList │ │FileSystem│ │ SubAgent │ │Summarizatn │            │    │
+│    │  │ (default)│ │ (default)│ │ (default)│ │  (default) │            │    │
+│    │  │          │ │          │ │          │ │            │            │    │
+│    │  │•write_   │ │•mock fs  │ │•delegate │ │•compress   │            │    │
+│    │  │ todos    │ │ ops      │ │ sub-agent│ │ history    │            │    │
+│    │  │ tool     │ │          │ │          │ │            │            │    │
+│    │  └──────────┘ └──────────┘ └──────────┘ └────────────┘            │    │
+│    │  ┌──────────────┐  ┌─────────────┐  ┌──────────────┐              │    │
+│    │  │PatchToolCalls│  │ Perception  │  │CompletionGrd │              │    │
+│    │  │  (default)   │  │  (custom)   │  │  (custom)    │              │    │
+│    │  │              │  │             │  │              │              │    │
+│    │  │•fix dangling │  │•extract     │  │•scan for     │              │    │
+│    │  │ tool calls   │  │ user prompt │  │ final_path   │              │    │
+│    │  │              │  │•sub-LLM     │  │•fire remind  │              │    │
+│    │  │              │  │ painter notes│ │ if no image  │              │    │
+│    │  │              │  │•inject      │  │•max_fires=1  │              │    │
+│    │  │              │  │ <reminder>  │  │              │              │    │
+│    │  └──────────────┘  └─────────────┘  └──────────────┘              │    │
+│    │                                                                   │    │
+│    │  ┌───────────────────────────────────────────────────────────┐    │    │
+│    │  │                  AGENT TURN                               │    │    │
+│    │  │                                                           │    │    │
+│    │  │  before_model ──> LLM call (kimi-k2.6) ──> after_model    │    │    │
+│    │  │  (all MW, in     • tool calls (parallel    (all MW, in    │    │    │
+│    │  │   order)           or sequential)           reverse order)│    │    │
+│    │  │                                                           │    │    │
+│    │  │  Tools available to LLM:                                  │    │    │
+│    │  │  ┌──────────────────────────────────────────────────────┐ │    │    │
+│    │  │  │ FROM MIDDLEWARE:                                     │ │    │    │
+│    │  │  │   write_todos (TodoList)                             │ │    │    │
+│    │  │  │   (filesystem ops from FileSystem)                   │ │    │    │
+│    │  │  │   (sub-agent tools from SubAgent)                    │ │    │    │
+│    │  │  │ FROM FACTORY ENTRY:                                  │ │    │    │
+│    │  │  │   t2i, i2i, search, reason, format_prompt,           │ │    │    │
+│    │  │  │   vlm_review, code_scene_draft, code_text_draft      │ │    │    │
+│    │  │  └──────────────────────────────────────────────────────┘ │    │    │
+│    │  └───────────────────────────────────────────────────────────┘    │    │
 │    └───────────────────────────────────────────────────────────────────┘    │
 └──────┬──────────────────────────────────┬──────────────────────────┬────────┘
        │                                  │                          │
@@ -148,42 +255,41 @@
 │ │Perception ││          │ │code_scene_draft      │     │  │ │ ImageGen     │ │
 │ │Middleware ││          │ │(SVG layout, coords,  │     │  │ │              │ │
 │ │           ││          │ │ z-order, object count)│    │  │ │ generate_t2i()││
-│ │ • extract ││          │ └──────────────────────┘     │  │ │  POST /v1/    ││
-│ │   user    ││          │                              │  │ │  images/      ││
-│ │   prompt  ││          │ ┌──────────────────────┐     │  │ │  generations  ││
-│ │ • call    ││          │ │code_text_draft        │    │  │ │               ││
-│ │   sub-LLM ││          │ │(HTML/SVG text layers, │    │  │ │ generate_i2i()││
-│ │   (kimi-  ││          │ │ posters, menus, exact │    │  │ │  POST /v1/   │ │
-│ │   k2.6)   ││          │ │ typography)           │    │  │ │  images/edits│ │
+│ │ • extract ││          │ │                      │     │  │ │  POST /v1/    ││
+│ │   user    ││          │ │ Pipeline:            │     │  │ │  images/      ││
+│ │   prompt  ││          │ │  1. LLM → SVG code   │     │  │ │  generations  ││
+│ │ • call    ││          │ │  2. Chrome → PNG     │     │  │ │               ││
+│ │   sub-LLM ││          │ │  3. VLM review       │     │  │ │ generate_i2i()││
+│ │   (kimi-  ││          │ │  4. FAIL → revise    │     │  │ │  POST /v1/   │ │
+│ │   k2.6)   ││          │ │     (≤3 rounds)      │     │  │ │  images/edits│ │
 │ │ • parse   ││          │ └──────────────────────┘     │  │ │              │ │
 │ │   painter ││          │                              │  │ │ model:       │ │
-│ │   notes   ││          │ (tool cards loaded from      │  │ │ Qwen-Image-  │ │
-│ │ • inject  ││          │  priv/genclaw/tool_cards/)   │  │ │ 2512         │ │
-│ │   <system-││          │                              │  │ │              │ │
-│ │   reminder>│          │                              │  │ │ ↓ (Gitee AI) │ │
-│ └──────────┘ │          │                              │  │ └──────┬───────┘ │
-│              │          │                              │  │        │         │
-│ ┌──────────┐ │          │                              │  │ ┌──────▼───────┐ │
-│ │ Search    ││          │                              │  │ │ VLMReview    │ │
-│ │ Tool      ││          │                              │  │ │              │ │
-│ │           ││          │                              │  │ │ look MCP     │ │
-│ │ • web     ││          │                              │  │ │ tool         │ │
-│ │   search  ││          │                              │  │ │ (vision      │ │
-│ │ • facts + ││          │                              │  │ │  model)      │ │
-│ │   refs    ││          │                              │  │ │              │ │
-│ └──────────┘ │          │                              │  │ │ • passed?    │ │
-│              │          │                              │  │ • issues?      │ │
-│ ┌───────────┐│          │                              │  │ • retry?       │ │
-│ │ Reason    ││          │                              │  │ • fix prompt?  │ │
-│ │ Tool      ││          │                              │  │ └──────────────┘ │
-│ │           ││          │                              │  │                  │
-│ │ • math    ││          │                              │  │ ┌──────────────┐ │
-│ │ • physics ││          │                              │  │ │CompletionGuard││
-│ │ • logic   ││          │                              │  │ │ Middleware   │ │
-│ │ → derived ││          │                              │  │ │              │ │
-│ │   conclusions│        │                              │  │ │ • scan for   │ │
-│ └──────────┘ │          │                              │  │ │  final_path  │ │
-│              │          │                              │  │ • fire remind  │ │
+│ │   notes   ││          │ ┌──────────────────────┐     │  │ │ Qwen-Image-  │ │
+│ │ • inject  ││          │ │code_text_draft        │    │  │ │ 2512         │ │
+│ │   <system-││          │ │(HTML/CSS text layers, │    │  │ │              │ │
+│ │   reminder>│          │ │ posters, menus, exact │    │  │ │ ↓ (Gitee AI) │ │
+│ └──────────┘ │          │ │ typography)           │    │  │ └──────┬───────┘ │
+│              │          │ │                      │     │  │        │         │
+│ ┌──────────┐ │          │ │ Pipeline:            │     │  │ ┌──────▼───────┐ │
+│ │ Search    ││          │ │  1. LLM → HTML code  │     │  │ │ VLMReview    │ │
+│ │ Tool      ││          │ │  2. Chrome → PNG     │     │  │ │              │ │
+│ │           ││          │ │  3. VLM review       │     │  │ │ look MCP     │ │
+│ │ • web     ││          │ │  4. FAIL → revise    │     │  │ │ tool         │ │
+│ │   search  ││          │ │     (≤2 rounds)      │     │  │ │ (vision      │ │
+│ │ • facts + ││          │ │                      │     │  │ │  model)      │ │
+│ │   refs    ││          │ │ Output: final.png    │     │  │ │              │ │
+│ └──────────┘ │          │ │ (pure_code → no i2i) │     │  │ │ • passed?    │ │
+│              │          │ └──────────────────────┘     │  │ │ • issues?    │ │
+│ ┌───────────┐│          │                              │  │ │ • retry?     │ │
+│ │ Reason    ││          │ (tool cards loaded from      │  │ └──────────────┘ │
+│ │ Tool      ││          │  priv/genclaw/tool_cards/)   │  │                  │
+│ │           ││          │                              │  │ ┌──────────────┐ │
+│ │ • math    ││          │                              │  │ │CompletionGuard││
+│ │ • physics ││          │                              │  │ │ Middleware   │ │
+│ │ • logic   ││          │                              │  │ │              │ │
+│ │ → derived ││          │                              │  │ │ • scan for   │ │
+│ │   conclusions│        │                              │  │ │  final_path  │ │
+│ └──────────┘ │          │                              │  │ • fire remind  │ │
 │              │          │                              │  │ │  if no image │ │
 │              │          │                              │  │ • max_fires=1  │ │
 │              │          │                              │  │ └──────────────┘ │
@@ -198,8 +304,8 @@
 │  ~/.config/exhub/genclaw_runs/<timestamp>/                                  │
 │  ├── artifacts.jsonl          (manifest of all outputs)                     │
 │  ├── search/                  (reference images, facts)                     │
-│  ├── code_scene_draft/        (SVG drafts, draft_png)                       │
-│  ├── code_text_draft/         (text-rendered images)                        │
+│  ├── code_scene_draft/        (SVG drafts, draft_png, layout.json)          │
+│  ├── code_text_draft/         (text-rendered images, final.html)            │
 │  ├── t2i/                     (generated PNGs)                              │
 │  ├── i2i/                     (edited PNGs)                                 │
 │  ├── format_prompt/           (final_prompt.txt)                            │
@@ -233,5 +339,14 @@
        │  │ • get_llm_config("kimi-k2.6") → config map              │    │
        │  │ • model format: "provider/model_name"                   │    │
        │  │   e.g. "openai/kimi-k2.6"                               │    │
+       │  └─────────────────────────────────────────────────────────┘    │
+       │                                                                 │
+       │  ┌─────────────────────────────────────────────────────────┐    │
+       │  │ Rendering (code_scene_draft & code_text_draft)          │    │
+       │  │                                                         │    │
+       │  │ • Headless Chrome (--headless --screenshot)             │    │
+       │  │   via Exile.stream/1                                    │    │
+       │  │ • qlmanage fallback (macOS built-in)                    │    │
+       │  │ • CHROME_PATH env var override                          │    │
        │  └─────────────────────────────────────────────────────────┘    │
        └─────────────────────────────────────────────────────────────────┘

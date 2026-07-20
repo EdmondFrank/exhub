@@ -2,7 +2,7 @@ defmodule Exhub.Llm.LlmConfigServer do
   use GenServer
 
   # Define the default LLM name
-  @default_llm_name "openai/mimo-v2.5-pro"
+  @default_llm_name "openai/deepseek-v4-pro"
 
   # Configuration state keys
   @current_llm_key :current_llm

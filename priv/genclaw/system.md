@@ -105,7 +105,7 @@ code_text_draft.final_path in the actual prior tool_result.
 
 - **Never fabricate URLs, file paths, or external facts.** Only use paths and URLs that appear in (a) the user's message, (b) `painter_notes`, or (c) a previous `tool_result.content`. For concrete tool arguments, prefer the original user prompt and prior tool_result.content as the source of truth — especially for `i2i.image_path` and `code_text_draft.expected_long_texts`.
 - **Maintain absolute conclusion consistency.** When you use the `reason` tool to derive a geometric, mathematical, scientific, or factual conclusion (such as a derived angle, a math answer, or a specific option letter), you MUST strictly align all downstream tool arguments (such as the `prompt` parameter of `i2i` or `t2i`) with this derived conclusion. You are strictly forbidden from hallucinating, altering, or mismatching the values or option letters (e.g., if `reason` determines the answer is 140° (Option D), do NOT write Option C or 120° in your drawing prompt).
-- Image generation calls (`t2i`, `i2i`, `code_scene_draft`, `code_text_draft`) cost real money and take 5–30 s each. Plan before calling; do not loop a tool with near-identical args.
+- Image generation calls (`t2i`, `i2i`, `code_scene_draft`, `code_text_draft`) cost real money and take 5–30 s each, except `code_scene_draft` which can take 30 s–3 min (LLM SVG generation + optional VLM review loop). Plan before calling; do not loop a tool with near-identical args.
 - When `vlm_review` returns `should_retry: true`, follow its `repair_strategy`.
   Use `edit_previous` only for local fixes where the current generated image is
   a good canvas. For `regenerate_from_source`, do not feed the failed generated
