@@ -200,7 +200,10 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     # - :pty      — allocate a pseudo-terminal
     # - :pty_echo — enable terminal echo
     # - :monitor  — receive DOWN messages on process exit
-    exec_opts = [:stdin, :stdout, {:stderr, :stdout}, :pty, :pty_echo, :monitor]
+    # Use {:pty, opts} instead of bare :pty to explicitly disable INLCR,
+    # which translates input NL (\n) to CR (\r) — breaking line terminators
+    # for SSH, REPLs, and other TTY-dependent programs.
+    exec_opts = [:stdin, :stdout, {:stderr, :stdout}, {:pty, [{:inlcr, false}]}, :pty_echo, :monitor]
 
     exec_opts =
       if working_dir do
