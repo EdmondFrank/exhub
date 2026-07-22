@@ -26,6 +26,9 @@ defmodule Exhub.MCP.Tools.WebFetch do
 
     Supports GET, POST, and HEAD methods for HTTP requests.
     Custom headers and request body can be provided for POST requests.
+
+    Set render_js to true to render JavaScript-heavy pages via headless Chrome (KuriDaemon).
+    This is useful for SPAs, dynamically loaded content, or pages that require JS execution.
     """
   end
 
@@ -38,6 +41,11 @@ defmodule Exhub.MCP.Tools.WebFetch do
 
     field(:headers, :map, description: "Optional HTTP headers as key-value pairs")
     field(:body, :string, description: "Optional request body for POST requests")
+
+    field(:render_js, :boolean,
+      description:
+        "Render JavaScript via headless Chrome before extracting text. Default false."
+    )
   end
 
   @impl true
@@ -46,6 +54,7 @@ defmodule Exhub.MCP.Tools.WebFetch do
     method = Map.get(params, :method, "GET") |> String.upcase()
     headers = Map.get(params, :headers, %{}) || %{}
     body = Map.get(params, :body)
+    render_js = Map.get(params, :render_js, false)
 
     cond do
       is_nil(url) or url == "" ->
@@ -57,7 +66,7 @@ defmodule Exhub.MCP.Tools.WebFetch do
         {:reply, resp, frame}
 
       true ->
-        do_fetch(url, method, headers, body, frame)
+        do_fetch(url, method, headers, body, render_js, frame)
     end
   end
 
@@ -76,10 +85,13 @@ defmodule Exhub.MCP.Tools.WebFetch do
     end
   end
 
-  defp do_fetch(url, method, headers, body, frame) do
+  defp do_fetch(url, method, headers, body, render_js, frame) do
     case URI.parse(url) do
       %URI{scheme: "file", path: path} ->
         do_fetch_file(path, frame)
+
+      _ when render_js ->
+        do_fetch_rendered(url, frame)
 
       _ ->
         do_fetch_http(url, method, headers, body, frame)
@@ -126,6 +138,117 @@ defmodule Exhub.MCP.Tools.WebFetch do
       {:error, reason} ->
         resp = Response.tool() |> Response.error("Failed to read file: #{inspect(reason)}")
         {:reply, resp, frame}
+    end
+  end
+
+  defp do_fetch_rendered(url, frame) do
+    case Exhub.KuriDaemon.status() do
+      :healthy ->
+        base = Exhub.KuriDaemon.base_url()
+        encoded_url = URI.encode_www_form(url)
+
+        with {:ok, tab_id} <- kuri_new_tab(base, encoded_url),
+             {:ok, text} <- kuri_get_text(base, tab_id) do
+          # Best-effort cleanup
+          _ = kuri_close_tab(base, tab_id)
+
+          resp =
+            Response.tool()
+            |> Response.structured(%{
+              "success" => true,
+              "url" => url,
+              "status_code" => 200,
+              "render_js" => true,
+              "content" => text
+            })
+
+          {:reply, resp, frame}
+        else
+          {:error, reason} ->
+            resp =
+              Response.tool()
+              |> Response.error("render_js failed: #{reason}. KuriDaemon may be unavailable.")
+
+            {:reply, resp, frame}
+        end
+
+      status ->
+        resp =
+          Response.tool()
+          |> Response.error(
+            "render_js requires KuriDaemon to be healthy (current status: #{status}). " <>
+              "Ensure kuri is installed and :kuri_enabled is true."
+          )
+
+        {:reply, resp, frame}
+    end
+  end
+
+  defp kuri_new_tab(base, encoded_url) do
+    url = "#{base}/tab/new?url=#{encoded_url}&wait=true"
+
+    case kuri_http_get(url, 30_000) do
+      {:ok, body} ->
+        case Jason.decode(body) do
+          {:ok, %{"tab_id" => tab_id}} when tab_id != "" and tab_id != "unknown" ->
+            {:ok, tab_id}
+
+          {:ok, %{"status" => "created", "tab_id" => tab_id}} ->
+            {:ok, tab_id}
+
+          {:ok, other} ->
+            {:error, "unexpected /tab/new response: #{inspect(other)}"}
+
+          {:error, _} ->
+            {:error, "failed to decode /tab/new response"}
+        end
+
+      {:error, reason} ->
+        {:error, "kuri /tab/new request failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp kuri_get_text(base, tab_id) do
+    url = "#{base}/text?tab_id=#{URI.encode_www_form(tab_id)}"
+
+    case kuri_http_get(url, 15_000) do
+      {:ok, body} ->
+        case Jason.decode(body) do
+          {:ok, %{"result" => %{"value" => text}}} when is_binary(text) ->
+            {:ok, text}
+
+          {:ok, %{"result" => %{"value" => text}}} ->
+            {:ok, to_string(text)}
+
+          {:ok, other} ->
+            # Fallback: try to extract text from raw response
+            {:ok, inspect(other)}
+
+          {:error, _} ->
+            # Response might be plain text
+            {:ok, body}
+        end
+
+      {:error, reason} ->
+        {:error, "kuri /text request failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp kuri_close_tab(base, tab_id) do
+    url = "#{base}/tab/close?tab_id=#{URI.encode_www_form(tab_id)}"
+    kuri_http_get(url, 5_000)
+  end
+
+  defp kuri_http_get(url, timeout) do
+    case :httpc.request(:get, {to_charlist(url), []}, [timeout: timeout], body_format: :binary) do
+      {:ok, {{_, 200, _}, _headers, body}} ->
+        {:ok, body}
+
+      {:ok, {{_, status, _}, _headers, body}} ->
+        {:error, {:http_error, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
