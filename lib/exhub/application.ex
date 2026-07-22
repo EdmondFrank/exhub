@@ -15,6 +15,8 @@ defmodule Exhub.Application do
       Sagents.Supervisor,
       # Agent Hub — manages sagents agent lifecycle
       {Exhub.Sagents.Hub, name: Exhub.Sagents.Hub},
+      # Hercules — AI-powered E2E test runner
+      {Exhub.Hercules.Runner, []},
       {Exhub.Router.ReasoningCache, []},
       {Exhub.Llm.World, name: Exhub.Llm.World},
       {Exhub.Llm.LlmConfigServer, name: Exhub.Llm.LlmConfigServer},
@@ -60,7 +62,7 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
-      # MCP Document Extraction Server (PDF, DOCX, images via Gitee AI PaddleOCR-VL-1.5)
+      # MCP Document Extraction Server (PDF, DOCX, images via Gitee AI Unlimited-OCR)
       {Exhub.MCP.DocExtractServer,
        transport: :streamable_http,
        request_timeout: 600_000,

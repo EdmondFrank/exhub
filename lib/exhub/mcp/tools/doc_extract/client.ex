@@ -8,7 +8,7 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
 
   @submit_url "https://ai.gitee.com/v1/async/documents/parse"
   @task_url "https://ai.gitee.com/v1/task"
-  @default_model "PaddleOCR-VL-1.5"
+  @default_model "Unlimited-OCR"
   @poll_interval_ms 5_000
   @max_poll_attempts 60
   @http_timeout_ms 30_000
@@ -52,6 +52,7 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   def extract(file, opts \\ []) do
     include_image = Keyword.get(opts, :include_image, true)
     output_format = Keyword.get(opts, :output_format, "md")
+    model = Keyword.get(opts, :model, @default_model)
 
     api_key = Application.get_env(:exhub, :giteeai_api_key, "")
 
@@ -59,24 +60,24 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
       {:error,
        "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""}
     else
-      do_extract(file, include_image, output_format, api_key)
+      do_extract(file, include_image, output_format, model, api_key)
     end
   end
 
-  defp do_extract(file, include_image, output_format, api_key) do
-    with {:ok, task_id} <- submit_task(file, include_image, output_format, api_key),
+  defp do_extract(file, include_image, output_format, model, api_key) do
+    with {:ok, task_id} <- submit_task(file, include_image, output_format, model, api_key),
          {:ok, result} <- poll_task(task_id, api_key) do
       {:ok, extract_text(result)}
     end
   end
 
-  defp submit_task(file, include_image, output_format, api_key) do
+  defp submit_task(file, include_image, output_format, model, api_key) do
     headers = [
       {"Authorization", "Bearer #{api_key}"}
     ]
 
     base_fields = [
-      {"model", @default_model},
+      {"model", model},
       {"include_image", to_string(include_image)},
       {"include_image_base64", "false"},
       {"output_format", output_format}

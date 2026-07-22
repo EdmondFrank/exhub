@@ -30,8 +30,8 @@ Reads the contents of a file from the filesystem. Supports both plain text files
 |------------|---------------------------------------------------------------------------------------------|---------------------------------------------------|
 | Text files | `.txt`, `.md`, `.ex`, `.exs`, `.json`, `.yaml`, `.xml`, `.html`, `.css`, `.js`, `.ts`, etc. | Line-based reading with offset/length             |
 | Office     | `.docx`, `.xlsx`, `.pptx`                                                                   | Local text extraction via [nanoxml](https://github.com/justrach/nanoxml) CLI — no API needed |
-| Documents  | `.pdf`, `.doc`                                                                              | Text extraction via Gitee AI PaddleOCR-VL-1.5     |
-| Images     | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.gif`, `.webp`                                   | OCR text extraction via Gitee AI PaddleOCR-VL-1.5 |
+| Documents  | `.pdf`, `.doc`                                                                              | Text extraction via Gitee AI Unlimited-OCR        |
+| Images     | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.gif`, `.webp`                                   | OCR text extraction via Gitee AI Unlimited-OCR    |
 
 **Parameters**
 
@@ -118,7 +118,7 @@ All file content is sanitized to ensure valid UTF-8 encoding. Invalid byte seque
 When `extract: true`:
 
 - **Office files** (`.docx`, `.xlsx`, `.pptx`): Extracted locally via the [nanoxml](https://github.com/justrach/nanoxml) CLI — no API key required.
-- **Other documents** (`.pdf`, `.doc`) and **images**: Processed using Gitee AI PaddleOCR-VL-1.5 for text extraction. See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
+- **Other documents** (`.pdf`, `.doc`) and **images**: Processed using Gitee AI Unlimited-OCR for text extraction. See [docs/modules/doc-extract.md](docs/modules/doc-extract.md) for setup instructions.
 
 **Error Cases**
 

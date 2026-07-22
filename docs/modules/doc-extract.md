@@ -1,7 +1,8 @@
 # exhub-doc-extract
 
 The `exhub-doc-extract` module provides MCP-based document text extraction using the
-[Gitee AI](https://ai.gitee.com) Async Document Parse API powered by PaddleOCR-VL-1.5.
+[Gitee AI](https://ai.gitee.com) Async Document Parse API powered by Unlimited-OCR (default)
+or PaddleOCR-VL-1.5.
 
 ## Setup
 
@@ -28,7 +29,7 @@ POST /doc-extract/mcp
 
 Extract and recognize text from documents (PDF, DOCX, images, etc.) using Gitee AI.
 
-Powered by PaddleOCR-VL-1.5 via the Gitee AI Async Document Parse API.
+Powered by Unlimited-OCR (default) or PaddleOCR-VL-1.5 via the Gitee AI Async Document Parse API.
 Supports both local file paths and remote URLs as input.
 
 The tool submits an async parsing task, waits for completion, then returns
@@ -36,15 +37,24 @@ the extracted content in Markdown format.
 
 **Supported input formats:** PDF, DOCX, DOC, PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP, etc.
 
+**Supported models:**
+- `Unlimited-OCR` (default) — High-accuracy OCR, best for text-heavy documents
+- `PaddleOCR-VL-1.5` — Vision-language model with layout preservation, best for tables and structured formats
+
+**Model selection guidance:**
+- Prefer `Unlimited-OCR` when the document contains a lot of text (articles, books, reports)
+- Prefer `PaddleOCR-VL-1.5` when table structure or technical layout formatting is important
+
 **Returns:** Extracted text in Markdown format, with layout and structure preserved.
 
 ### Parameters
 
-| Parameter       | Type    | Required | Default | Description                                              |
-|-----------------|---------|----------|---------|----------------------------------------------------------|
-| `file`          | string  | ✓        | —       | Path to a local document file or a remote http/https URL |
-| `include_image` | boolean |          | `true`  | Whether to include image references in the output        |
-| `output_format` | string  |          | `md`    | Output format: `md` for Markdown, `text` for plain text  |
+| Parameter       | Type    | Required | Default         | Description                                              |
+|-----------------|---------|----------|-----------------|----------------------------------------------------------|
+| `file`          | string  | ✓        | —               | Path to a local document file or a remote http/https URL |
+| `include_image` | boolean |          | `true`          | Whether to include image references in the output        |
+| `output_format` | string  |          | `md`            | Output format: `md` for Markdown, `text` for plain text  |
+| `model`         | string  |          | `Unlimited-OCR` | OCR model: `Unlimited-OCR` or `PaddleOCR-VL-1.5`        |
 
 ### How It Works
 
@@ -93,9 +103,18 @@ Display the result as: 📖[Extracted Document Content]
 }
 ```
 
+### Use PaddleOCR-VL-1.5 model
+
+```json
+{
+  "file": "/path/to/scanned.pdf",
+  "model": "PaddleOCR-VL-1.5"
+}
+```
+
 ## Notes
 
 - **Large documents** may take longer to process; the 5-minute timeout should accommodate most files
 - **Remote URLs** are downloaded server-side before processing
 - **Image references** in the output are controlled by `include_image` (default: true)
-- The default model `PaddleOCR-VL-1.5` provides high-quality OCR with layout preservation
+- The default model `Unlimited-OCR` excels at text-heavy documents; use `PaddleOCR-VL-1.5` when table structure or technical layout formatting matters more

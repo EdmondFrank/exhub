@@ -4,7 +4,7 @@ defmodule Exhub.MCP.DocExtractServer do
 
   Exposes the `doc_extract` tool which extracts and recognizes text from
   documents (PDF, DOCX, images, etc.) using the Gitee AI Async Document
-  Parse API powered by PaddleOCR-VL-1.5.
+  Parse API powered by Unlimited-OCR (default) or PaddleOCR-VL-1.5.
 
   The server uses HTTP transport and can be accessed at the /doc-extract/mcp endpoint.
   """
