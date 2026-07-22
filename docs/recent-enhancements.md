@@ -184,7 +184,11 @@
 - **New Daemon**: `Exhub.KuriDaemon` auto-starts and manages the `kuri` HTTP server binary via Exile
 - **Zig-based Kuri Server**: Kuri is a Zig-based browser automation server that manages Chrome via CDP and exposes an HTTP API (tabs, navigate, snapshot, action, etc.)
 - **Auto-detection**: Automatically finds the `kuri` binary from PATH, `~/Code/kuri/zig-out/bin/kuri`, or explicit `:kuri_binary` config
-- **Health Monitoring**: Performs health checks every 30 seconds against the `/health` endpoint with automatic restart on failure
+- **Deep Health Checks**: Verifies both HTTP liveness (`/health`) and Chrome/CDP functionality (`/tabs` with auth). Detects "zombie" state where kuri is up but Chrome is dead
+- **Auto-Recovery**: After 3 consecutive failed deep checks, kills and restarts kuri automatically
+- **Exponential Backoff**: Restart delay grows 5s → 10s → 20s → 40s (cap 60s), resets on successful startup
+- **Proper Process Management**: Tracks the OS pid via `lsof` for clean SIGTERM; falls back to killing the Elixir spawn pid
+- **Public API Token**: `Exhub.KuriDaemon.api_token/0` resolves the Bearer token from `KURI_API_TOKEN` env → `KURI_SECRET` env → `~/.kuri/api.token` file
 - **Graceful Shutdown**: Sends SIGTERM to the kuri process on Exhub shutdown for clean cleanup
 - **Configuration**:
   | Key              | Default       | Description                    |
@@ -344,6 +348,8 @@
 - **Web Search & Fetch**: New `Exhub.MCP.WebToolsServer` module providing MCP-compliant web search and content fetching
 - **Gitee AI Integration**: Web search powered by Gitee AI's web search API
 - **Dual Tools**: `web_search` for AI-powered web searches and `web_fetch` for URL/file content retrieval
+- **JavaScript Rendering**: `web_fetch` supports a `render_js` option that uses the Kuri browser daemon to load pages in headless Chrome, poll for meaningful content (1s interval, 10s max), and extract rendered text — ideal for SPAs and JS-heavy pages
+- **Kuri Integration**: Reuses `Exhub.KuriDaemon` for browser lifecycle; authenticates via `KuriDaemon.api_token/0` (Bearer token from env or `~/.kuri/api.token`)
 - **HTTP Endpoint**: Exposed at `/web-tools/mcp` for MCP protocol communication
 - **Timeout Configuration**: Increased MCP transport timeout to 120s for long-running web operations
 - **Schema Fix**: Fixed `count` parameter type from `:number` to `:integer` for proper validation

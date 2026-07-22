@@ -208,30 +208,87 @@ defmodule Exhub.MCP.Tools.WebFetch do
     end
   end
 
+  @render_js_max_wait_ms 10_000
+  @render_js_poll_interval_ms 1_000
+
   defp kuri_get_text(base, tab_id) do
+    poll_text(base, tab_id, @render_js_max_wait_ms, 0, nil)
+  end
+
+  # Poll /text until we get meaningful content or hit the max timeout.
+  defp poll_text(_base, _tab_id, max_wait, elapsed, _last_text) when elapsed >= max_wait do
+    {:error, "timed out waiting for page content after #{max_wait}ms"}
+  end
+
+  defp poll_text(base, tab_id, max_wait, elapsed, last_text) do
+    # Wait before first poll and between polls
+    Process.sleep(@render_js_poll_interval_ms)
+
     url = "#{base}/text?tab_id=#{URI.encode_www_form(tab_id)}"
 
-    case kuri_http_get(url, 15_000) do
+    case kuri_http_get(url, 10_000) do
       {:ok, body} ->
-        case Jason.decode(body) do
-          {:ok, %{"result" => %{"value" => text}}} when is_binary(text) ->
-            {:ok, text}
-
-          {:ok, %{"result" => %{"value" => text}}} ->
-            {:ok, to_string(text)}
-
-          {:ok, other} ->
-            # Fallback: try to extract text from raw response
-            {:ok, inspect(other)}
+        case extract_text_value(body) do
+          {:ok, text} ->
+            if meaningful_content?(text) do
+              {:ok, text}
+            else
+              # Content is empty or still loading — keep polling
+              poll_text(base, tab_id, max_wait, elapsed + @render_js_poll_interval_ms, text)
+            end
 
           {:error, _} ->
-            # Response might be plain text
-            {:ok, body}
+            # Unexpected format — retry once more then give up
+            poll_text(base, tab_id, max_wait, elapsed + @render_js_poll_interval_ms, last_text)
         end
 
       {:error, reason} ->
-        {:error, "kuri /text request failed: #{inspect(reason)}"}
+        # Transient CDP failure — retry
+        if elapsed + @render_js_poll_interval_ms >= max_wait do
+          {:error, "kuri /text request failed: #{inspect(reason)}"}
+        else
+          poll_text(base, tab_id, max_wait, elapsed + @render_js_poll_interval_ms, last_text)
+        end
     end
+  end
+
+  defp extract_text_value(body) do
+    case Jason.decode(body) do
+      {:ok, %{"result" => %{"result" => %{"value" => text}}}} when is_binary(text) ->
+        {:ok, text}
+
+      {:ok, %{"result" => %{"value" => text}}} when is_binary(text) ->
+        {:ok, text}
+
+      {:ok, _other} ->
+        {:error, :unexpected_format}
+
+      {:error, _} ->
+        # Response might be plain text
+        {:ok, body}
+    end
+  end
+
+  # Heuristic: content is "meaningful" if it's non-trivial and not just a loading indicator.
+  defp meaningful_content?(text) when is_binary(text) do
+    trimmed = String.trim(text)
+
+    cond do
+      String.length(trimmed) < 20 -> false
+      loading_indicator?(trimmed) -> false
+      true -> true
+    end
+  end
+
+  defp meaningful_content?(_), do: false
+
+  defp loading_indicator?(text) do
+    downcased = String.downcase(text)
+
+    Enum.any?(
+      ["正在加载", "loading", "please wait", "加载中...", "initializing"],
+      &String.contains?(downcased, &1)
+    ) and String.length(text) < 100
   end
 
   defp kuri_close_tab(base, tab_id) do
@@ -240,7 +297,11 @@ defmodule Exhub.MCP.Tools.WebFetch do
   end
 
   defp kuri_http_get(url, timeout) do
-    case :httpc.request(:get, {to_charlist(url), []}, [timeout: timeout], body_format: :binary) do
+    headers = [{~c"authorization", to_charlist("Bearer #{Exhub.KuriDaemon.api_token()}")}]
+
+    case :httpc.request(:get, {to_charlist(url), headers}, [timeout: timeout],
+           body_format: :binary
+         ) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         {:ok, body}
 

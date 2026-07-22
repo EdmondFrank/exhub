@@ -48,7 +48,12 @@ Chrome startup is required. The daemon:
 
 - Auto-detects the `kuri` binary (from PATH, `~/Code/kuri/zig-out/bin/kuri`, or `:kuri_binary` config)
 - Starts Chrome in headless mode on port 18080 (configurable via `:kuri_port`)
-- Performs health checks every 30 seconds and auto-restarts on failure
+- **Deep health checks**: Verifies both HTTP liveness (`/health`) and Chrome/CDP functionality (`/tabs` with Bearer auth). Detects "zombie" state where kuri is up but Chrome is dead
+- **`:degraded` status**: Reported when HTTP is reachable but Chrome/CDP is unresponsive
+- **Auto-recovery**: After 3 consecutive failed deep checks, kills and restarts kuri automatically
+- **Exponential backoff**: Restart delay grows 5s → 10s → 20s → 40s (cap 60s), resets on successful startup
+- **Proper process management**: Tracks the OS pid via `lsof` for clean SIGTERM; falls back to killing the Elixir spawn pid
+- **API token resolution**: `Exhub.KuriDaemon.api_token/0` resolves the Bearer token from `KURI_API_TOKEN` env → `KURI_SECRET` env → `~/.kuri/api.token` file
 
 **Optional: Build kuri server for KuriDaemon:**
 
