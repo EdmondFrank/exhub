@@ -125,7 +125,7 @@ defmodule Exhub.Router do
   # ============================================================================
 
   get "/openai/v1/*path" do
-    token = Application.get_env(:exhub, :openai_api_key, "")
+    token = Application.get_env(:exhub, :giteeai_api_key, "")
 
     options = [
       custom_headers: [{"Authorization", "Bearer #{token}"}],
@@ -137,7 +137,7 @@ defmodule Exhub.Router do
 
     Logger.info("[OpenAI Proxy] Forwarding request - models")
     start = System.monotonic_time(:millisecond)
-    conn = ProxyPlug.forward_upstream(conn, "https://pinova.ai/v1", options)
+    conn = ProxyPlug.forward_upstream(conn, RouterConfig.default_upstream(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
     conn

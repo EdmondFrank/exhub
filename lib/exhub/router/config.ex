@@ -23,7 +23,7 @@ defmodule Exhub.Router.Config do
   @type proxy_config :: String.t() | false
 
   # Default upstream URL when no specific mapping exists
-  @default_upstream "https://pinova.ai/v1"
+  @default_upstream "https://api.moark.com/v1"
 
   # Provider base URLs
   @provider_urls %{
@@ -33,7 +33,6 @@ defmodule Exhub.Router.Config do
     mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
-    openai: @default_upstream,
     infini: "https://cloud.infini-ai.com/maas/v1",
     kiro: "http://localhost:8000/v1",
     nvidia: "https://integrate.api.nvidia.com/v1",
@@ -150,7 +149,7 @@ defmodule Exhub.Router.Config do
       "https://api.moark.com/v1"
 
       iex> Exhub.Router.Config.get_model_target("unknown-model")
-      "https://pinova.ai/v1"
+      "https://api.moark.com/v1"
   """
   @spec get_model_target(model() | nil) :: provider_url()
   def get_model_target(nil), do: @default_upstream
@@ -199,11 +198,11 @@ defmodule Exhub.Router.Config do
       # Returns :exhub giteeai_api_key config value
 
       iex> Exhub.Router.Config.get_model_api_key("unknown-model")
-      # Returns :exhub openai_api_key config value
+      # Returns :exhub giteeai_api_key config value
   """
   @spec get_model_api_key(model() | nil) :: api_key()
   def get_model_api_key(nil) do
-    Application.get_env(:exhub, :openai_api_key, "")
+    Application.get_env(:exhub, :giteeai_api_key, "")
   end
 
   def get_model_api_key(model) when is_binary(model) do
@@ -236,7 +235,7 @@ defmodule Exhub.Router.Config do
         Application.get_env(:exhub, :nvidia_api_key, "")
 
       true ->
-        Application.get_env(:exhub, :openai_api_key, "")
+        Application.get_env(:exhub, :giteeai_api_key, "")
     end
   end
 

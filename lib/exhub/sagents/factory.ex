@@ -95,7 +95,8 @@ defmodule Exhub.Sagents.Factory do
     end
   end
 
-  defp create_langchain_model(config) do
+  @doc "Create a LangChain chat model struct from an LLM config map."
+  def create_langchain_model(config) do
     [provider, model_name] = String.split(config[:model], "/", parts: 2)
 
     base_config = %{
