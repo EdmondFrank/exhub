@@ -112,7 +112,8 @@ defmodule Exhub.Router.Config do
     "tngtech/deepseek-r1t2-chimera:free",
     "minimax/minimax-m2:free",
     "openrouter/polaris-alpha",
-    "nvidia/nemotron-3-ultra-550b-a55b:free"
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "tencent/hy3:free"
   ]
 
   # Kiro Gateway models (local Claude proxy)
