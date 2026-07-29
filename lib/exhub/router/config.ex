@@ -270,12 +270,26 @@ defmodule Exhub.Router.Config do
   @spec get_auth_headers(model(), :openai | :anthropic) :: [{String.t(), String.t()}]
   def get_auth_headers(model, :openai) do
     token = get_model_api_key(model)
-    [{"authorization", "Bearer #{token}"}]
+    base_headers = [{"authorization", "Bearer #{token}"}]
+
+    # Add X-Failover-Enabled header for gitee_ai upstream models
+    if model in @giteeai_models and model not in @minimax_models do
+      [{"X-Failover-Enabled", "true"} | base_headers]
+    else
+      base_headers
+    end
   end
 
   def get_auth_headers(model, :anthropic) do
     token = get_model_api_key(model)
-    [{"x-api-key", token}]
+    base_headers = [{"x-api-key", token}]
+
+    # Add X-Failover-Enabled header for gitee_ai upstream models
+    if model in @giteeai_models and model not in @minimax_models do
+      [{"X-Failover-Enabled", "true"} | base_headers]
+    else
+      base_headers
+    end
   end
 
   @doc """

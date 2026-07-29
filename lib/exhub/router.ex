@@ -128,7 +128,7 @@ defmodule Exhub.Router do
     token = Application.get_env(:exhub, :giteeai_api_key, "")
 
     options = [
-      custom_headers: [{"Authorization", "Bearer #{token}"}],
+      custom_headers: [{"X-Failover-Enabled", "true"}, {"Authorization", "Bearer #{token}"}],
       client_options: [
         timeout: RouterConfig.get_timeout(),
         recv_timeout: RouterConfig.get_timeout()
