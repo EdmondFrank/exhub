@@ -1,8 +1,10 @@
 defmodule Exhub.Llm.LlmConfigServer do
   use GenServer
 
-  # Define the default LLM name
-  @default_llm_name "openai/deepseek-v4-flash"
+  alias Exhub.LLMModels
+
+  # Define the default LLM name (sourced from LLMModels)
+  @default_llm_name LLMModels.default_llm_name()
 
   # Configuration state keys
   @current_llm_key :current_llm

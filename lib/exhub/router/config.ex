@@ -6,9 +6,14 @@ defmodule Exhub.Router.Config do
   - Model to provider URL mappings
   - Model to API key mappings
   - Provider-specific settings (proxy usage, headers, etc.)
+
+  Model lists and provider definitions are sourced from `Exhub.LLMModels`
+  to ensure a single source of truth.
   """
 
   require Logger
+
+  alias Exhub.LLMModels
 
   @typedoc "Model identifier string"
   @type model :: String.t()
@@ -23,123 +28,23 @@ defmodule Exhub.Router.Config do
   @type proxy_config :: String.t() | false
 
   # Default upstream URL when no specific mapping exists
-  @default_upstream "https://api.moark.com/v1"
+  @default_upstream LLMModels.default_upstream()
 
-  # Provider base URLs
-  @provider_urls %{
-    giteeai: "https://api.moark.com/v1",
-    kimi: "https://api.kimi.com/coding/v1",
-    minimaxi: "https://api.minimaxi.com/v1",
-    mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
-    openrouter: "https://openrouter.ai/api/v1",
-    local: "http://localhost:8765/v1",
-    infini: "https://cloud.infini-ai.com/maas/v1",
-    kiro: "http://localhost:8000/v1",
-    nvidia: "https://integrate.api.nvidia.com/v1",
-    baidu_anthropic: "http://211.23.3.236:27545/v1"
-  }
+  # Provider base URLs (sourced from LLMModels)
+  @provider_urls LLMModels.providers()
 
-  # Model to provider mappings
-  # Most GiteeAI models share the same endpoint
-  @giteeai_models [
-    "step3",
-    "glm-4_5",
-    "glm-4_5v",
-    "glm-4.6",
-    "glm-4.7",
-    "glm-5",
-    "glm-5.1",
-    "glm-5.2",
-    "glm-5-turbo",
-    "hy-mt2-30b-a3b",
-    "deepseek-v4-flash",
-    "deepseek-v4-pro",
-    "deepseek-v3",
-    "deepseek-r1",
-    "deepseek-v3_1",
-    "deepseek-v3_1-terminus",
-    "deepseek-v3.2",
-    "deepseek-v3.2-exp",
-    "gpt-oss-120b",
-    "internvl3-78b",
-    "kimi-k2.5",
-    "kimi-k2.6",
-    "kimi-k2.7-code",
-    "kimi-k2-instruct",
-    "kimi-k2-thinking",
-    "qwen3.6-max",
-    "qwen3.6-plus",
-    "qwen3.5-9b",
-    "qwen3.5-27b-pro",
-    "qwen3.5-27b",
-    "qwen3.5-35b-a3b",
-    "qwen3.5-122b-a10b",
-    "qwen3-235b-a22b",
-    "qwen3-235b-a22b-instruct-2507",
-    "qwen3-next-80b-a3b-instruct",
-    "qwen3-next-80b-a3b-thinking",
-    "qwen3-coder-next",
-    "qwen3-coder-30b-a3b-instruct",
-    "qwen3-coder-480b-a35b-instruct",
-    "qwen3-30b-a3b-instruct-2507",
-    "qwen3.5-27b-claude-4.6-opus-reasoning-distilled",
-    "minimax-m2",
-    "minimax-m2.1",
-    "minimax-m2.5",
-    "minimax-m2.7",
-    "minimax-m2-preview",
-    "mimo-v2.5-pro",
-    "mimo-v2.5"
-  ]
+  # Model lists (sourced from LLMModels)
+  @giteeai_models LLMModels.giteeai_models()
+  @minimax_models LLMModels.minimax_models()
+  @mimo_models LLMModels.mimo_models()
+  @infini_models LLMModels.infini_models()
+  @openrouter_models LLMModels.openrouter_models()
+  @kiro_models LLMModels.kiro_models()
+  @nvidia_models LLMModels.nvidia_models()
 
-  @minimax_models ["minimax-m2.7", "minimax-m2-preview"]
-
-  # MiMo AI models (backup — currently routed via Gitee AI, see @giteeai_models)
-  @mimo_models ["mimo-v2.5-pro", "mimo-v2.5"]
-
-  # Infini AI models (with inf- prefix for distinction)
-  @infini_models [
-    "inf-glm-5.1",
-    "inf-glm-5.2",
-    "inf-kimi-k2.5",
-    "inf-kimi-k2.7-code",
-    "inf-minimax-m2.7",
-    "inf-deepseek-v3.2"
-  ]
-
-  # OpenRouter models
-  @openrouter_models [
-    "tngtech/deepseek-r1t2-chimera:free",
-    "minimax/minimax-m2:free",
-    "openrouter/polaris-alpha",
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "tencent/hy3:free"
-  ]
-
-  # Kiro Gateway models (local Claude proxy)
-  @kiro_models [
-    "auto-kiro",
-    "claude-3.7-sonnet",
-    "claude-haiku-4.5",
-    "claude-opus-4.5",
-    "claude-sonnet-4",
-    "claude-sonnet-4.5"
-  ]
-
-  # NVIDIA API models
-  @nvidia_models [
-    "nvidia/nemotron-3-ultra-550b-a55b"
-  ]
-
-  # Mapping from prefixed model names to actual API model names
-  @infini_model_mapping %{
-    "inf-glm-5.1" => "glm-5.1",
-    "inf-glm-5.2" => "glm-5.2",
-    "inf-kimi-k2.5" => "kimi-k2.5",
-    "inf-kimi-k2.7-code" => "kimi-k2.7-code",
-    "inf-minimax-m2.7" => "minimax-m2.7",
-    "inf-deepseek-v3.2" => "deepseek-v3.2"
-  }
+  # Models that require reasoning_content to be present in assistant tool-call
+  # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
+  @kimi_reasoning_models LLMModels.kimi_reasoning_models()
 
   @doc """
   Returns the target URL for a given model.
@@ -368,10 +273,7 @@ defmodule Exhub.Router.Config do
   """
   @spec normalize_model_name(model()) :: model()
   def normalize_model_name(model) when is_binary(model) do
-    case Map.get(@infini_model_mapping, model) do
-      nil -> model
-      actual_name -> actual_name
-    end
+    LLMModels.normalize_model_name(model)
   end
 
   @doc """
@@ -389,18 +291,6 @@ defmodule Exhub.Router.Config do
   def get_timeout do
     Application.get_env(:exhub, :default_timeout, 1_800_000)
   end
-
-  # Models that require reasoning_content to be present in assistant tool-call
-  # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
-  @kimi_reasoning_models [
-    "kimi-k2.5",
-    "kimi-k2.6",
-    "kimi-k2.7-code",
-    "inf-kimi-k2.5",
-    "inf-kimi-k2.7-code",
-    "mimo-v2.5-pro",
-    "mimo-v2.5"
-  ]
 
   @doc """
   Transforms request body for model-specific requirements.
