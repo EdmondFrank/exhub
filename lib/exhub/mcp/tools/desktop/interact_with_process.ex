@@ -47,6 +47,11 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
     - input: The text to send to the process's stdin
     - mode: Input processing mode: 'raw' (default, send as-is) or 'template'
       (expand ${VAR_NAME} and `command` before sending)
+    - wait_seconds: Number of seconds to wait after sending input before
+      returning (default: 2). Set to 0 to return immediately without waiting.
+    - return_output: Whether to include the process output in the response
+      (default: true). When true, the response includes output, status,
+      exit_code, and total_lines.
     """
   end
 
@@ -62,6 +67,18 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
       description:
         "Input processing mode: 'raw' (default, send as-is) or 'template' (expand ${VAR_NAME} and `command` before sending)"
     )
+
+    field(:wait_seconds, :integer,
+      default: 2,
+      description:
+        "Number of seconds to wait after sending input before returning (default: 2). Set to 0 to return immediately."
+    )
+
+    field(:return_output, :boolean,
+      default: true,
+      description:
+        "Whether to include the process output in the response (default: true). When true, the response includes output, status, exit_code, and total_lines."
+    )
   end
 
   @impl true
@@ -69,11 +86,16 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
     process_id = Map.get(params, :process_id)
     input = Map.get(params, :input)
     mode = Map.get(params, :mode, "raw")
+    wait_seconds = Map.get(params, :wait_seconds, 2)
+    return_output = Map.get(params, :return_output, true)
 
     case prepare_input(input, mode) do
       {:ok, expanded_input, input_expanded} ->
         case ProcessStore.send_input(process_id, expanded_input) do
           :ok ->
+            # Wait for the specified duration to allow the process to produce output
+            if wait_seconds > 0, do: Process.sleep(wait_seconds * 1000)
+
             # When expansion occurred, the expanded input may contain secrets
             # (e.g. ${SSH_PASS}, `cat pass.txt`) that should not be echoed back.
             # Only include input_sent when no expansion happened (raw mode or
@@ -87,6 +109,33 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
             response_data =
               unless input_expanded do
                 Map.put(response_data, "input_sent", expanded_input)
+              else
+                response_data
+              end
+
+            # Optionally include process output in the response
+            response_data =
+              if return_output do
+                case ProcessStore.get_output(process_id, 0) do
+                  {:ok, result} ->
+                    # Touch the process to reset its TTL
+                    ProcessStore.touch(process_id)
+
+                    lines =
+                      if result.output == "", do: [], else: String.split(result.output, "\n")
+
+                    total_lines = length(lines)
+
+                    Map.merge(response_data, %{
+                      "output" => result.output,
+                      "total_lines" => total_lines,
+                      "status" => to_string(result.status),
+                      "exit_code" => result.exit_code
+                    })
+
+                  {:error, :not_found} ->
+                    Map.put(response_data, "output_error", "Process not found when reading output")
+                end
               else
                 response_data
               end
