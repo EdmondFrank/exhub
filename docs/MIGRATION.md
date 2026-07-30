@@ -39,7 +39,7 @@ From your current `config/config.exs`, extract these values:
 | `groq_api_key`        | Groq LLM config                                     | Groq API key                |
 | `gemini_api_key`      | Gemini LLM configs                                  | Google Gemini API key       |
 | `cohere_api_key`      | Cohere LLM configs                                  | Cohere API key              |
-| `samba_api_key`       | Samba/QwQ LLM config                                | Samba API key               |
+| `samba_api_key`       | ~~Samba/QwQ LLM config~~ (deprecated)               | Samba API key               |
 
 ### Step 4: Create Secrets in SecretVault
 
@@ -189,15 +189,18 @@ Share with your team:
 
 After migration, the `api_base` URLs for all LLM providers are defined in `config/runtime.exs`. The defaults are:
 
-| Provider / Model group  | Default `api_base`                                  |
-|-------------------------|-----------------------------------------------------|
-| Gitee AI models         | `https://ai.gitee.com/v1`                           |
-| SiliconFlow models      | `https://api.siliconflow.cn/v1`                     |
-| Mistral models          | `https://api.mistral.ai/v1`                         |
-| Codestral               | `https://codestral.mistral.ai/v1`                   |
-| Anthropic, Groq, Cohere | `http://127.0.0.1:9069/<provider>/v1` (local proxy) |
-| Gemini                  | `https://csp.burncloud.com/v1` (BurnCloud API)      |
-| BailianCloud (Aliyun)   | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` |
+| Provider / Model group | Default `api_base`                                                   |
+|------------------------|----------------------------------------------------------------------|
+| Gitee AI models        | `https://ai.gitee.com/v1`                                            |
+| Mistral models         | `https://api.mistral.ai/v1`                                          |
+| Codestral              | `https://codestral.mistral.ai/v1`                                    |
+| Cohere                 | `http://127.0.0.1:9069/cohere/v1` (local proxy)                      |
+| BailianCloud (Aliyun)  | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` |
+
+> **Note**: SiliconFlow, Samba, Groq, Anthropic, and Gemini models have been
+> deprecated and removed from the default configuration. See the
+> `Exhub.LLMModels` module documentation for the full deprecation list and
+> migration paths.
 
 To change the API base URL for a specific model, open `config/runtime.exs` and replace the helper call with an explicit map. For example, to route a Gitee model through a custom proxy:
 

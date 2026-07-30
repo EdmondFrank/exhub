@@ -9,6 +9,17 @@ defmodule Exhub.Router.Config do
 
   Model lists and provider definitions are sourced from `Exhub.LLMModels`
   to ensure a single source of truth.
+
+  ## Architecture
+
+  `Exhub.Router.Config` delegates to `Exhub.LLMModels` for all model-related
+  data. It adds provider-specific logic (API key resolution, proxy settings,
+  auth headers) on top of the raw model definitions.
+
+  ## Deprecated Models
+
+  Several previously supported models have been removed. See `Exhub.LLMModels`
+  module documentation for the full list and migration paths.
   """
 
   require Logger

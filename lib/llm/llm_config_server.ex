@@ -1,4 +1,22 @@
 defmodule Exhub.Llm.LlmConfigServer do
+  @moduledoc """
+  GenServer for managing LLM configurations at runtime.
+
+  Reads the initial configuration from `Application.get_env(:exhub, :llms)`,
+  which is built by `Exhub.LLMModels.build_llms_config/1` during startup.
+
+  ## Configuration Source
+
+  The `llms` config is no longer defined inline in `config/runtime.exs`.
+  Instead, `runtime.exs` calls `Exhub.LLMModels.build_llms_config/1` to
+  generate the map dynamically from the centralized model definitions.
+
+  ## Deprecated Models
+
+  Models removed from `build_llms_config/1` are no longer available here.
+  See `Exhub.LLMModels` module documentation for the deprecation list and
+  migration paths.
+  """
   use GenServer
 
   alias Exhub.LLMModels

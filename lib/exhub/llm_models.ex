@@ -11,6 +11,19 @@ defmodule Exhub.LLMModels do
 
   Both `Exhub.Router.Config` and `Exhub.Llm.LlmConfigServer`
   (via runtime.exs) derive their model data from here.
+
+  ## Deprecated Models
+
+  The following models have been removed from `build_llms_config/1` and are
+  no longer supported. Users should migrate to the models listed in
+  `giteeai_models/0`:
+
+  - `openai/QwQ-32B` (Samba) — use `deepseek-v3` or `deepseek-r1` instead
+  - `openai/Qwen/Qwen2.5-Coder-32B-Instruct` (SiliconFlow) — use `qwen3-coder-30b-a3b-instruct` instead
+  - `openai/Qwen/Qwen2.5-32B-Instruct` (SiliconFlow) — use `qwen3.5-27b` instead
+  - `anthropic/claude-3-5-sonnet-latest` — use `claude-3.7-sonnet` (Kiro) instead
+  - `groq/llama-3.3-70b-versatile` — use `qwen3.5-122b-a10b` instead
+  - `openai/gemini-2.5-pro` / `gemini/gemini-2.0-flash` — use models from `giteeai_models/0` instead
   """
 
   # ============================================================================
@@ -66,7 +79,6 @@ defmodule Exhub.LLMModels do
     "qwen3.6-max",
     "qwen3.6-plus",
     "qwen3.5-9b",
-    "qwen3.5-27b-pro",
     "qwen3.5-27b",
     "qwen3.5-35b-a3b",
     "qwen3.5-122b-a10b",
@@ -366,16 +378,17 @@ defmodule Exhub.LLMModels do
   logic here, both `runtime.exs` and `LlmConfigServer` share the same source
   of truth for model definitions.
 
+  ## Supported Models
+
+  Only models from `giteeai_models/0` and the 5 special entries (Codestral,
+  Mistral, Cohere) are included. Deprecated models (SiliconFlow, Samba, Groq,
+  Anthropic, Gemini) have been removed — see module doc for migration guide.
+
   ## Options
 
     * `:giteeai_api_key` - GiteeAI API key
-    * `:samba_api_key` - Samba API key
-    * `:siliconflow_api_key` - SiliconFlow API key
     * `:codestral_api_key` - Codestral API key
-    * `:anthropic_api_key` - Anthropic API key
     * `:mistral_api_key` - Mistral API key
-    * `:groq_api_key` - Groq API key
-    * `:gemini_api_key` - Gemini API key
     * `:cohere_api_key` - Cohere API key
 
   ## Examples

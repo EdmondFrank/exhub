@@ -1,5 +1,24 @@
 # Recent Enhancements
 
+## Centralized LLM Model Configuration (LLMModels)
+
+- **New Module**: `Exhub.LLMModels` is now the single source of truth for all LLM model definitions, provider mappings, and configuration building
+- **Refactored Files**:
+  - `config/runtime.exs` — Removed inline `llms_config` map; now calls `Exhub.LLMModels.build_llms_config/1`
+  - `lib/exhub/router/config.ex` — Removed inline model/provider definitions; now sources from `Exhub.LLMModels`
+  - `lib/llm/llm_config_server.ex` — Default LLM name now sourced from `LLMModels.default_llm_name/0`
+- **Public API**: `Exhub.LLMModels` exposes functions like `providers/0`, `giteeai_models/0`, `model_provider/1`, `get_model_target/1`, `build_llms_config/1`, and more
+- **Deprecated Models Removed**: The following models are no longer included in `build_llms_config/1`:
+  - `openai/QwQ-32B` (Samba) → use `deepseek-v3` or `deepseek-r1`
+  - `openai/Qwen/Qwen2.5-Coder-32B-Instruct` (SiliconFlow) → use `qwen3-coder-30b-a3b-instruct`
+  - `openai/Qwen/Qwen2.5-32B-Instruct` (SiliconFlow) → use `qwen3.5-27b`
+  - `anthropic/claude-3-5-sonnet-latest` → use `claude-3.7-sonnet` (Kiro)
+  - `groq/llama-3.3-70b-versatile` → use `qwen3.5-122b-a10b`
+  - `openai/gemini-2.5-pro` / `gemini/gemini-2.0-flash` → use models from `giteeai_models/0`
+- **Migration**: See `Exhub.LLMModels` module documentation for full deprecation details
+
+---
+
 ## GenClaw — Image Generation Agent
 
 - **New Agent**: `genclaw` is a specialised `sagents` agent for text-to-image generation, registered in `Exhub.Sagents.Factory` via `Exhub.Genclaw.FactoryEntry`
