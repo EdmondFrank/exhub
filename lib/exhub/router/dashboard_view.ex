@@ -255,6 +255,47 @@ defmodule Exhub.Router.DashboardView do
           border-radius: 10px;
           margin-left: 8px;
         }
+        .perf-badge {
+          display: inline-block;
+          font-size: 10px;
+          padding: 2px 8px;
+          border-radius: 10px;
+          font-weight: 600;
+        }
+        .perf-badge.success {
+          background: #23863622;
+          color: #3fb950;
+          border: 1px solid #23863655;
+        }
+        .perf-badge.error {
+          background: #da363322;
+          color: #f85149;
+          border: 1px solid #da363355;
+        }
+        .perf-badge.timeout {
+          background: #d2992222;
+          color: #e3b341;
+          border: 1px solid #d2992255;
+        }
+        .perf-section-divider {
+          border-top: 2px solid #30363d;
+          margin-top: 24px;
+          margin-bottom: 16px;
+          padding-top: 8px;
+        }
+        .perf-section-divider h2 {
+          color: #f0883e;
+          font-size: 18px;
+          margin-bottom: 0;
+        }
+        .duration-bar {
+          display: inline-block;
+          height: 8px;
+          border-radius: 4px;
+          background: linear-gradient(to right, #238636, #d29922, #da3633);
+          vertical-align: middle;
+          margin-left: 6px;
+        }
 
         @media (max-width: 768px) {
           h1 { font-size: 18px; }
@@ -385,6 +426,80 @@ defmodule Exhub.Router.DashboardView do
               </thead>
               <tbody id="recent-usage">
                 <tr><td colspan="7" class="loading">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="perf-section-divider">
+          <h2>⚡ Performance Metrics</h2>
+        </div>
+
+        <div class="stats-grid" id="perf-stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Metrics</div>
+            <div class="stat-value" id="perf-total">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg Duration</div>
+            <div class="stat-value" id="perf-avg">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">P50 Latency</div>
+            <div class="stat-value" id="perf-p50">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">P95 Latency</div>
+            <div class="stat-value" id="perf-p95">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">P99 Latency</div>
+            <div class="stat-value" id="perf-p99">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Error Rate</div>
+            <div class="stat-value" id="perf-error-rate">-</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Top Tools by Duration</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tool</th>
+                  <th>Calls</th>
+                  <th>Avg (ms)</th>
+                  <th>P50</th>
+                  <th>P95</th>
+                  <th>P99</th>
+                  <th>Errors</th>
+                  <th>Error %</th>
+                </tr>
+              </thead>
+              <tbody id="perf-top-tools">
+                <tr><td colspan="8" class="loading">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Recent Metrics</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Type</th>
+                  <th>Entity</th>
+                  <th>Duration</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="perf-recent">
+                <tr><td colspan="5" class="loading">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -561,8 +676,74 @@ defmodule Exhub.Router.DashboardView do
           }
         }
 
+        async function loadPerformanceMetrics() {
+          try {
+            var params = getFilterParams(currentFilter);
+            var query = Object.keys(params).filter(function(k) {
+              return k !== 'model';
+            }).map(function(k) {
+              return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+            }).join('&');
+
+            var url = '/api/v1/metrics/dashboard' + (query ? '?' + query : '');
+            var response = await fetch(url);
+            var result = await response.json();
+
+            if (!result.success) {
+              throw new Error(result.error || 'Failed to load performance data');
+            }
+
+            var data = result.data;
+            var summary = data.summary || {};
+
+            document.getElementById('perf-total').textContent = formatNumber(summary.total_requests || 0);
+            document.getElementById('perf-avg').textContent = (summary.avg_duration_ms || 0) + 'ms';
+            document.getElementById('perf-p50').textContent = (summary.p50 || 0) + 'ms';
+            document.getElementById('perf-p95').textContent = (summary.p95 || 0) + 'ms';
+            document.getElementById('perf-p99').textContent = (summary.p99 || 0) + 'ms';
+            document.getElementById('perf-error-rate').textContent = (summary.error_rate || 0) + '%';
+
+            var toolsHtml = (data.top_tools || []).map(function(tool) {
+              return '<tr>' +
+                '<td>' + (tool.tool || '-') + '</td>' +
+                '<td>' + formatNumber(tool.request_count) + '</td>' +
+                '<td>' + (tool.avg_ms || 0) + '</td>' +
+                '<td>' + (tool.p50 || 0) + '</td>' +
+                '<td>' + (tool.p95 || 0) + '</td>' +
+                '<td>' + (tool.p99 || 0) + '</td>' +
+                '<td>' + (tool.error_count || 0) + '</td>' +
+                '<td>' + (tool.error_rate || 0) + '%</td>' +
+                '</tr>';
+            }).join('');
+            document.getElementById('perf-top-tools').innerHTML = toolsHtml || '<tr><td colspan="8" class="loading">No data</td></tr>';
+
+            var typeLabels = {
+              'llm_proxy': 'LLM Proxy',
+              'mcp_tool_call': 'MCP Tool',
+              'hercules_run': 'Hercules'
+            };
+
+            var recentHtml = (data.recent_metrics || []).map(function(m) {
+              var badgeClass = 'perf-badge ' + (m.status || 'success');
+              return '<tr>' +
+                '<td>' + formatDate(m.timestamp) + '</td>' +
+                '<td>' + (typeLabels[m.metric_type] || m.metric_type) + '</td>' +
+                '<td>' + (m.entity || '-') + '</td>' +
+                '<td>' + (m.duration_ms || 0) + 'ms</td>' +
+                '<td><span class="' + badgeClass + '">' + (m.status || 'success') + '</span></td>' +
+                '</tr>';
+            }).join('');
+            document.getElementById('perf-recent').innerHTML = recentHtml || '<tr><td colspan="5" class="loading">No data</td></tr>';
+
+          } catch (err) {
+            console.error('Performance metrics error:', err);
+          }
+        }
+
         loadDashboard();
+        loadPerformanceMetrics();
         setInterval(loadDashboard, 60000);
+        setInterval(loadPerformanceMetrics, 60000);
       </script>
     </body>
     </html>

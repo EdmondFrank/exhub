@@ -68,6 +68,7 @@ defmodule Exhub.MCP.Hub.Server do
 
     duration = System.monotonic_time(:millisecond) - start_time
     Logger.info("[MCP Hub] Tool call completed: #{tool_name} in #{duration}ms")
+    Exhub.Metrics.PerformanceTracker.record_mcp_tool_call(tool_name, duration)
 
     result
   end

@@ -280,6 +280,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
               "[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms"
             )
 
+            Exhub.Metrics.PerformanceTracker.record_mcp_tool_call(
+              "#{server_name}__#{tool_name}",
+              duration
+            )
+
             GenServer.reply(from, actual_result)
             {:noreply, %{state | pending_tool_calls: new_pending_calls}}
         end
@@ -312,6 +317,13 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
             Logger.error(
               "[MCP Hub] Tool call task crashed: #{server_name}:#{tool_name} in #{duration}ms: #{inspect(reason)}"
+            )
+
+            Exhub.Metrics.PerformanceTracker.record_mcp_tool_call(
+              "#{server_name}__#{tool_name}",
+              duration,
+              status: :error,
+              error_message: inspect(reason)
             )
 
             GenServer.reply(from, {:error, {:task_crashed, reason}})
@@ -528,6 +540,10 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
       duration = 0
       Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
+      Exhub.Metrics.PerformanceTracker.record_mcp_tool_call(
+        "#{server_name}__#{tool_name}",
+        duration
+      )
       result
     else
       case Map.get(state.clients, server_name) do

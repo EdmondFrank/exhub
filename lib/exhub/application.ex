@@ -131,6 +131,8 @@ defmodule Exhub.Application do
        session_idle_timeout: 86_400_000 * 365},
       # Token Usage Tracking
       {Exhub.TokenUsage.TokenUsageStore, name: Exhub.TokenUsage.TokenUsageStore},
+      # Performance Metrics Tracking
+      {Exhub.Metrics.PerformanceStore, name: Exhub.Metrics.PerformanceStore},
       cowboy_spec()
     ]
 

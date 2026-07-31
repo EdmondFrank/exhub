@@ -687,6 +687,69 @@ Tool filtering is implemented in `Exhub.MCP.ServerHelpers` and applied automatic
 
 ---
 
+## Concurrent Tool Dispatch
+
+By default, the Anubis `Session` GenServer processes ALL MCP requests via a synchronous `handle_call({:mcp_request, ...})`. This means that when a `tools/call` handler is executing (e.g., `execute_command` waiting 30 seconds), the session GenServer is **blocked** — no other requests to the same MCP server can be processed until the tool returns.
+
+Exhub solves this by intercepting `tools/call` requests in `Exhub.MCP.LazyPlug` **before** they reach the session GenServer, and executing the tool handler in a separate `Task.Supervisor` child.
+
+### Architecture
+
+```text
+HTTP POST /desktop/mcp
+        │
+        ▼
+┌──────────────────────────────────────────────────┐
+│  Exhub.MCP.LazyPlug.call/2                       │
+│  ┌────────────────────────────────────────────┐  │
+│  │ ConcurrentToolDispatcher.maybe_handle/2    │  │
+│  │  • Parse body → is it tools/call?          │  │
+│  │  • Find tool from server.__components__(:tool)│
+│  │  • Apply x-include/x-exclude filtering     │  │
+│  │  • Validate params                         │  │
+│  │  • Task.Supervisor.async_nolink → execute  │  │
+│  │  • Reply directly to HTTP client           │  │
+│  └────────────────────────────────────────────┘  │
+│         │ handled?          │ not handled        │
+│         ▼                   ▼                    │
+│   {:handled, conn}    delegate_to_anubis/1       │
+│                              │                   │
+│                              ▼                   │
+│                    Anubis.Server.Transport       │
+│                    .StreamableHTTP.Plug          │
+│                    (session GenServer —          │
+│                     for initialize, tools/list,  │
+│                     notifications, etc.)         │
+└──────────────────────────────────────────────────┘
+```
+
+### Key Modules
+
+| Module                               | Role                                                                               |
+|--------------------------------------|------------------------------------------------------------------------------------|
+| `Exhub.MCP.ConcurrentToolDispatcher` | Intercepts `tools/call` requests, executes tool handlers in Task children          |
+| `Exhub.MCP.LazyPlug`                 | Entry point for all MCP HTTP requests; delegates to dispatcher or Anubis           |
+| `Exhub.MCP.ToolTaskSupervisor`       | `Task.Supervisor` for tool execution tasks (added to application supervision tree) |
+
+### How It Works
+
+1. **Interception**: `LazyPlug.call/2` calls `ConcurrentToolDispatcher.maybe_handle/2` before delegating to the Anubis Plug.
+2. **Detection**: The dispatcher checks `conn.body_params` for `{"method": "tools/call", ...}`. If not a `tools/call`, returns `{:not_handled, conn}` and the request proceeds through the normal Anubis session path.
+3. **Tool discovery**: Tools are obtained from `server_module.__components__(:tool)` — the same source Anubis uses. `x-include-tools` / `x-exclude-tools` header filtering is applied via `ServerHelpers.filter_tools_by_headers/2`.
+4. **Param validation**: Input parameters are validated using `tool.validate_input.(params)`, identical to `Anubis.Server.Handlers.Tools.validate_params/3`.
+5. **Concurrent execution**: The tool handler (`tool.handler.execute(params, frame)`) runs in a `Task.Supervisor.async_nolink/2` child under `Exhub.MCP.ToolTaskSupervisor`. The calling Plug process waits via `Task.yield/2` with the configured `request_timeout`.
+6. **Response**: The result is encoded via `Response.to_protocol/1` → `Message.build_response/2` → `JSON.encode!/1` and sent directly to the HTTP client. SSE responses are routed through the existing SSE handler if one is registered.
+7. **Error handling**: Tool-not-found, invalid params, execution crashes, and timeouts all produce proper MCP error responses (`Error.build_json_rpc/2`).
+
+### Safety Guarantees
+
+- **No frame state dependency**: No Exhub tool handler reads `frame.assigns` or `frame.context` — they all use external GenServers (`ProcessStore`, `AgentStore`, `HabitStore`, etc.) for state management.
+- **No session notification dependency**: No tool handler calls `Anubis.Server.send_*` notification functions (which require the session process).
+- **Fresh frame per call**: A new `Frame` with proper `Context` (session_id, headers, remote_ip) is constructed for each tool call, matching what the session would have prepared.
+- **Non-tools/call requests unaffected**: `initialize`, `tools/list`, notifications, and all other MCP methods still go through the session GenServer, preserving session state and protocol semantics.
+
+---
+
 ## Security Considerations
 
 - Upstream server failures are isolated — a crashed upstream client does not affect the Hub or other servers.

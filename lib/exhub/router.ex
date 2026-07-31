@@ -62,6 +62,8 @@ defmodule Exhub.Router do
   alias Exhub.Router.Helpers
   alias Exhub.Converters.Anthropic, as: AnthropicConverter
   alias Exhub.Llm.LlmConfigServer
+  alias Exhub.Metrics.PerformanceTracker
+  alias Exhub.Metrics.PerformanceStats
   alias UUID
 
   plug(Plug.Parsers,
@@ -116,6 +118,7 @@ defmodule Exhub.Router do
 
       duration = System.monotonic_time(:millisecond) - start
       Logger.info("[Proxy] Forwarded in #{duration}ms")
+      PerformanceTracker.record_llm_proxy(unquote(provider), duration, provider: unquote(provider))
       conn
     end
   end
@@ -140,6 +143,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.default_upstream(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("openai", duration, provider: "openai")
     conn
   end
 
@@ -166,6 +170,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, target_url, options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy(model || "openai", duration, provider: "openai")
     conn
   end
 
@@ -189,6 +194,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[BurnCloud Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("burncloud", duration, provider: "burncloud")
     conn
   end
 
@@ -208,6 +214,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_burncloud_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[BurnCloud Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("burncloud", duration, provider: "burncloud")
     conn
   end
 
@@ -231,6 +238,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_bailiancloud_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[BailianCloud Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("bailiancloud", duration, provider: "bailiancloud")
     conn
   end
 
@@ -250,6 +258,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_bailiancloud_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[BailianCloud Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("bailiancloud", duration, provider: "bailiancloud")
     conn
   end
 
@@ -274,6 +283,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_baidu_anthropic_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[Baidu Anthropic Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("baidu-anthropic", duration, provider: "baidu-anthropic")
     conn
   end
 
@@ -294,6 +304,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, RouterConfig.get_baidu_anthropic_target(), options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[Baidu Anthropic Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy("baidu-anthropic", duration, provider: "baidu-anthropic")
     conn
   end
 
@@ -325,6 +336,7 @@ defmodule Exhub.Router do
     conn = ProxyPlug.forward_upstream(conn, target_url, options)
     duration = System.monotonic_time(:millisecond) - start
     Logger.info("[Anthropic Proxy] Forwarded in #{duration}ms")
+    PerformanceTracker.record_llm_proxy(model || "anthropic", duration, provider: "anthropic")
     conn
   end
 
@@ -776,6 +788,139 @@ defmodule Exhub.Router do
         |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
     end
   end
+
+  # ============================================================================
+  # Performance Metrics API
+  # ============================================================================
+
+  get "/api/v1/metrics/recent" do
+    metric_type = parse_metric_type(conn.params["type"])
+    limit = Helpers.parse_int(conn.params["limit"], 100)
+
+    case PerformanceStats.recent_metrics(metric_type, limit) do
+      {:ok, records} ->
+        response = %{success: true, data: records, count: length(records)}
+
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(response))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/api/v1/metrics/stats" do
+    group_by = conn.params["group_by"] || "model"
+    start_date = conn.params["start_date"]
+    end_date = conn.params["end_date"]
+
+    filters =
+      %{}
+      |> Helpers.maybe_put(:start_date, start_date)
+      |> Helpers.maybe_put(:end_date, end_date)
+
+    group_by_atom =
+      case group_by do
+        "tool" -> :tool
+        "provider" -> :provider
+        "day" -> :day
+        "type" -> :type
+        _ -> :model
+      end
+
+    case Exhub.Metrics.PerformanceStore.get_stats(group_by_atom, filters) do
+      {:ok, stats} ->
+        response = %{success: true, data: stats, group_by: group_by}
+
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(response))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/api/v1/metrics/summary" do
+    start_date = conn.params["start_date"]
+    end_date = conn.params["end_date"]
+
+    filters =
+      %{}
+      |> Helpers.maybe_put(:start_date, start_date)
+      |> Helpers.maybe_put(:end_date, end_date)
+
+    case PerformanceStats.get_summary(filters) do
+      {:ok, summary} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(%{success: true, data: summary}))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/api/v1/metrics/percentiles" do
+    metric_type = parse_metric_type(conn.params["type"])
+    entity = conn.params["entity"]
+    start_date = conn.params["start_date"]
+    end_date = conn.params["end_date"]
+
+    filters =
+      %{}
+      |> Helpers.maybe_put(:start_date, start_date)
+      |> Helpers.maybe_put(:end_date, end_date)
+
+    case PerformanceStats.get_percentiles(metric_type, entity, filters) do
+      {:ok, percentiles} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(%{success: true, data: percentiles}))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  get "/api/v1/metrics/dashboard" do
+    days = Helpers.parse_int(conn.params["days"], nil)
+    start_date = conn.params["start_date"]
+    end_date = conn.params["end_date"]
+
+    filters =
+      %{}
+      |> Helpers.maybe_put(:days, days)
+      |> Helpers.maybe_put(:start_date, start_date)
+      |> Helpers.maybe_put(:end_date, end_date)
+
+    case PerformanceStats.get_dashboard_data(filters) do
+      {:ok, data} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, Jason.encode!(%{success: true, data: data}))
+
+      {:error, reason} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(500, Jason.encode!(%{success: false, error: inspect(reason)}))
+    end
+  end
+
+  defp parse_metric_type(nil), do: :all
+  defp parse_metric_type("llm_proxy"), do: :llm_proxy
+  defp parse_metric_type("mcp_tool_call"), do: :mcp_tool_call
+  defp parse_metric_type("hercules_run"), do: :hercules_run
+  defp parse_metric_type(_), do: :all
 
   # ============================================================================
   # Virtual Route Proxy - expose individual upstream MCP servers

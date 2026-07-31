@@ -1,5 +1,47 @@
 # Recent Enhancements
 
+## Performance Metrics Tracking — Latency & Error Analytics
+
+- **New Feature**: Exhub now records and aggregates performance metrics for LLM proxy requests, MCP tool calls, and Hercules runs, with a dashboard UI and REST API for querying.
+- **New Modules** (`lib/exhub/metrics/`):
+  - `Exhub.Metrics.PerformanceStore` — GenServer with two-tier ETS storage: raw ring buffer (`:perf_raw`, max 10,000 records) + aggregated stats (`:perf_aggregate`, keyed by `{metric_type, entity, date}`). Persists to `~/.config/exhub/performance_metrics.json` on a periodic flush and on shutdown.
+  - `Exhub.Metrics.PerformanceTracker` — Fire-and-forget convenience API (cast-based, never raises). Call sites use `record_llm_proxy/3`, `record_mcp_tool_call/3`, and `record_hercules_run/3`.
+  - `Exhub.Metrics.PerformanceStats` — Aggregation/query API: `aggregate_by_model/1`, `aggregate_by_tool/1`, `aggregate_by_provider/1`, `aggregate_by_day/1`, `get_summary/1`, `get_percentiles/3`, `recent_metrics/2`, `get_trends/1`, `top_models/2`, `top_tools/2`, `get_dashboard_data/1`.
+- **Metric Types**:
+  - `:llm_proxy` — LLM API proxy request latency (recorded in all router LLM proxy routes)
+  - `:mcp_tool_call` — MCP tool call latency (recorded in Hub ClientManager and Hub Server)
+  - `:hercules_run` — Hercules test run duration
+- **Instrumentation Points**:
+  - All LLM proxy routes in `Exhub.Router` (openai, anthropic, burncloud, bailiancloud, baidu-anthropic, google, cohere, samba, infini) now call `PerformanceTracker.record_llm_proxy/3` after forwarding upstream.
+  - `Exhub.MCP.Hub.ClientManager` records `record_mcp_tool_call/3` on tool call success, task crash, and synchronous tool call paths.
+  - `Exhub.MCP.Hub.Server` records `record_mcp_tool_call/2` in its tool call handler.
+- **REST API Endpoints** (all under `/api/v1/metrics/`):
+  - `GET /recent` — recent raw metric records (filterable by `type`, `limit`)
+  - `GET /stats` — aggregated stats grouped by `model` (default), `tool`, `provider`, `day`, or `type` (filterable by `start_date`, `end_date`)
+  - `GET /summary` — overall summary statistics (total requests, avg/p50/p95/p99 latency, error rate)
+  - `GET /percentiles` — p50/p95/p99 for a specific `type` and optional `entity`
+  - `GET /dashboard` — combined dashboard data (summary, trends, top models, top tools, recent metrics)
+- **Dashboard UI**: `Exhub.Router.DashboardView` now includes a "⚡ Performance Metrics" section with stat cards (Total, Avg, P50, P95, P99, Error Rate), Top Tools table, and Recent Metrics table. Auto-refreshes every 60 seconds via `loadPerformanceMetrics()`.
+- **Supervision**: `Exhub.Metrics.PerformanceStore` added to `Exhub.Application` supervision tree.
+- **Full Docs**: [docs/modules/metrics.md](docs/modules/metrics.md)
+
+---
+
+## Concurrent Tool Dispatch — Non-Blocking MCP Tool Execution
+
+- **Problem**: The `Anubis.Server.Session` GenServer handles ALL MCP requests via a synchronous `handle_call({:mcp_request, ...})`. When a tool handler is executing (e.g., `execute_command` waiting 30s), the session GenServer is blocked — no other requests to the same MCP server can be processed until the tool returns.
+- **Solution**: `Exhub.MCP.ConcurrentToolDispatcher` intercepts `tools/call` POST requests in `Exhub.MCP.LazyPlug` **before** they reach the session GenServer, and executes the tool handler in a separate `Task.Supervisor` child (`Exhub.MCP.ToolTaskSupervisor`).
+- **New Module**: `Exhub.MCP.ConcurrentToolDispatcher` — Replicates Anubis's tool dispatch logic (tool discovery, param validation, output schema validation, response encoding) but runs the tool handler asynchronously via `Task.Supervisor.async_nolink/2`.
+- **Modified Files**:
+  - `lib/exhub/mcp/concurrent_tool_dispatcher.ex` — NEW: Concurrent tool execution module
+  - `lib/exhub/mcp/lazy_plug.ex` — `call/2` now tries `ConcurrentToolDispatcher.maybe_handle/2` first; non-`tools/call` requests fall through to the standard Anubis Plug
+  - `lib/exhub/application.ex` — Added `Exhub.MCP.ToolTaskSupervisor` to the supervision tree
+- **Safety**: No Exhub tool handler uses `frame.assigns` or `frame.context` for state — they all use external GenServers (ProcessStore, AgentStore, etc.). A fresh `Frame` with proper `Context` (session_id, headers, remote_ip) is constructed for each tool call.
+- **SSE Support**: If the client requests SSE (`Accept: text/event-stream`), the response is routed through the existing SSE handler. Falls back to JSON if no SSE handler is registered.
+- **Non-`tools/call` requests** (initialize, tools/list, notifications) still go through the session GenServer, preserving session state and protocol semantics.
+
+---
+
 ## Centralized LLM Model Configuration (LLMModels)
 
 - **New Module**: `Exhub.LLMModels` is now the single source of truth for all LLM model definitions, provider mappings, and configuration building
