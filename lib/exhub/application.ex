@@ -115,6 +115,9 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # MCP Tool Execution TaskSupervisor — enables concurrent tool dispatch
+      # so that one long-running tool call doesn't block other requests.
+      {Task.Supervisor, name: Exhub.MCP.ToolTaskSupervisor},
       # MCP Hub - TaskSupervisor for non-blocking parallel client startup
       {Task.Supervisor, name: Exhub.MCP.Hub.TaskSupervisor},
       # MCP Hub - Store for ETS tables (must start before ClientManager and Hub.Server)

@@ -733,7 +733,7 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
     File.mkdir_p!(Path.dirname(path))
 
     tmp_path = path <> ".tmp"
-    File.write!(tmp_path, Jason.encode!(entries))
+    File.write!(tmp_path, Jason.encode!(entries, pretty: true))
     File.rename!(tmp_path, path)
 
     :ok

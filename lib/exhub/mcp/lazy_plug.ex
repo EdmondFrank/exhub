@@ -21,6 +21,18 @@ defmodule Exhub.MCP.LazyPlug do
 
   @impl Plug
   def call(conn, opts) do
+    # Try concurrent tool dispatch first — bypasses the session GenServer
+    # so that long-running tool calls don't block other requests.
+    case Exhub.MCP.ConcurrentToolDispatcher.maybe_handle(conn, opts) do
+      {:handled, conn} ->
+        conn
+
+      {:not_handled, conn} ->
+        delegate_to_anubis(conn, opts)
+    end
+  end
+
+  defp delegate_to_anubis(conn, opts) do
     plug_opts = Anubis.Server.Transport.StreamableHTTP.Plug.init(opts)
 
     with {:ok, server} <- Keyword.fetch(opts, :server) do
