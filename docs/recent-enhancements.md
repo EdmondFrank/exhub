@@ -1,5 +1,18 @@
 # Recent Enhancements
 
+## Gitee AI Model Alias Forwarding — `deepseek-v4-flash` → `deepseek-v4-flash-0731`
+
+- **New Feature**: `deepseek-v4-flash` is now forwarded to the Gitee AI upstream API as `deepseek-v4-flash-0731` automatically.
+- **Why**: The canonical internal model name `deepseek-v4-flash` differs from the model identifier the Gitee AI endpoint actually serves.
+- **New Module Attribute**: `Exhub.Router.Config` now defines `@giteeai_model_aliases` — a map of canonical model names to upstream API model names.
+- **New API**: `Exhub.Router.Config.resolve_model_alias/1` returns the upstream alias for a model, or the model unchanged if no alias exists.
+- **Modified Files**:
+  - `lib/exhub/router/config.ex` — Added `@giteeai_model_aliases` and `resolve_model_alias/1`
+  - `lib/exhub/proxy_plug.ex` — After prefix normalization, the request body model is now run through `resolve_model_alias/1` before being sent upstream
+- **Scope**: `deepseek-v4-flash` is exclusively in `@giteeai_models`, so the alias applies only to the Gitee AI upstream.
+
+---
+
 ## NDJSON Persistence Format — Compact, Diff-Friendly Storage
 
 - **PerformanceStore migrated to NDJSON**: `~/.config/exhub/performance_metrics.ndjson` replaces `performance_metrics.json`. File size reduced from 963KB → 489KB (~50% savings). Each record is a single JSON line with null fields omitted. Old `.json` file is auto-migrated and cleaned up on first write.

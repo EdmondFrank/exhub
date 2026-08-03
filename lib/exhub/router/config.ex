@@ -57,6 +57,12 @@ defmodule Exhub.Router.Config do
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
   @kimi_reasoning_models LLMModels.kimi_reasoning_models()
 
+  # Gitee AI model name aliases — maps a canonical model name to the
+  # actual upstream API model name when they differ.
+  @giteeai_model_aliases %{
+    "deepseek-v4-flash" => "deepseek-v4-flash-0731"
+  }
+
   @doc """
   Returns the target URL for a given model.
 
@@ -285,6 +291,25 @@ defmodule Exhub.Router.Config do
   @spec normalize_model_name(model()) :: model()
   def normalize_model_name(model) when is_binary(model) do
     LLMModels.normalize_model_name(model)
+  end
+
+  @doc """
+  Resolves a model name to its upstream API alias, if one exists.
+
+  For Gitee AI models whose upstream endpoint uses a different model
+  identifier than the canonical name used internally.
+
+  ## Examples
+
+      iex> Exhub.Router.Config.resolve_model_alias("deepseek-v4-flash")
+      "deepseek-v4-flash-0731"
+
+      iex> Exhub.Router.Config.resolve_model_alias("deepseek-v3")
+      "deepseek-v3"
+  """
+  @spec resolve_model_alias(model()) :: model()
+  def resolve_model_alias(model) when is_binary(model) do
+    Map.get(@giteeai_model_aliases, model, model)
   end
 
   @doc """

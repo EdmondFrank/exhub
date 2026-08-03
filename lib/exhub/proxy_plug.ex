@@ -221,7 +221,11 @@ defmodule Exhub.ProxyPlug do
           body_params
 
         model ->
-          normalized_model = Exhub.Router.Config.normalize_model_name(model)
+          normalized_model =
+            model
+            |> Exhub.Router.Config.normalize_model_name()
+            |> Exhub.Router.Config.resolve_model_alias()
+
           Map.put(body_params, "model", normalized_model)
       end
 
