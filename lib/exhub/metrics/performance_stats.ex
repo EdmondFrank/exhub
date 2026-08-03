@@ -61,10 +61,18 @@ defmodule Exhub.Metrics.PerformanceStats do
     PerformanceStore.get_percentiles(metric_type, entity, filters)
   end
 
-  @doc "Get recent raw metric records."
-  @spec recent_metrics(atom(), non_neg_integer()) :: {:ok, list(map())}
-  def recent_metrics(metric_type \\ :all, limit \\ 100) do
-    PerformanceStore.get_recent(metric_type, limit: limit)
+  @doc """
+  Get recent raw metric records.
+
+  ## Parameters
+    - metric_type: :all | :llm_proxy | :mcp_tool_call | :hercules_run
+    - limit: max records to return (default 100)
+    - filters: optional map with :entity, :provider, :start_date, :end_date
+  """
+  @spec recent_metrics(atom(), non_neg_integer(), map()) :: {:ok, list(map())}
+  def recent_metrics(metric_type \\ :all, limit \\ 100, filters \\ %{}) do
+    opts = [limit: limit] ++ Map.to_list(filters)
+    PerformanceStore.get_recent(metric_type, opts)
   end
 
   @doc """
@@ -164,7 +172,7 @@ defmodule Exhub.Metrics.PerformanceStats do
          {:ok, trends} <- PerformanceStore.get_stats(:day, date_filters),
          {:ok, top_models} <- top_models(5, date_filters),
          {:ok, top_tools} <- top_tools(5, date_filters),
-         {:ok, recent} <- PerformanceStore.get_recent(:all, limit: 50),
+         {:ok, recent} <- PerformanceStore.get_recent(:all, limit: 50, entity: Map.get(date_filters, :entity)),
          {:ok, by_type} <- aggregate_by_type(date_filters) do
       data = %{
         summary: summary,

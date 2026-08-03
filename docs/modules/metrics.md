@@ -18,7 +18,7 @@ Exhub tracks performance metrics for LLM proxy requests, MCP tool calls, and Her
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Exhub.Metrics.PerformanceTracker                                   │
 │  • record_llm_proxy/3, record_mcp_tool_call/3, record_hercules_run/3│
-│  • Guards: skips if PerformanceStore not running, never raises     │
+│  • Guards: skips if PerformanceStore not running, never raises      │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │ GenServer.cast
                        ▼
@@ -30,19 +30,19 @@ Exhub tracks performance metrics for LLM proxy requests, MCP tool calls, and Her
 │  │   Used for percentile calculations                             │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────────────────┐ │
-│  │ :perf_aggregate (ETS :set, protected)                         │ │
-│  │   Aggregated stats keyed by {metric_type, entity, date}       │ │
+│  │ :perf_aggregate (ETS :set, protected)                          │ │
+│  │   Aggregated stats keyed by {metric_type, entity, date}        │ │
 │  │   Running totals: count, total_ms, min, max, error_count       │ │
 │  └────────────────────────────────────────────────────────────────┘ │
-│  Persists to ~/.config/exhub/performance_metrics.json               │
+│  Persists to ~/.config/exhub/performance_metrics.ndjson             │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Exhub.Metrics.PerformanceStats                                     │
-│  • Aggregation: by model, tool, provider, day, type                │
-│  • Percentiles: p50, p95, p99 (from raw samples)                  │
-│  • Summary: total requests, avg, p50/p95/p99, error rate           │
+│  • Aggregation: by model, tool, provider, day, type                 │
+│  • Percentiles: p50, p95, p99 (from raw samples)                    │
+│  • Summary: total requests, avg, p50/p95/p99, error rate            │
 │  • Dashboard data: summary + trends + top models/tools + recent     │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │
@@ -54,11 +54,11 @@ Exhub tracks performance metrics for LLM proxy requests, MCP tool calls, and Her
 
 ## Modules
 
-| Module                              | Role                                                                          |
-|-------------------------------------|-------------------------------------------------------------------------------|
-| `Exhub.Metrics.PerformanceStore`    | GenServer owning ETS tables; records metrics, persists to disk, serves queries |
-| `Exhub.Metrics.PerformanceTracker`  | Convenience API for call sites; fire-and-forget casts with error suppression  |
-| `Exhub.Metrics.PerformanceStats`    | Aggregation/query API; percentiles, summaries, trends, dashboard data          |
+| Module                             | Role                                                                           |
+|------------------------------------|--------------------------------------------------------------------------------|
+| `Exhub.Metrics.PerformanceStore`   | GenServer owning ETS tables; records metrics, persists to disk, serves queries |
+| `Exhub.Metrics.PerformanceTracker` | Convenience API for call sites; fire-and-forget casts with error suppression   |
+| `Exhub.Metrics.PerformanceStats`   | Aggregation/query API; percentiles, summaries, trends, dashboard data          |
 
 ## Metric Types
 
@@ -72,15 +72,16 @@ Exhub tracks performance metrics for LLM proxy requests, MCP tool calls, and Her
 
 ### Two-Tier ETS
 
-| Table             | Type | Access     | Purpose                                          |
-|-------------------|------|------------|--------------------------------------------------|
-| `:perf_raw`       | `:bag` | `:public`   | Individual metric records (ring buffer, max 10k) |
-| `:perf_aggregate` | `:set` | `:protected`| Aggregated stats by `{type, entity, date}`       |
+| Table             | Type   | Access       | Purpose                                          |
+|-------------------|--------|--------------|--------------------------------------------------|
+| `:perf_raw`       | `:bag` | `:public`    | Individual metric records (ring buffer, max 10k) |
+| `:perf_aggregate` | `:set` | `:protected` | Aggregated stats by `{type, entity, date}`       |
 
 ### Persistence
 
-- Data file: `~/.config/exhub/performance_metrics.json`
-- Periodic flush to disk
+- Data file: `~/.config/exhub/performance_metrics.ndjson` (NDJSON format, one JSON object per line, null fields omitted)
+- Migrated automatically from old `performance_metrics.json` on first write
+- Periodic flush to disk (every 60s when dirty, plus on shutdown)
 - Loaded on startup; `await_loaded/2` call available for synchronous wait
 
 ## REST API
@@ -91,10 +92,11 @@ All endpoints return JSON with `{success: true, data: ...}` on success or `{succ
 
 Retrieve recent raw metric records.
 
-| Parameter | Type    | Default | Description                              |
-|-----------|---------|---------|------------------------------------------|
+| Parameter | Type    | Default | Description                                                          |
+|-----------|---------|---------|----------------------------------------------------------------------|
 | `type`    | string  | `all`   | Filter by metric type (`llm_proxy`, `mcp_tool_call`, `hercules_run`) |
-| `limit`   | integer | `100`   | Maximum number of records to return      |
+| `model`   | string  | —       | Filter by model name (maps to entity for `:llm_proxy` metrics)       |
+| `limit`   | integer | `100`   | Maximum number of records to return                                  |
 
 **Response:**
 ```json
@@ -118,11 +120,12 @@ Retrieve recent raw metric records.
 
 Retrieve aggregated statistics grouped by a dimension.
 
-| Parameter   | Type   | Default  | Description                                      |
-|-------------|--------|----------|--------------------------------------------------|
-| `group_by`  | string | `model`  | Group dimension: `model`, `tool`, `provider`, `day`, `type` |
-| `start_date`| string | —        | ISO 8601 date filter (inclusive)                 |
-| `end_date`  | string | —        | ISO 8601 date filter (inclusive)                 |
+| Parameter    | Type   | Default | Description                                                    |
+|--------------|--------|---------|----------------------------------------------------------------|
+| `group_by`   | string | `model` | Group dimension: `model`, `tool`, `provider`, `day`, `type`    |
+| `start_date` | string | —       | ISO 8601 date filter (inclusive)                               |
+| `end_date`   | string | —       | ISO 8601 date filter (inclusive)                               |
+| `model`      | string | —       | Filter by model name (maps to entity for `:llm_proxy` metrics) |
 
 **Response:**
 ```json
@@ -148,10 +151,11 @@ Retrieve aggregated statistics grouped by a dimension.
 
 Retrieve overall summary statistics.
 
-| Parameter    | Type   | Default | Description                      |
-|--------------|--------|---------|----------------------------------|
-| `start_date` | string | —       | ISO 8601 date filter (inclusive) |
-| `end_date`   | string | —       | ISO 8601 date filter (inclusive) |
+| Parameter    | Type   | Default | Description                                                    |
+|--------------|--------|---------|----------------------------------------------------------------|
+| `start_date` | string | —       | ISO 8601 date filter (inclusive)                               |
+| `end_date`   | string | —       | ISO 8601 date filter (inclusive)                               |
+| `model`      | string | —       | Filter by model name (maps to entity for `:llm_proxy` metrics) |
 
 **Response:**
 ```json
@@ -174,22 +178,24 @@ Retrieve overall summary statistics.
 
 Retrieve percentile statistics (p50, p95, p99) for a specific metric type and optional entity.
 
-| Parameter    | Type   | Default | Description                                      |
-|--------------|--------|---------|--------------------------------------------------|
+| Parameter    | Type   | Default | Description                                                |
+|--------------|--------|---------|------------------------------------------------------------|
 | `type`       | string | `all`   | Metric type (`llm_proxy`, `mcp_tool_call`, `hercules_run`) |
-| `entity`     | string | —       | Filter by entity name (model, tool, or run ID)   |
-| `start_date` | string | —       | ISO 8601 date filter (inclusive)                 |
-| `end_date`   | string | —       | ISO 8601 date filter (inclusive)                 |
+| `entity`     | string | —       | Filter by entity name (model, tool, or run ID)             |
+| `model`      | string | —       | Alias for `entity` (filter by model name)                  |
+| `start_date` | string | —       | ISO 8601 date filter (inclusive)                           |
+| `end_date`   | string | —       | ISO 8601 date filter (inclusive)                           |
 
 ### GET /api/v1/metrics/dashboard
 
 Retrieve combined dashboard data in a single call.
 
-| Parameter    | Type    | Default | Description                                      |
-|--------------|---------|---------|--------------------------------------------------|
-| `days`       | integer | —       | Number of days for trend data (default: 30)     |
-| `start_date` | string  | —       | ISO 8601 date filter (overrides `days`)         |
-| `end_date`   | string  | —       | ISO 8601 date filter (overrides `days`)         |
+| Parameter    | Type    | Default | Description                                                    |
+|--------------|---------|---------|----------------------------------------------------------------|
+| `days`       | integer | —       | Number of days for trend data (default: 30)                    |
+| `start_date` | string  | —       | ISO 8601 date filter (overrides `days`)                        |
+| `end_date`   | string  | —       | ISO 8601 date filter (overrides `days`)                        |
+| `model`      | string  | —       | Filter by model name (maps to entity for `:llm_proxy` metrics) |
 
 **Response includes:**
 - `summary` — overall statistics (total, avg, p50/p95/p99, error rate)
@@ -224,18 +230,18 @@ The web dashboard (`Exhub.Router.DashboardView`) includes a "⚡ Performance Met
 
 All LLM proxy routes record `:llm_proxy` metrics after forwarding the upstream request:
 
-| Route Pattern               | Provider          | Model                          |
-|-----------------------------|-------------------|--------------------------------|
-| `/openai/v1/*path` (GET)    | `openai`          | `openai`                       |
-| `/openai/v1/*path` (POST)   | `openai`          | from request body or `openai`  |
+| Route Pattern               | Provider          | Model                            |
+|-----------------------------|-------------------|----------------------------------|
+| `/openai/v1/*path` (GET)    | `openai`          | `openai`                         |
+| `/openai/v1/*path` (POST)   | `openai`          | from request body or `openai`    |
 | `/anthropic/v1/*path`       | `anthropic`       | from request body or `anthropic` |
-| `/burncloud/v1/*path`       | `burncloud`       | `burncloud`                    |
-| `/bailiancloud/v1/*path`    | `bailiancloud`    | `bailiancloud`                 |
-| `/baidu-anthropic/v1/*path` | `baidu-anthropic` | `baidu-anthropic`              |
-| `/google/v1/*path`          | `google`          | `google`                       |
-| `/cohere/v1/*path`          | `cohere`          | `cohere`                       |
-| `/samba/v1/*path`           | `samba`           | `samba`                        |
-| `/infini/v1/*path`          | `infini`          | `infini`                       |
+| `/burncloud/v1/*path`       | `burncloud`       | `burncloud`                      |
+| `/bailiancloud/v1/*path`    | `bailiancloud`    | `bailiancloud`                   |
+| `/baidu-anthropic/v1/*path` | `baidu-anthropic` | `baidu-anthropic`                |
+| `/google/v1/*path`          | `google`          | `google`                         |
+| `/cohere/v1/*path`          | `cohere`          | `cohere`                         |
+| `/samba/v1/*path`           | `samba`           | `samba`                          |
+| `/infini/v1/*path`          | `infini`          | `infini`                         |
 
 ### MCP Hub Tool Calls
 

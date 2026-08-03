@@ -17,7 +17,7 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
 
   @table :token_usage_store
   @data_dir Path.join([System.user_home(), ".config", "exhub"])
-  @data_file "token_usage.json"
+  @data_file "token_usage.ndjson"
 
   # Default pricing per 1M tokens (in USD).
   # Keys are lowercase, without provider prefix, date suffix, or "-latest" suffix.
@@ -658,6 +658,66 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
   end
 
   defp load_from_file(path) do
+    # Try NDJSON first, fall back to old JSON format
+    ndjson_path = path
+
+    if File.exists?(ndjson_path) do
+      load_from_ndjson(ndjson_path)
+    else
+      old_json = Path.rootname(path) <> ".json"
+
+      if File.exists?(old_json) do
+        case load_from_old_json(old_json) do
+          {:ok, records} ->
+            Logger.info("TokenUsageStore: Migrating from .json to .ndjson format")
+            {:ok, records}
+
+          error ->
+            error
+        end
+      else
+        {:error, :file_not_found}
+      end
+    end
+  end
+
+  defp load_from_ndjson(path) do
+    case File.read(path) do
+      {:ok, content} ->
+        lines = String.split(content, "\n", trim: true)
+
+        {records, errors} =
+          Enum.reduce(lines, {[], 0}, fn line, {acc, errs} ->
+            case Jason.decode(line, keys: :atoms!) do
+              {:ok, record} when is_map(record) ->
+                record = %{
+                  record
+                  | timestamp: parse_datetime(record.timestamp),
+                    date: parse_date(record.date)
+                }
+
+                {[record | acc], errs}
+
+              _ ->
+                {acc, errs + 1}
+            end
+          end)
+
+        if errors > 0 do
+          Logger.warning("TokenUsageStore: #{errors} unparseable lines in #{path}")
+        end
+
+        {:ok, Enum.reverse(records)}
+
+      {:error, :enoent} ->
+        {:error, :file_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp load_from_old_json(path) do
     case File.read(path) do
       {:ok, content} ->
         case Jason.decode(content, keys: :atoms!) do
@@ -711,36 +771,38 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
   defp parse_date(_), do: Date.utc_today()
 
   defp persist_to_file(table, path) do
-    entries =
+    lines =
       :ets.tab2list(table)
-      |> Enum.map(fn {_key, record} ->
-        %{
-          id: record.id,
-          model: record.model,
-          provider: record.provider,
-          input_tokens: record.input_tokens,
-          output_tokens: record.output_tokens,
-          total_tokens: record.total_tokens,
-          estimated_cost: record.estimated_cost,
-          request_count: record.request_count,
-          timestamp: DateTime.to_iso8601(record.timestamp),
-          date: Date.to_iso8601(record.date),
-          request_id: record.request_id,
-          user_id: record.user_id
-        }
-      end)
+      |> Enum.map(fn {_key, record} -> encode_ndjson_line(record) end)
+
+    content = Enum.join(lines, "\n") <> "\n"
 
     File.mkdir_p!(Path.dirname(path))
 
     tmp_path = path <> ".tmp"
-    File.write!(tmp_path, Jason.encode!(entries, pretty: true))
+    File.write!(tmp_path, content)
     File.rename!(tmp_path, path)
+
+    # Clean up old .json format if it exists
+    old_json = Path.rootname(path) <> ".json"
+    if File.exists?(old_json), do: File.rm!(old_json)
 
     :ok
   rescue
     e ->
       Logger.error("Failed to persist token usage data: #{inspect(e)}")
       {:error, :persist_failed}
+  end
+
+  defp encode_ndjson_line(record) do
+    record
+    |> Enum.filter(fn {k, v} -> k != :__struct__ and v != nil end)
+    |> Enum.into(%{}, fn
+      {:timestamp, %DateTime{} = v} -> {"timestamp", DateTime.to_iso8601(v)}
+      {:date, %Date{} = v} -> {"date", Date.to_iso8601(v)}
+      {k, v} -> {Atom.to_string(k), v}
+    end)
+    |> Jason.encode!(separators: [?,, ?:])
   end
 
   defp persist_to_file_async(table, path) do

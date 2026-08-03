@@ -25,7 +25,7 @@ defmodule Exhub.Metrics.PerformanceStore do
   @raw_table :perf_raw
   @agg_table :perf_aggregate
   @data_dir Path.join([System.user_home(), ".config", "exhub"])
-  @data_file "performance_metrics.json"
+  @data_file "performance_metrics.ndjson"
   @max_raw_records 10_000
 
   # ─── Client API ──────────────────────────────────────────────────────────
@@ -382,8 +382,8 @@ defmodule Exhub.Metrics.PerformanceStore do
       case :ets.lookup(agg_table, key) do
         [{^key, existing}] ->
           durations = [duration_ms | existing.durations]
-          # Keep last 1000 samples for percentile calculation
-          durations = Enum.take(durations, 1000)
+          # Keep last 200 samples for percentile calculation
+          durations = Enum.take(durations, 200)
 
           %{
             existing
@@ -564,6 +564,65 @@ defmodule Exhub.Metrics.PerformanceStore do
   # ─── Private: Persistence ────────────────────────────────────────────────
 
   defp load_from_file(path) do
+    # Try NDJSON first, fall back to old JSON format
+    ndjson_path = path
+
+    if File.exists?(ndjson_path) do
+      load_from_ndjson(ndjson_path)
+    else
+      old_json = Path.rootname(path) <> ".json"
+
+      if File.exists?(old_json) do
+        case load_from_old_json(old_json) do
+          {:ok, result} ->
+            # Migrate: write NDJSON and remove old file
+            Logger.info("PerformanceStore: Migrating from .json to .ndjson format")
+            {:ok, result}
+
+          error ->
+            error
+        end
+      else
+        {:error, :file_not_found}
+      end
+    end
+  end
+
+  defp load_from_ndjson(path) do
+    case File.read(path) do
+      {:ok, content} ->
+        lines = String.split(content, "\n", trim: true)
+
+        {raw_records, agg_records, errors} =
+          Enum.reduce(lines, {[], [], 0}, fn line, {raw, agg, errs} ->
+            case Jason.decode(line) do
+              {:ok, data} when is_map(data) ->
+                case Map.get(data, "t") do
+                  "r" -> {[parse_raw_record(data) | raw], agg, errs}
+                  "a" -> {raw, [parse_agg_record(data) | agg], errs}
+                  _ -> {raw, agg, errs + 1}
+                end
+
+              _ ->
+                {raw, agg, errs + 1}
+            end
+          end)
+
+        if errors > 0 do
+          Logger.warning("PerformanceStore: #{errors} unparseable lines in #{path}")
+        end
+
+        {:ok, {Enum.reverse(raw_records), Enum.reverse(agg_records)}}
+
+      {:error, :enoent} ->
+        {:error, :file_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp load_from_old_json(path) do
     case File.read(path) do
       {:ok, content} ->
         case Jason.decode(content) do
@@ -658,58 +717,57 @@ defmodule Exhub.Metrics.PerformanceStore do
   defp parse_date(_), do: Date.utc_today()
 
   defp persist_to_file(raw_table, agg_table, path) do
-    raw_entries =
+    raw_lines =
       :ets.tab2list(raw_table)
-      |> Enum.map(fn {_seq, record} ->
-        %{
-          seq: record.seq,
-          metric_type: Atom.to_string(record.metric_type),
-          entity: record.entity,
-          provider: record.provider,
-          duration_ms: record.duration_ms,
-          ttft_ms: record.ttft_ms,
-          status: Atom.to_string(record.status),
-          error_message: record.error_message,
-          input_tokens: record.input_tokens,
-          output_tokens: record.output_tokens,
-          timestamp: DateTime.to_iso8601(record.timestamp),
-          date: Date.to_iso8601(record.date),
-          date_key: record.date_key,
-          request_id: record.request_id
-        }
-      end)
+      |> Enum.map(fn {_seq, record} -> encode_raw_line(record) end)
 
-    agg_entries =
+    agg_lines =
       :ets.tab2list(agg_table)
-      |> Enum.map(fn {_key, agg} ->
-        %{
-          metric_type: Atom.to_string(agg.metric_type),
-          entity: agg.entity,
-          date_key: agg.date_key,
-          count: agg.count,
-          total_ms: agg.total_ms,
-          min_ms: agg.min_ms,
-          max_ms: agg.max_ms,
-          error_count: agg.error_count,
-          timeout_count: agg.timeout_count,
-          durations: agg.durations,
-          last_updated: DateTime.to_iso8601(agg.last_updated)
-        }
-      end)
+      |> Enum.map(fn {_key, agg} -> encode_agg_line(agg) end)
 
-    data = %{"raw" => raw_entries, "aggregated" => agg_entries}
+    content = Enum.join(raw_lines ++ agg_lines, "\n") <> "\n"
 
     File.mkdir_p!(Path.dirname(path))
 
     tmp_path = path <> ".tmp"
-    File.write!(tmp_path, Jason.encode!(data, pretty: true))
+    File.write!(tmp_path, content)
     File.rename!(tmp_path, path)
+
+    # Clean up old .json format if it exists
+    old_json = Path.rootname(path) <> ".json"
+    if File.exists?(old_json), do: File.rm!(old_json)
 
     :ok
   rescue
     e ->
       Logger.error("Failed to persist performance metrics: #{inspect(e)}")
       {:error, :persist_failed}
+  end
+
+  # ─── Private: NDJSON Encoding ────────────────────────────────────────────
+
+  defp encode_raw_line(record) do
+    record
+    |> Enum.filter(fn {k, v} -> k != :__struct__ and v != nil end)
+    |> Enum.into(%{"t" => "r"}, fn
+      {:metric_type, v} -> {"metric_type", Atom.to_string(v)}
+      {:status, v} -> {"status", Atom.to_string(v)}
+      {:timestamp, %DateTime{} = v} -> {"timestamp", DateTime.to_iso8601(v)}
+      {:date, %Date{} = v} -> {"date", Date.to_iso8601(v)}
+      {k, v} -> {Atom.to_string(k), v}
+    end)
+    |> Jason.encode!()
+  end
+
+  defp encode_agg_line(agg) do
+    agg
+    |> Enum.filter(fn {k, v} -> k != :__struct__ and v != nil end)
+    |> Enum.into(%{"t" => "a"}, fn
+      {:metric_type, v} -> {"metric_type", Atom.to_string(v)}
+      {:last_updated, %DateTime{} = v} -> {"last_updated", DateTime.to_iso8601(v)}
+      {k, v} -> {Atom.to_string(k), v}
+    end)
+    |> Jason.encode!()
   end
 
   defp persist_to_file_async(raw_table, agg_table, path) do

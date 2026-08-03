@@ -1,10 +1,16 @@
 # Recent Enhancements
 
+## NDJSON Persistence Format — Compact, Diff-Friendly Storage
+
+- **PerformanceStore migrated to NDJSON**: `~/.config/exhub/performance_metrics.ndjson` replaces `performance_metrics.json`. File size reduced from 963KB → 489KB (~50% savings). Each record is a single JSON line with null fields omitted. Old `.json` file is auto-migrated and cleaned up on first write.
+- **TokenUsageStore migrated to NDJSON**: `~/.config/exhub/token_usage.ndjson` replaces `token_usage.json`. File size reduced from 219KB → 152KB (~31% savings). 8,443 lines reduced to 603 lines — one per record, making diffs far more readable. Null fields (`request_id`, `user_id`) omitted.
+- **Backward-compatible loading**: Both stores fall back to the old `.json` format on startup if no `.ndjson` file exists yet. Migration happens automatically on the next periodic persist.
+
 ## Performance Metrics Tracking — Latency & Error Analytics
 
 - **New Feature**: Exhub now records and aggregates performance metrics for LLM proxy requests, MCP tool calls, and Hercules runs, with a dashboard UI and REST API for querying.
 - **New Modules** (`lib/exhub/metrics/`):
-  - `Exhub.Metrics.PerformanceStore` — GenServer with two-tier ETS storage: raw ring buffer (`:perf_raw`, max 10,000 records) + aggregated stats (`:perf_aggregate`, keyed by `{metric_type, entity, date}`). Persists to `~/.config/exhub/performance_metrics.json` on a periodic flush and on shutdown.
+  - `Exhub.Metrics.PerformanceStore` — GenServer with two-tier ETS storage: raw ring buffer (`:perf_raw`, max 10,000 records) + aggregated stats (`:perf_aggregate`, keyed by `{metric_type, entity, date}`). Persists to `~/.config/exhub/performance_metrics.ndjson` on a periodic flush and on shutdown.
   - `Exhub.Metrics.PerformanceTracker` — Fire-and-forget convenience API (cast-based, never raises). Call sites use `record_llm_proxy/3`, `record_mcp_tool_call/3`, and `record_hercules_run/3`.
   - `Exhub.Metrics.PerformanceStats` — Aggregation/query API: `aggregate_by_model/1`, `aggregate_by_tool/1`, `aggregate_by_provider/1`, `aggregate_by_day/1`, `get_summary/1`, `get_percentiles/3`, `recent_metrics/2`, `get_trends/1`, `top_models/2`, `top_tools/2`, `get_dashboard_data/1`.
 - **Metric Types**:

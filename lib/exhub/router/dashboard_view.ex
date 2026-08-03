@@ -435,6 +435,13 @@ defmodule Exhub.Router.DashboardView do
           <h2>⚡ Performance Metrics</h2>
         </div>
 
+        <div class="filter-bar">
+          <span class="filter-label">Perf Model:</span>
+          <select class="filter-select" id="perf-model-filter" onchange="setPerfModelFilter(this.value)">
+            <option value="">All Models</option>
+          </select>
+        </div>
+
         <div class="stats-grid" id="perf-stats-grid">
           <div class="stat-card">
             <div class="stat-label">Total Metrics</div>
@@ -509,6 +516,7 @@ defmodule Exhub.Router.DashboardView do
       <script>
         var currentFilter = 'today';
         var currentModelFilter = '';
+        var perfModelFilter = '';
 
         function formatNumber(num) {
           if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -676,12 +684,53 @@ defmodule Exhub.Router.DashboardView do
           }
         }
 
-        async function loadPerformanceMetrics() {
+        function setPerfModelFilter(model) {
+          perfModelFilter = model;
+          loadPerformanceMetrics();
+        }
+
+        async function loadPerfModelOptions() {
           try {
             var params = getFilterParams(currentFilter);
             var query = Object.keys(params).filter(function(k) {
               return k !== 'model';
             }).map(function(k) {
+              return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+            }).join('&');
+
+            var url = '/api/v1/metrics/stats?group_by=model' + (query ? '&' + query : '');
+            var response = await fetch(url);
+            var result = await response.json();
+
+            if (!result.success) return;
+
+            var select = document.getElementById('perf-model-filter');
+            var currentValue = perfModelFilter;
+            select.innerHTML = '<option value="">All Models</option>';
+            (result.data || []).forEach(function(item) {
+              var model = item.model || item.entity;
+              if (model) {
+                var option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                select.appendChild(option);
+              }
+            });
+            select.value = currentValue;
+          } catch (err) {
+            console.error('Failed to load perf model options:', err);
+          }
+        }
+
+        async function loadPerformanceMetrics() {
+          try {
+            var params = getFilterParams(currentFilter);
+            if (perfModelFilter) {
+              params.model = perfModelFilter;
+            } else {
+              delete params.model;
+            }
+            var query = Object.keys(params).map(function(k) {
               return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
             }).join('&');
 
@@ -741,8 +790,10 @@ defmodule Exhub.Router.DashboardView do
         }
 
         loadDashboard();
+        loadPerfModelOptions();
         loadPerformanceMetrics();
         setInterval(loadDashboard, 60000);
+        setInterval(loadPerfModelOptions, 60000);
         setInterval(loadPerformanceMetrics, 60000);
       </script>
     </body>

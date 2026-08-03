@@ -796,8 +796,13 @@ defmodule Exhub.Router do
   get "/api/v1/metrics/recent" do
     metric_type = parse_metric_type(conn.params["type"])
     limit = Helpers.parse_int(conn.params["limit"], 100)
+    model = conn.params["model"]
 
-    case PerformanceStats.recent_metrics(metric_type, limit) do
+    filters =
+      %{}
+      |> Helpers.maybe_put(:entity, model)
+
+    case PerformanceStats.recent_metrics(metric_type, limit, filters) do
       {:ok, records} ->
         response = %{success: true, data: records, count: length(records)}
 
@@ -816,11 +821,13 @@ defmodule Exhub.Router do
     group_by = conn.params["group_by"] || "model"
     start_date = conn.params["start_date"]
     end_date = conn.params["end_date"]
+    model = conn.params["model"]
 
     filters =
       %{}
       |> Helpers.maybe_put(:start_date, start_date)
       |> Helpers.maybe_put(:end_date, end_date)
+      |> Helpers.maybe_put(:entity, model)
 
     group_by_atom =
       case group_by do
@@ -849,11 +856,13 @@ defmodule Exhub.Router do
   get "/api/v1/metrics/summary" do
     start_date = conn.params["start_date"]
     end_date = conn.params["end_date"]
+    model = conn.params["model"]
 
     filters =
       %{}
       |> Helpers.maybe_put(:start_date, start_date)
       |> Helpers.maybe_put(:end_date, end_date)
+      |> Helpers.maybe_put(:entity, model)
 
     case PerformanceStats.get_summary(filters) do
       {:ok, summary} ->
@@ -870,7 +879,7 @@ defmodule Exhub.Router do
 
   get "/api/v1/metrics/percentiles" do
     metric_type = parse_metric_type(conn.params["type"])
-    entity = conn.params["entity"]
+    entity = conn.params["entity"] || conn.params["model"]
     start_date = conn.params["start_date"]
     end_date = conn.params["end_date"]
 
@@ -896,12 +905,14 @@ defmodule Exhub.Router do
     days = Helpers.parse_int(conn.params["days"], nil)
     start_date = conn.params["start_date"]
     end_date = conn.params["end_date"]
+    model = conn.params["model"]
 
     filters =
       %{}
       |> Helpers.maybe_put(:days, days)
       |> Helpers.maybe_put(:start_date, start_date)
       |> Helpers.maybe_put(:end_date, end_date)
+      |> Helpers.maybe_put(:entity, model)
 
     case PerformanceStats.get_dashboard_data(filters) do
       {:ok, data} ->
