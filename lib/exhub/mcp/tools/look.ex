@@ -10,7 +10,7 @@ defmodule Exhub.MCP.Tools.Look do
 
   use Anubis.Server.Component, type: :tool
 
-  @api_url "https://ai.gitee.com/v1/chat/completions"
+  @api_url "https://api.moark.com/v1/chat/completions"
 
   @default_model "kimi-k2.6"
   @max_tokens 4096

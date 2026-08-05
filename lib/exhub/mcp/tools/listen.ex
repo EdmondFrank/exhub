@@ -10,7 +10,7 @@ defmodule Exhub.MCP.Tools.Listen do
 
   use Anubis.Server.Component, type: :tool
 
-  @api_url "https://ai.gitee.com/v1/audio/transcriptions"
+  @api_url "https://api.moark.com/v1/audio/transcriptions"
   @default_model "whisper-large-v3-turbo"
   @request_timeout 120_000
 

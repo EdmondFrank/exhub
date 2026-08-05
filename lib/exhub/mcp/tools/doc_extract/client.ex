@@ -6,8 +6,8 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   multiple tools (doc_extract, read_file, etc.).
   """
 
-  @submit_url "https://ai.gitee.com/v1/async/documents/parse"
-  @task_url "https://ai.gitee.com/v1/task"
+  @submit_url "https://api.moark.com/v1/async/documents/parse"
+  @task_url "https://api.moark.com/v1/task"
   @default_model "Unlimited-OCR"
   @poll_interval_ms 5_000
   @max_poll_attempts 60

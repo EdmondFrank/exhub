@@ -16,7 +16,7 @@ defmodule Exhub.Genclaw.ImageGen do
 
   alias Exhub.Genclaw.Session
 
-  @api_base "https://ai.gitee.com/v1"
+  @api_base "https://api.moark.com/v1"
   @t2i_url @api_base <> "/images/generations"
   @i2i_url @api_base <> "/images/edits"
 

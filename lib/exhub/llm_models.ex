@@ -406,11 +406,11 @@ defmodule Exhub.LLMModels do
   ## Examples
 
       iex> Exhub.LLMModels.build_llms_config(%{giteeai_api_key: "test"})
-      %{"openai/step3" => %{api_base: "https://ai.gitee.com/v1", api_key: "test", model: "openai/step3"}, ...}
+      %{"openai/step3" => %{api_base: "https://api.moark.com/v1", api_key: "test", model: "openai/step3"}, ...}
   """
   @spec build_llms_config(map()) :: map()
   def build_llms_config(api_keys) when is_map(api_keys) do
-    gitee_api_base = "https://ai.gitee.com/v1"
+    gitee_api_base = "https://api.moark.com/v1"
 
     # Build GiteeAI models (most models share the same endpoint)
     gitee_entries =

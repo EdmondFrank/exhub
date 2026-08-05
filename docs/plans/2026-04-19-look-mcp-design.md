@@ -61,7 +61,7 @@ Read file, base64 encode, pass as data URI:
 ## API Request Format
 
 ```elixir
-POST https://ai.gitee.com/v1/chat/completions
+POST https://moark.com/v1/chat/completions
 Headers: Authorization: Bearer {api_key}
 
 {

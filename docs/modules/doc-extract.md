@@ -1,7 +1,7 @@
 # exhub-doc-extract
 
 The `exhub-doc-extract` module provides MCP-based document text extraction using the
-[Gitee AI](https://ai.gitee.com) Async Document Parse API powered by Unlimited-OCR (default)
+[Gitee AI](https://moark.com) Async Document Parse API powered by Unlimited-OCR (default)
 or PaddleOCR-VL-1.5.
 
 ## Setup

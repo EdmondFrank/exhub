@@ -191,7 +191,7 @@ After migration, the `api_base` URLs for all LLM providers are defined in `confi
 
 | Provider / Model group | Default `api_base`                                                   |
 |------------------------|----------------------------------------------------------------------|
-| Gitee AI models        | `https://ai.gitee.com/v1`                                            |
+| Gitee AI models        | `https://api.moark.com/v1`                                            |
 | Mistral models         | `https://api.mistral.ai/v1`                                          |
 | Codestral              | `https://codestral.mistral.ai/v1`                                    |
 | Cohere                 | `http://127.0.0.1:9069/cohere/v1` (local proxy)                      |
@@ -205,7 +205,7 @@ After migration, the `api_base` URLs for all LLM providers are defined in `confi
 To change the API base URL for a specific model, open `config/runtime.exs` and replace the helper call with an explicit map. For example, to route a Gitee model through a custom proxy:
 
 ```elixir
-# Before (uses the gitee_llm helper, api_base = "https://ai.gitee.com/v1")
+# Before (uses the gitee_llm helper, api_base = "https://api.moark.com/v1")
 "openai/Qwen2.5-72B-Instruct" => gitee_llm.("openai/Qwen2.5-72B-Instruct"),
 
 # After (custom api_base)

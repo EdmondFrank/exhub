@@ -1,7 +1,7 @@
 # exhub-image-gen
 
 The `exhub-image-gen` module provides MCP-based AI image generation using the
-[Gitee AI](https://ai.gitee.com) image generation API (OpenAI-compatible).
+[Gitee AI](https://moark.com) image generation API (OpenAI-compatible).
 
 ## Setup
 
@@ -82,7 +82,7 @@ Generate a high-quality image from a text description.
 
 ```json
 {
-  "image_url": "https://ai.gitee.com/...",
+  "image_url": "https://moark.com/...",
   "model": "Qwen-Image",
   "size": "1024x1024",
   "prompt": "a cat sitting on a mountain at sunset",

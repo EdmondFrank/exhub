@@ -146,7 +146,7 @@
 ## Listen MCP Server (Audio Transcription via Gitee AI)
 
 - **New MCP Server**: `Exhub.MCP.ListenServer` provides audio-to-text transcription over MCP at `/listen/mcp`
-- **Gitee AI / moark.com Backend**: Calls the OpenAI-compatible `/v1/audio/transcriptions` endpoint at `https://ai.gitee.com/v1/audio/transcriptions`
+- **Gitee AI / moark.com Backend**: Calls the OpenAI-compatible `/v1/audio/transcriptions` endpoint at `https://api.moark.com/v1/audio/transcriptions`
 - **Supported Models**:
   - `whisper-large-v3-turbo` (default) — OpenAI Whisper multilingual real-time recognition
   - `whisper-large-v3` — Whisper standard
@@ -328,8 +328,8 @@
 
 ## Document Extraction (PDF, DOCX, Images via Gitee AI)
 - **New MCP Server**: `Exhub.MCP.DocExtractServer` exposes document text extraction over MCP at `/doc-extract/mcp`
-- **Gitee AI Backend**: Calls the Gitee AI Async Document Parse API (`https://ai.gitee.com/v1/async/documents/parse`) powered by PaddleOCR-VL-1.5 — no external scripts required
-- **Async Polling Flow**: Submits a parse task, polls `https://ai.gitee.com/v1/task/{task_id}` every 5 seconds, up to 60 attempts (5-minute maximum), then returns the full extracted content
+- **Gitee AI Backend**: Calls the Gitee AI Async Document Parse API (`https://api.moark.com/v1/async/documents/parse`) powered by PaddleOCR-VL-1.5 — no external scripts required
+- **Async Polling Flow**: Submits a parse task, polls `https://api.moark.com/v1/task/{task_id}` every 5 seconds, up to 60 attempts (5-minute maximum), then returns the full extracted content
 - **Supported Input**: Local file paths and remote http/https URLs
 - **Supported Formats**: PDF, DOCX, DOC, PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP, and other document/image types
 - **Output Formats**: Markdown (default, layout-preserving) or plain text
@@ -371,7 +371,7 @@
 
 ## AI Image Generation
 - **New MCP Server**: `Exhub.MCP.ImageGenServer` exposes AI image generation over MCP at `/image-gen/mcp`
-- **Gitee AI Backend**: Calls the Gitee AI image generation API (OpenAI-compatible at `https://ai.gitee.com/v1/images/generations`) directly via HTTPoison — no external scripts required
+- **Gitee AI Backend**: Calls the Gitee AI image generation API (OpenAI-compatible at `https://api.moark.com/v1/images/generations`) directly via HTTPoison — no external scripts required
 - **5 Models Supported**:
   - `Qwen-Image` (default) — negative prompt + inference steps
   - `Kolors` — inference steps + guidance scale

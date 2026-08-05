@@ -1,7 +1,7 @@
 # exhub-listen
 
 The `exhub-listen` module provides MCP-based audio transcription using
-[Gitee AI](https://ai.gitee.com) / [moark.com](https://moark.com) speech-to-text API.
+[Gitee AI](https://moark.com) / [moark.com](https://moark.com) speech-to-text API.
 
 ## Setup
 

@@ -3,14 +3,14 @@ defmodule Exhub.MCP.Tools.ImageGen do
   MCP Tool for generating images from text descriptions using Gitee AI.
 
   Supports the full set of text-to-image models available on Gitee AI Serverless API,
-  sourced from https://ai.gitee.com/serverless-api (图像生成与处理 category).
+  sourced from https://moark.com/serverless-api (图像生成与处理 category).
   """
 
   alias Anubis.Server.Response
 
   use Anubis.Server.Component, type: :tool
 
-  @api_url "https://ai.gitee.com/v1/images/generations"
+  @api_url "https://api.moark.com/v1/images/generations"
 
   # Text-to-image generation models available on Gitee AI Serverless API
   # (excludes editing/upscaling/segmentation/background-removal models)

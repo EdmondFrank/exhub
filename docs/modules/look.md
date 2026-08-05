@@ -1,7 +1,7 @@
 # exhub-look
 
 The `exhub-look` module provides MCP-based image understanding using
-[Gitee AI](https://ai.gitee.com) vision models.
+[Gitee AI](https://moark.com) vision models.
 
 ## Setup
 
@@ -13,7 +13,7 @@ Set your Gitee AI API key:
 mix scr.insert dev giteeai_api_key "your-api-key"
 ```
 
-Get your API key from [Gitee AI](https://ai.gitee.com).
+Get your API key from [Gitee AI](https://moark.com).
 
 ## Tool: `look`
 

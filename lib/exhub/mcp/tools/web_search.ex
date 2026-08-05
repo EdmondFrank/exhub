@@ -10,7 +10,7 @@ defmodule Exhub.MCP.Tools.WebSearch do
 
   use Anubis.Server.Component, type: :tool
 
-  @giteeai_web_search_url "https://ai.gitee.com/v1/web-search"
+  @giteeai_web_search_url "https://api.moark.com/v1/web-search"
 
   def name, do: "web_search"
 
