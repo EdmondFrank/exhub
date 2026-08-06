@@ -1,5 +1,7 @@
 defmodule Exhub.MCP.Tools.Brain.MoveNoteTest do
-  use ExUnit.Case, async: true
+  # Sync: writes to the shared :obsidian_vault_path config, which races with
+  # other async Brain tests (e.g. CreateNoteTest) if left async.
+  use ExUnit.Case, async: false
 
   alias Exhub.MCP.Tools.Brain.MoveNote
 
