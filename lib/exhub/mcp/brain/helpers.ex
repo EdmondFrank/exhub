@@ -256,6 +256,6 @@ defmodule Exhub.MCP.Brain.Helpers do
   end
 
   defp strip_md(path) do
-    if String.ends_with?(path, ".md"), do: String.slice(path, 0..-5//1), else: path
+    if String.ends_with?(path, ".md"), do: String.slice(path, 0..-4//1), else: path
   end
 end
