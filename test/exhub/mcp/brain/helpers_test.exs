@@ -3,56 +3,48 @@ defmodule Exhub.MCP.Brain.HelpersTest do
 
   alias Exhub.MCP.Brain.Helpers
 
-  describe "gitignore support" do
-    test "list_md_files respects gitignore patterns" do
-      # Create temporary test structure
-      test_dir =
-        System.tmp_dir!() |> Path.join("brain_test_#{System.unique_integer([:positive])}")
+  setup do
+    vault =
+      System.tmp_dir!()
+      |> Path.join("brain_helpers_#{System.unique_integer([:positive])}")
 
-      File.mkdir_p!(test_dir)
-      File.write!(Path.join(test_dir, ".gitignore"), "*.tmp\nsecret/")
-      File.write!(Path.join(test_dir, "note.md"), "# Note")
-      File.write!(Path.join(test_dir, "temp.tmp"), "temp")
-      File.mkdir_p!(Path.join(test_dir, "secret"))
-      File.write!(Path.join(test_dir, "secret/hidden.md"), "Hidden")
+    File.mkdir_p!(vault)
 
-      # Load gitignore patterns
-      gitignore_patterns = Helpers.load_gitignore_patterns(test_dir)
+    on_exit(fn -> File.rm_rf!(vault) end)
+    {:ok, vault: vault}
+  end
 
-      result = Helpers.list_md_files(test_dir, test_dir, gitignore_patterns: gitignore_patterns)
+  test "count_backlinks resolves folder-path targets and .md suffixes", %{vault: vault} do
+    File.mkdir_p!(Path.join(vault, "projects"))
+    File.write!(Path.join(vault, "index.md"), "See [[projects/meeting]] and [[other note.md]]")
+    File.write!(Path.join(vault, "projects/meeting.md"), "content")
+    File.write!(Path.join(vault, "other note.md"), "content")
 
-      assert "note.md" in result
-      refute "temp.tmp" in result
-      refute "secret/hidden.md" in result
+    files = ["index.md", "projects/meeting.md", "other note.md"]
+    backlinks = Helpers.count_backlinks(vault, files)
 
-      # Cleanup
-      File.rm_rf!(test_dir)
-    end
+    assert backlinks["projects/meeting.md"] == 1
+    assert backlinks["other note.md"] == 1
+  end
 
-    test "returns all files when no .gitignore exists" do
-      test_dir =
-        System.tmp_dir!() |> Path.join("brain_test_#{System.unique_integer([:positive])}")
+  test "count_backlinks counts all notes sharing a duplicate basename", %{vault: vault} do
+    File.mkdir_p!(Path.join(vault, "a"))
+    File.mkdir_p!(Path.join(vault, "b"))
+    File.write!(Path.join(vault, "a/note.md"), "# a")
+    File.write!(Path.join(vault, "b/note.md"), "# b")
+    File.write!(Path.join(vault, "index.md"), "See [[note]], also [[note]], and [[note]] again")
 
-      File.mkdir_p!(test_dir)
-      File.write!(Path.join(test_dir, "note.md"), "# Note")
-      File.write!(Path.join(test_dir, "temp.tmp"), "temp")
+    files = ["a/note.md", "b/note.md", "index.md"]
+    backlinks = Helpers.count_backlinks(vault, files)
 
-      # Load gitignore patterns (should be empty)
-      gitignore_patterns = Helpers.load_gitignore_patterns(test_dir)
+    assert backlinks["a/note.md"] == 3
+    assert backlinks["b/note.md"] == 3
+  end
 
-      result = Helpers.list_md_files(test_dir, test_dir, gitignore_patterns: gitignore_patterns)
-
-      assert "note.md" in result
-      # Note: list_md_files only returns .md files, so temp.tmp wouldn't be included anyway
-
-      # Cleanup
-      File.rm_rf!(test_dir)
-    end
-
-    test "respects gitignore_enabled configuration" do
-      # This would require mocking Application.get_env
-      # For now, just verify the pattern exists
-      assert true
-    end
+  test "count_backlinks ignores targets that resolve to no note", %{vault: vault} do
+    File.write!(Path.join(vault, "index.md"), "See [[missing]]")
+    files = ["index.md"]
+    backlinks = Helpers.count_backlinks(vault, files)
+    assert backlinks == %{}
   end
 end

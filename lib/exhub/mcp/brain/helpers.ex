@@ -185,4 +185,77 @@ defmodule Exhub.MCP.Brain.Helpers do
     Regex.scan(~r/(?:^|\s)#([\w\/]+)/, body)
     |> Enum.map(fn [_, tag] -> tag end)
   end
+
+  @doc """
+  Returns the modification time of a file as a `DateTime`, or `nil` if the
+  file cannot be stat'd.
+  """
+  @spec note_mtime(String.t()) :: DateTime.t() | nil
+  def note_mtime(full_path) do
+    case File.stat(full_path, time: :posix) do
+      {:ok, stat} -> stat.mtime |> DateTime.from_unix!()
+      {:error, _} -> nil
+    end
+  end
+
+  @doc """
+  Lazily counts incoming `[[wikilink]]` backlinks for each note in `files`.
+
+  Returns a map of `relative_path => count`. Wikilink targets are resolved by
+  exact vault-relative path first (`[[folder/note]]`, with or without `.md`),
+  then by basename across all notes sharing that name
+  (`[[note]]` matches every `note.md` in any folder). Aliases
+  (`[[target|alias]]`) resolve to the target.
+  """
+  @spec count_backlinks(String.t(), [String.t()]) :: %{String.t() => non_neg_integer()}
+  def count_backlinks(vault, files) do
+    # Exact path index (relative path minus .md, downcased) -> relative path.
+    path_index =
+      Enum.reduce(files, %{}, fn rel, acc ->
+        Map.put_new(acc, strip_md(rel) |> String.downcase(), rel)
+      end)
+
+    # Basename index (downcased) -> all relative paths sharing that basename.
+    basename_index =
+      Enum.reduce(files, %{}, fn rel, acc ->
+        base = rel |> Path.basename() |> Path.rootname() |> String.downcase()
+        Map.update(acc, base, [rel], &[rel | &1])
+      end)
+
+    Enum.reduce(files, %{}, fn rel, acc ->
+      full = Path.join(vault, rel)
+
+      case File.read(full) do
+        {:ok, content} ->
+          content
+          |> link_targets()
+          |> Enum.reduce(acc, fn target, acc ->
+            normalized = target |> strip_md() |> String.downcase()
+
+            target_rels =
+              case Map.get(path_index, normalized) do
+                nil -> Map.get(basename_index, Path.basename(normalized), [])
+                exact -> [exact]
+              end
+
+            Enum.reduce(target_rels, acc, fn tr, acc ->
+              Map.update(acc, tr, 1, &(&1 + 1))
+            end)
+          end)
+
+        {:error, _} ->
+          acc
+      end
+    end)
+  end
+
+  defp link_targets(content) do
+    Regex.scan(~r/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/, content)
+    |> Enum.map(fn [_, target] -> target |> String.trim() |> String.replace_suffix(".md", "") end)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp strip_md(path) do
+    if String.ends_with?(path, ".md"), do: String.slice(path, 0..-5//1), else: path
+  end
 end

@@ -45,3 +45,4 @@ keys.txt
 
 # MCP servers config (now stored in ~/.config/exhub/)
 /priv/mcp_servers.json
+/.pi
