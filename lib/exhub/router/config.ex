@@ -195,11 +195,17 @@ defmodule Exhub.Router.Config do
     token = get_model_api_key(model)
     base_headers = [{"authorization", "Bearer #{token}"}]
 
-    # Add X-Failover-Enabled header for gitee_ai upstream models
-    if model in @giteeai_models and model not in @minimax_models do
-      [{"X-Failover-Enabled", "true"} | base_headers]
+    headers =
+      if model in @giteeai_models and model not in @minimax_models do
+        [{"X-Failover-Enabled", "true"} | base_headers]
+      else
+        base_headers
+      end
+
+    if deepseek_model?(model) do
+      [{"X-package-id", "8848"} | headers]
     else
-      base_headers
+      headers
     end
   end
 
@@ -214,6 +220,15 @@ defmodule Exhub.Router.Config do
       base_headers
     end
   end
+
+  defp deepseek_model?(model) when is_binary(model) do
+    model
+    |> normalize_model_name()
+    |> String.downcase()
+    |> String.starts_with?("deepseek")
+  end
+
+  defp deepseek_model?(_), do: false
 
   @doc """
   Returns the target URL for Anthropic API requests.
