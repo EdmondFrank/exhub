@@ -15,14 +15,19 @@ defmodule Exhub.MCP.Brain.Ranking.Fusion do
   """
   @spec weighted_sum([scored_note()], weights()) :: [scored_note()]
   def weighted_sum(notes, weights) do
+    total_weight = weights |> Map.values() |> Enum.sum()
+
     notes
     |> Enum.map(fn note ->
-      final =
+      weighted =
         weights
         |> Enum.reduce(0.0, fn {name, weight}, acc ->
           acc + Map.get(note.scores, name, 0.0) * weight
         end)
 
+      # Normalize so `final_score` stays in [0, 1] even when the configured
+      # weights don't sum to 1.0. When they already sum to 1.0 this is a no-op.
+      final = if total_weight == 0, do: 0.0, else: weighted / total_weight
       Map.put(note, :final_score, final)
     end)
     |> Enum.sort_by(& &1.final_score, :desc)

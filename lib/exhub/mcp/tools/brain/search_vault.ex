@@ -14,7 +14,11 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Brain.Helpers
+  alias Exhub.MCP.Brain.RAG.VectorIndex
   alias Exhub.MCP.Brain.Ranking.Ranker
+  alias Exhub.MCP.Brain.Ranking.Scorers
+
+  require Logger
 
   use Anubis.Server.Component, type: :tool
 
@@ -37,13 +41,14 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     - weights: map of scorer name to weight, e.g. {"freshness": 0.3, "bm25": 0.5}
     - min_score: drop results below this final score (default 0.0)
 
-    Scorers: bm25, title_match, tag_match, freshness, link_authority
+    Scorers: bm25, title_match, tag_match, freshness, link_authority, semantic
 
     Examples:
     - Content search:  { "query": "meeting notes" }
     - Filename search: { "query": "journal", "search_type": "filename" }
     - Tag search:      { "query": "tag:status/active" }
     - Recency-first:   { "query": "meeting", "fusion": "weighted_sum", "weights": {"freshness": 0.8} }
+    - Semantic search: { "query": "how do we handle logins", "semantic": true }
     - Scoped search:   { "query": "todo", "path": "projects" }
     - Absolute paths:  { "query": "meeting", "abs_path": true }
     """
@@ -86,6 +91,17 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       description: "Drop results with final score below this threshold (default 0.0)",
       default: 0.0
     )
+
+    field(:semantic, :boolean,
+      description:
+        "Enable vector/semantic search (RAG). Requires OpenAI/Gitee AI embedding API key. Combines keyword + vector results.",
+      default: false
+    )
+
+    field(:semantic_limit, :integer,
+      description: "Max notes to return from vector search when semantic is enabled (default 10)",
+      default: 10
+    )
   end
 
   @impl true
@@ -98,6 +114,8 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     fusion = Map.get(params, :fusion)
     weights = Map.get(params, :weights, %{}) || %{}
     min_score = Map.get(params, :min_score, 0.0)
+    semantic = Map.get(params, :semantic, false)
+    semantic_limit = Map.get(params, :semantic_limit, 10)
 
     vault = Helpers.vault_path()
     search_dir = if scope_path, do: Path.join(vault, scope_path), else: vault
@@ -128,17 +146,25 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       context =
         build_context(query, vault, files, query_terms, is_tag_search, tag_query, case_sensitive)
 
+      {notes, context, scorers} =
+        maybe_semantic(notes, context, vault, files, semantic, semantic_limit)
+
+      rank_opts =
+        [fusion: fusion, weights: weights, min_score: min_score, context: context]
+        |> maybe_put_scorers(scorers)
+
       ranked =
-        Ranker.rank(notes,
-          fusion: fusion,
-          weights: weights,
-          min_score: min_score,
-          context: context
-        )
+        Ranker.rank(notes, rank_opts)
 
       ranked = if abs_path, do: absolutize(ranked, vault), else: ranked
 
-      total_matches = Enum.reduce(ranked, 0, fn r, acc -> acc + length(r.matches) end)
+      total_matches =
+        Enum.reduce(ranked, 0, fn r, acc ->
+          # Semantic-only notes carry no keyword matches; count their preview
+          # so the total isn't reported as zero while files are shown.
+          n = if r.matches == [] and Map.get(r, :preview), do: 1, else: length(r.matches)
+          acc + n
+        end)
       output = format_results(ranked, total_matches, vault)
       resp = Response.tool() |> Response.text(output)
       {:reply, resp, frame}
@@ -148,6 +174,98 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
         {:reply, resp, frame}
     end
   end
+
+  # ── semantic / vector search ───────────────────────────────────────────────
+
+  defp maybe_semantic(notes, context, _vault, _files, false, _limit) do
+    {notes, context, nil}
+  end
+
+  defp maybe_semantic(notes, context, _vault, _files, true, _limit)
+       when is_map_key(context, :is_tag_search) and context.is_tag_search do
+    {notes, context, nil}
+  end
+
+  defp maybe_semantic(notes, context, vault, files, true, limit) do
+    # Build/index the vault (only changed files), then run vector search.
+    server = VectorIndex.registry_name()
+    full_files = Enum.map(files, &Path.join(vault, &1))
+    _ = VectorIndex.rebuild(full_files, server)
+
+    case VectorIndex.search(context.query, top_k: limit, server: server) do
+      {:ok, results} ->
+        # VectorIndex stores absolute paths; convert to vault-relative to line
+        # up with keyword-search candidates, then drop any result outside the
+        # requested scope (`files` is already constrained to search_dir).
+        scope_files = MapSet.new(files)
+
+        results =
+          results
+          |> relativize_results(vault)
+          |> Enum.filter(&MapSet.member?(scope_files, &1.file))
+
+        # Merge vector-discovered notes into candidates (dedup by file).
+        # `matches` is left empty so BM25/etc. don't fabricate a score for
+        # semantic-only notes; the preview is carried separately for display.
+        semantic_notes =
+          Enum.map(results, fn r ->
+            %{
+              id: r.file,
+              file: r.file,
+              full_path: Path.join(vault, r.file),
+              matches: [],
+              preview: semantic_preview(r),
+              mtime: Helpers.note_mtime(Path.join(vault, r.file)),
+              content: nil,
+              length: 1,
+              terms: [],
+              tags: []
+            }
+          end)
+
+        merged = merge_notes(notes, semantic_notes)
+        context = Map.put(context, :semantic_results, results)
+        # Ensure the Semantic scorer is included in the ranking pipeline.
+        scorers = add_semantic_scorer()
+        {merged, context, scorers}
+
+      {:error, reason} ->
+        Logger.warning("[BrainSearch] Semantic search unavailable: #{reason}")
+        {notes, context, nil}
+    end
+  end
+
+  defp relativize_results(results, vault) do
+    Enum.map(results, fn r ->
+      %{r | file: Path.relative_to(r.file, vault)}
+    end)
+  end
+
+  defp semantic_preview(%{text: text}) when is_binary(text) do
+    preview = text |> String.split("\n") |> Enum.reject(&(&1 == "")) |> List.first() || ""
+    "Semantic match: #{String.slice(preview, 0, 120)}"
+  end
+
+  defp semantic_preview(_), do: "Semantic match"
+
+  defp add_semantic_scorer do
+    default = [
+      Scorers.BM25,
+      Scorers.TitleMatch,
+      Scorers.TagMatch,
+      Scorers.Freshness,
+      Scorers.LinkAuthority
+    ]
+
+    if Scorers.Semantic in default do
+      default
+    else
+      default ++ [Scorers.Semantic]
+    end
+  end
+
+  defp maybe_put_scorers(opts, nil), do: opts
+  defp maybe_put_scorers(opts, scorers), do: Keyword.put(opts, :scorers, scorers)
 
   # ── ranking context ─────────────────────────────────────────────────────────
 
@@ -253,7 +371,13 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       # over the filename-only stub, so length/terms/tags are not lost.
       base = Enum.find(entries, &(not is_nil(&1.content))) || List.first(entries)
       matches = entries |> Enum.flat_map(& &1.matches) |> Enum.uniq_by(& &1.line)
-      %{base | matches: matches}
+      merged = %{base | matches: matches}
+
+      # Keep the semantic preview even when a keyword note is chosen as base.
+      case Enum.find(entries, &Map.get(&1, :preview)) do
+        nil -> merged
+        preview_note -> Map.put(merged, :preview, preview_note.preview)
+      end
     end)
   end
 
@@ -396,7 +520,18 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
             if line == 0, do: "  #{text}", else: "  L#{line}: #{text}"
           end)
 
-        "#{file} (score: #{:erlang.float_to_binary(score, decimals: 4)}) [#{signals}]:\n#{match_lines}"
+        preview_line =
+          case Map.get(result, :preview) do
+            nil -> ""
+            preview -> "  #{preview}"
+          end
+
+        lines =
+          [preview_line, match_lines]
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.join("\n")
+
+        "#{file} (score: #{:erlang.float_to_binary(score, decimals: 4)}) [#{signals}]:\n#{lines}"
       end)
 
     header <> body

@@ -95,6 +95,8 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # Brain RAG vector index (SQLite + sqlite-vec)
+      Exhub.MCP.Brain.RAG.VectorIndex,
       # MCP Brain Server (Obsidian vault as second brain)
       {Exhub.MCP.BrainServer,
        transport: :streamable_http,

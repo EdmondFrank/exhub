@@ -26,6 +26,19 @@ defmodule Exhub.MCP.Brain.Ranking.FusionTest do
     assert Enum.all?(result, &(&1.final_score == 0.0))
   end
 
+  test "weighted_sum normalizes when weights do not sum to 1.0" do
+    # Doubling every weight would double the raw sum; the normalized result
+    # must be identical to the weights summing to 1.0.
+    base = %{bm25: 0.6, freshness: 0.4}
+    doubled = Map.new(base, fn {k, v} -> {k, v * 2.0} end)
+
+    expected = Fusion.weighted_sum(scored_notes(), base)
+    result = Fusion.weighted_sum(scored_notes(), doubled)
+
+    assert Enum.map(result, & &1.id) == Enum.map(expected, & &1.id)
+    assert_in_delta(hd(result).final_score, hd(expected).final_score, 0.0001)
+  end
+
   test "rrf ranks by reciprocal rank across signals" do
     result = Fusion.rrf(scored_notes())
     # "a" ranks 1st on bm25, 3rd on freshness; "b" ranks 2nd on bm25, 1st on freshness

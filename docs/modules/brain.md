@@ -121,6 +121,8 @@ Search for notes by content, filename, or tags.
 | `search_type`    | string  | `"content"`  | `"content"`, `"filename"`, or `"both"`                            |
 | `case_sensitive` | boolean | `false`      | Enable case-sensitive matching                                    |
 | `abs_path`       | boolean | `false`      | Return absolute filesystem paths instead of relative              |
+| `semantic`       | boolean | `false`      | Enable hybrid vector (RAG) semantic search                        |
+| `semantic_limit` | integer | `10`         | Max notes returned from vector search when `semantic` is enabled  |
 
 **Search types:**
 
@@ -157,6 +159,55 @@ Hierarchical tags are supported — `tag:project` also matches `#project/active`
 // Case-sensitive search
 { "query": "TODO", "case_sensitive": true }
 ```
+
+---
+
+### Semantic (RAG) Search
+
+`brain_search_vault` supports hybrid vector search with `semantic: true`. Notes
+are chunked and embedded, then the query is embedded and matched against
+chunks via cosine similarity (stored in a `sqlite-vec` index). Vector results
+are merged with keyword candidates and ranked through the same fusion pipeline
+(with a `semantic` scorer added).
+
+**Enabling semantic search:**
+
+```json
+// Hybrid search (keyword + vector)
+{ "query": "how does auth work", "semantic": true }
+
+// Vector-only volume control
+{ "query": "auth", "semantic": true, "semantic_limit": 20 }
+```
+
+**Requirements:**
+
+- An embedding API is required. Configured in `config/config.exs`:
+
+  ```elixir
+  config :exhub, :brain_rag,
+    %{
+      "provider" => "gitee_ai",            # "openai" | "gitee_ai"
+      "embedding_model" => "Qwen3-Embedding-4B",
+      "api_base" => "https://api.moark.com/v1",
+      "dim" => 1024,
+      "batch_size" => 16,
+      "max_chars" => 2000,
+      "min_chars" => 32
+    }
+  ```
+
+- The API key is read from `:exhub -> :giteeai_api_key` (for `gitee_ai`) or
+  `:exhub -> :openai_api_key` (for `openai`).
+- The vector index is a SQLite database (default `~/.config/exhub/brain_index.db`),
+  stored **outside** the vault. It is rebuilt lazily on the first semantic
+  search; only notes whose content changed are re-embedded.
+
+**Scorers:** `bm25, title_match, tag_match, freshness, link_authority, semantic`.
+The default `semantic` weight is `0.3` and can be tuned per-call via `weights`.
+
+If the index is empty or the embedding API is unavailable, semantic search
+degrades gracefully to keyword-only search.
 
 ---
 

@@ -18,9 +18,30 @@ config :exhub, :brain_ranking,
       "title_match" => 0.25,
       "tag_match" => 0.15,
       "freshness" => 0.1,
-      "link_authority" => 0.1
+      "link_authority" => 0.1,
+      "semantic" => 0.3
     },
     "min_score" => 0.0
+  }
+
+# Brain RAG (semantic/vector search) configuration.
+# Provider is "openai" (default) or "gitee_ai" (moark endpoint).
+# - For "openai", the API key comes from :exhub -> :openai_api_key.
+# - For "gitee_ai", the API key comes from :exhub -> :giteeai_api_key.
+#
+# Model: Qwen3-Embedding-4B (1024-dim) — recommended for this vault because
+# ~48% of notes contain Chinese and Qwen3-Embedding is natively bilingual
+# (中英双语) with a 32k token context window. Free to use on moark.
+config :exhub, :brain_rag,
+  %{
+    "provider" => "gitee_ai",
+    "embedding_model" => "Qwen3-Embedding-4B",
+    "api_base" => "https://api.moark.com/v1",
+    "dim" => 1024,
+    # index_path defaults to ~/.config/exhub/brain_index.db if unset
+    "batch_size" => 16,
+    "max_chars" => 2000,
+    "min_chars" => 32
   }
 
 config :exhub, :proxy_providers, ["openrouter"]

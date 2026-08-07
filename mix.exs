@@ -51,7 +51,9 @@ defmodule Exhub.MixProject do
       {:toon, "~> 0.3.0"},
       {:ex_mcp, "~> 0.9.0"},
       {:sagents, "~> 0.9.0"},
-      {:yamerl, "~> 0.10.0"}
+      {:yamerl, "~> 0.10.0"},
+      {:exqlite, "~> 0.39.0"},
+      {:sqlite_vec, "~> 0.1.0"}
     ]
   end
 end
