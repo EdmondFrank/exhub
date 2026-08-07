@@ -1,0 +1,11 @@
+{
+  "headers": [
+    {
+      "models": ["deepseek-*"],
+      "providers": ["openai"],
+      "headers": {
+        "X-package-id": "8848"
+      }
+    }
+  ]
+}
