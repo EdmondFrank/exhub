@@ -2,7 +2,7 @@
 
 The `exhub-doc-extract` module provides MCP-based document text extraction using the
 [Gitee AI](https://moark.com) Async Document Parse API powered by Unlimited-OCR (default)
-or PaddleOCR-VL-1.5.
+or MinerU2.5-Pro.
 
 ## Setup
 
@@ -29,7 +29,7 @@ POST /doc-extract/mcp
 
 Extract and recognize text from documents (PDF, DOCX, images, etc.) using Gitee AI.
 
-Powered by Unlimited-OCR (default) or PaddleOCR-VL-1.5 via the Gitee AI Async Document Parse API.
+Powered by Unlimited-OCR (default) or MinerU2.5-Pro via the Gitee AI Async Document Parse API.
 Supports both local file paths and remote URLs as input.
 
 The tool submits an async parsing task, waits for completion, then returns
@@ -39,11 +39,11 @@ the extracted content in Markdown format.
 
 **Supported models:**
 - `Unlimited-OCR` (default) — High-accuracy OCR, best for text-heavy documents
-- `PaddleOCR-VL-1.5` — Vision-language model with layout preservation, best for tables and structured formats
+- `MinerU2.5-Pro` — Advanced MinerU model, preferred for table parsing and code block extraction
 
 **Model selection guidance:**
 - Prefer `Unlimited-OCR` when the document contains a lot of text (articles, books, reports)
-- Prefer `PaddleOCR-VL-1.5` when table structure or technical layout formatting is important
+- Prefer `MinerU2.5-Pro` when table structure or code block extraction is important
 
 **Returns:** Extracted text in Markdown format, with layout and structure preserved.
 
@@ -54,7 +54,7 @@ the extracted content in Markdown format.
 | `file`          | string  | ✓        | —               | Path to a local document file or a remote http/https URL |
 | `include_image` | boolean |          | `true`          | Whether to include image references in the output        |
 | `output_format` | string  |          | `md`            | Output format: `md` for Markdown, `text` for plain text  |
-| `model`         | string  |          | `Unlimited-OCR` | OCR model: `Unlimited-OCR` or `PaddleOCR-VL-1.5`        |
+| `model`         | string  |          | `Unlimited-OCR` | OCR model: `Unlimited-OCR` or `MinerU2.5-Pro`        |
 
 ### How It Works
 
@@ -103,12 +103,12 @@ Display the result as: 📖[Extracted Document Content]
 }
 ```
 
-### Use PaddleOCR-VL-1.5 model
+### Use MinerU2.5-Pro model
 
 ```json
 {
   "file": "/path/to/scanned.pdf",
-  "model": "PaddleOCR-VL-1.5"
+  "model": "MinerU2.5-Pro"
 }
 ```
 
@@ -117,4 +117,4 @@ Display the result as: 📖[Extracted Document Content]
 - **Large documents** may take longer to process; the 5-minute timeout should accommodate most files
 - **Remote URLs** are downloaded server-side before processing
 - **Image references** in the output are controlled by `include_image` (default: true)
-- The default model `Unlimited-OCR` excels at text-heavy documents; use `PaddleOCR-VL-1.5` when table structure or technical layout formatting matters more
+- The default model `Unlimited-OCR` excels at text-heavy documents; use `MinerU2.5-Pro` when table structure or code block extraction matters more

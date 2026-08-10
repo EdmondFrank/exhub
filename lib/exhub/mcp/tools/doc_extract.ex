@@ -1,7 +1,7 @@
 defmodule Exhub.MCP.Tools.DocExtract do
   @moduledoc """
   MCP Tool for extracting and recognizing text from documents (PDF, DOCX, etc.)
-  using the Gitee AI Async Document Parse API (Unlimited-OCR / PaddleOCR-VL-1.5).
+  using the Gitee AI Async Document Parse API (Unlimited-OCR / MinerU2.5-Pro).
 
   Supports both local file paths and remote URLs as input.
   The extraction is asynchronous: the tool submits a task, polls until
@@ -20,7 +20,7 @@ defmodule Exhub.MCP.Tools.DocExtract do
     """
     Extract and recognize text from documents (PDF, DOCX, images, etc.) using Gitee AI.
 
-    Powered by Unlimited-OCR (default) or PaddleOCR-VL-1.5 via the Gitee AI Async Document Parse API.
+    Powered by Unlimited-OCR (default) or MinerU2.5-Pro via the Gitee AI Async Document Parse API.
     Supports both local file paths and remote URLs as input.
 
     The tool submits an async parsing task, waits for completion, then returns
@@ -30,11 +30,11 @@ defmodule Exhub.MCP.Tools.DocExtract do
 
     **Supported models:**
     - `Unlimited-OCR` (default) — High-accuracy OCR, best for text-heavy documents
-    - `PaddleOCR-VL-1.5` — Vision-language model with layout preservation, best for tables and structured formats
+    - `MinerU2.5-Pro` — Advanced MinerU model, preferred for table parsing and code block extraction
 
     **Model selection guidance:**
     - Prefer `Unlimited-OCR` when the document contains a lot of text (articles, books, reports)
-    - Prefer `PaddleOCR-VL-1.5` when table structure or technical layout formatting is important
+    - Prefer `MinerU2.5-Pro` when table structure or code block extraction is important
 
     **Returns:** Extracted text in Markdown format, with layout and structure preserved.
 
@@ -58,7 +58,7 @@ defmodule Exhub.MCP.Tools.DocExtract do
 
     field(:model, :string,
       description:
-        "OCR model: 'Unlimited-OCR' (default, best for text-heavy docs) or 'PaddleOCR-VL-1.5' (best for tables/structured layout)"
+        "OCR model: 'Unlimited-OCR' (default, best for text-heavy docs) or 'MinerU2.5-Pro' (best for tables/code blocks)"
     )
   end
 

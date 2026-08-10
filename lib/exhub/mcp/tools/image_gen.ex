@@ -16,26 +16,36 @@ defmodule Exhub.MCP.Tools.ImageGen do
   # (excludes editing/upscaling/segmentation/background-removal models)
   @valid_models ~w(
     qwen-image-2.0
+    qwen-image-2.0-pro
     Qwen-Image
     Qwen-Image-2512
+    Qwen-Image-Layered
+    wan2.7-image
+    wan2.7-image-pro
     Kolors
     GLM-Image
-    FLUX.1-schnell
+    flux-1-schnell
     FLUX.1-dev
-    FLUX.1-Krea-dev
+    FLUX_1-Krea-dev
+    FLUX.1-Kontext-dev
     FLUX.2-dev
     FLUX.2-klein-9B
     FLUX.2-klein-4B
-    HunyuanDiT-v1.2
     stable-diffusion-xl-base-1.0
     stable-diffusion-3.5-large-turbo
     stable-diffusion-3-medium
-    CogView4-6B
+    CogView4_6B
     HiDream-I1-Full
     z-image-turbo
     Z-Image
     LongCat-Image
   )
+
+  # WAN models support extra params (n, seed, prompt_extend, 1K/2K/4K sizes)
+  @wan_models ~w(wan2.7-image wan2.7-image-pro)
+
+  # Sizes accepted by WAN models (in addition to the standard pixel sizes)
+  @wan_sizes ~w(1K 2K 4K)
 
   @valid_sizes ~w(
     256x256
@@ -48,22 +58,24 @@ defmodule Exhub.MCP.Tools.ImageGen do
     1024x640
     640x1024
     2048x2048
-  )
-
-  # Which extra_body params each model supports
+  ) # Which extra_body params each model supports
   @supported_params %{
     "qwen-image-2.0" => [:negative_prompt, :num_inference_steps],
+    "qwen-image-2.0-pro" => [:negative_prompt, :num_inference_steps],
     "Qwen-Image" => [:negative_prompt, :num_inference_steps],
     "Qwen-Image-2512" => [:negative_prompt, :num_inference_steps],
+    "Qwen-Image-Layered" => [:negative_prompt, :num_inference_steps],
+    "wan2.7-image" => [:negative_prompt, :num_inference_steps, :guidance_scale],
+    "wan2.7-image-pro" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "Kolors" => [:num_inference_steps, :guidance_scale],
     "GLM-Image" => [:negative_prompt, :num_inference_steps, :guidance_scale],
-    "FLUX.1-schnell" => [:num_inference_steps, :guidance_scale],
+    "flux-1-schnell" => [:num_inference_steps, :guidance_scale],
     "FLUX.1-dev" => [:negative_prompt, :num_inference_steps, :guidance_scale],
-    "FLUX.1-Krea-dev" => [:negative_prompt, :num_inference_steps, :guidance_scale],
+    "FLUX_1-Krea-dev" => [:negative_prompt, :num_inference_steps, :guidance_scale],
+    "FLUX.1-Kontext-dev" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "FLUX.2-dev" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "FLUX.2-klein-9B" => [:num_inference_steps, :guidance_scale],
     "FLUX.2-klein-4B" => [:num_inference_steps, :guidance_scale],
-    "HunyuanDiT-v1.2" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "stable-diffusion-xl-base-1.0" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "stable-diffusion-3.5-large-turbo" => [
       :negative_prompt,
@@ -71,7 +83,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
       :guidance_scale
     ],
     "stable-diffusion-3-medium" => [:negative_prompt, :num_inference_steps, :guidance_scale],
-    "CogView4-6B" => [:negative_prompt, :num_inference_steps, :guidance_scale],
+    "CogView4_6B" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "HiDream-I1-Full" => [:negative_prompt, :num_inference_steps, :guidance_scale],
     "z-image-turbo" => [:num_inference_steps, :guidance_scale],
     "Z-Image" => [:negative_prompt, :num_inference_steps, :guidance_scale],
@@ -80,21 +92,25 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
   @model_defaults %{
     "qwen-image-2.0" => %{num_inference_steps: 30},
+    "qwen-image-2.0-pro" => %{num_inference_steps: 30},
     "Qwen-Image" => %{num_inference_steps: 30},
     "Qwen-Image-2512" => %{num_inference_steps: 30},
+    "Qwen-Image-Layered" => %{num_inference_steps: 30},
+    "wan2.7-image" => %{num_inference_steps: 30, guidance_scale: 7.5},
+    "wan2.7-image-pro" => %{num_inference_steps: 30, guidance_scale: 7.5},
     "Kolors" => %{num_inference_steps: 25, guidance_scale: 7.5},
     "GLM-Image" => %{num_inference_steps: 30, guidance_scale: 1.5},
-    "FLUX.1-schnell" => %{num_inference_steps: 4, guidance_scale: 0.0},
+    "flux-1-schnell" => %{num_inference_steps: 4, guidance_scale: 0.0},
     "FLUX.1-dev" => %{num_inference_steps: 28, guidance_scale: 3.5},
-    "FLUX.1-Krea-dev" => %{num_inference_steps: 28, guidance_scale: 3.5},
+    "FLUX_1-Krea-dev" => %{num_inference_steps: 28, guidance_scale: 3.5},
+    "FLUX.1-Kontext-dev" => %{num_inference_steps: 28, guidance_scale: 3.5},
     "FLUX.2-dev" => %{num_inference_steps: 20, guidance_scale: 7.5},
     "FLUX.2-klein-9B" => %{num_inference_steps: 8, guidance_scale: 3.5},
     "FLUX.2-klein-4B" => %{num_inference_steps: 8, guidance_scale: 3.5},
-    "HunyuanDiT-v1.2" => %{num_inference_steps: 25, guidance_scale: 5.0},
     "stable-diffusion-xl-base-1.0" => %{num_inference_steps: 30, guidance_scale: 7.5},
     "stable-diffusion-3.5-large-turbo" => %{num_inference_steps: 8, guidance_scale: 1.0},
     "stable-diffusion-3-medium" => %{num_inference_steps: 28, guidance_scale: 7.0},
-    "CogView4-6B" => %{num_inference_steps: 50, guidance_scale: 7.5},
+    "CogView4_6B" => %{num_inference_steps: 50, guidance_scale: 7.5},
     "HiDream-I1-Full" => %{num_inference_steps: 50, guidance_scale: 7.0},
     "z-image-turbo" => %{num_inference_steps: 8, guidance_scale: 3.5},
     "Z-Image" => %{num_inference_steps: 28, guidance_scale: 5.0},
@@ -112,21 +128,25 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     Supported models (text-to-image):
     - `qwen-image-2.0` (default) — Alibaba latest Qwen-Image 2.0, superior quality and text rendering
+    - `qwen-image-2.0-pro` — Qwen-Image 2.0 Pro, enhanced quality and detail
     - `Qwen-Image` — Alibaba 20B MMDiT, excellent text rendering in Chinese & English
     - `Qwen-Image-2512` — Latest Qwen-Image with improved realism and text rendering
+    - `Qwen-Image-Layered` — Qwen-Image with layered generation for compositing
+    - `wan2.7-image` — Alibaba Wan 2.7 image generation model
+    - `wan2.7-image-pro` — Alibaba Wan 2.7 image Pro, enhanced quality
     - `Kolors` — Kuaishou model, strong Chinese semantic understanding
     - `GLM-Image` — Zhipu AI multimodal image generation
-    - `FLUX.1-schnell` — Black Forest Labs, ultra-fast (4 steps), Apache-2.0
+    - `flux-1-schnell` — Black Forest Labs, ultra-fast (4 steps), Apache-2.0
     - `FLUX.1-dev` — Black Forest Labs, high quality, flexible fine-tuning
-    - `FLUX.1-Krea-dev` — FLUX.1 variant optimized for image generation & editing
+    - `FLUX_1-Krea-dev` — FLUX.1 variant optimized for image generation & editing
+    - `FLUX.1-Kontext-dev` — FLUX.1 variant with contextual understanding
     - `FLUX.2-dev` — Next-gen BFL model, strong text understanding and detail
     - `FLUX.2-klein-9B` — BFL 9B efficient model, fast inference
     - `FLUX.2-klein-4B` — BFL 4B lightweight, very fast
-    - `HunyuanDiT-v1.2` — Tencent distilled model, fast high-quality generation
     - `stable-diffusion-xl-base-1.0` — Stability AI SDXL, industry-leading creative generation
     - `stable-diffusion-3.5-large-turbo` — SD 3.5 Turbo, high detail, fast
     - `stable-diffusion-3-medium` — SD 3 Medium, improved prompt understanding
-    - `CogView4-6B` — Tsinghua/Zhipu, bilingual (Chinese & English), multi-object scenes
+    - `CogView4_6B` — Tsinghua/Zhipu, bilingual (Chinese & English), multi-object scenes
     - `HiDream-I1-Full` — HiDream 17B open-source, industry-leading quality
     - `z-image-turbo` — Alibaba Z-Image Turbo, 8-step efficient generation (6B, Apache-2.0)
     - `Z-Image` — Alibaba Z-Image full model, strong controllability and style coverage
@@ -139,6 +159,12 @@ defmodule Exhub.MCP.Tools.ImageGen do
     - If image ignores prompt details: increase `guidance_scale` (e.g. 7.5 → 15)
     - If image is oversaturated or distorted: decrease `guidance_scale`
     - For FLUX.1-schnell: keep steps at 1-4, guidance_scale at 0 (distilled model)
+
+    **WAN model params** (`wan2.7-image`, `wan2.7-image-pro`):
+    - `n`: number of images to generate (1-4)
+    - `seed`: integer seed for reproducible results
+    - `prompt_extend`: auto-enhance the prompt (boolean)
+    - `size`: supports `1K`, `2K`, `4K` aliases
     """
   end
 
@@ -149,7 +175,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     field(:model, :string,
       description:
-        "Model to use. One of: qwen-image-2.0 (default), Qwen-Image, Qwen-Image-2512, Kolors, GLM-Image, FLUX.1-schnell, FLUX.1-dev, FLUX.1-Krea-dev, FLUX.2-dev, FLUX.2-klein-9B, FLUX.2-klein-4B, HunyuanDiT-v1.2, stable-diffusion-xl-base-1.0, stable-diffusion-3.5-large-turbo, stable-diffusion-3-medium, CogView4-6B, HiDream-I1-Full, z-image-turbo, Z-Image, LongCat-Image"
+        "Model to use. One of: qwen-image-2.0 (default), qwen-image-2.0-pro, Qwen-Image, Qwen-Image-2512, Qwen-Image-Layered, wan2.7-image, wan2.7-image-pro, Kolors, GLM-Image, flux-1-schnell, FLUX.1-dev, FLUX_1-Krea-dev, FLUX.1-Kontext-dev, FLUX.2-dev, FLUX.2-klein-9B, FLUX.2-klein-4B, stable-diffusion-xl-base-1.0, stable-diffusion-3.5-large-turbo, stable-diffusion-3-medium, CogView4_6B, HiDream-I1-Full, z-image-turbo, Z-Image, LongCat-Image"
     )
 
     field(:size, :string,
@@ -164,12 +190,27 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     field(:guidance_scale, :number,
       description:
-        "How closely the model follows the prompt (float). Not supported by qwen-image-2.0, Qwen-Image, Qwen-Image-2512. Model defaults: Kolors=7.5, GLM-Image=1.5, FLUX.1-schnell=0.0, FLUX.1-dev=3.5, FLUX.2-dev=7.5, FLUX.2-klein=3.5, HunyuanDiT-v1.2=5.0, SD-XL=7.5, SD-3.5-turbo=1.0, SD-3-medium=7.0, CogView4=7.5, HiDream=7.0, z-image-turbo=3.5, Z-Image=5.0, LongCat=5.0"
+        "How closely the model follows the prompt (float). Not supported by qwen-image-2.0, qwen-image-2.0-pro, Qwen-Image, Qwen-Image-2512, Qwen-Image-Layered. Model defaults: wan2.7=7.5, Kolors=7.5, GLM-Image=1.5, flux-1-schnell=0.0, FLUX.1-dev=3.5, FLUX.2-dev=7.5, FLUX.2-klein=3.5, SD-XL=7.5, SD-3.5-turbo=1.0, SD-3-medium=7.0, CogView4=7.5, HiDream=7.0, z-image-turbo=3.5, Z-Image=5.0, LongCat=5.0"
     )
 
     field(:num_inference_steps, :integer,
       description:
-        "Number of denoising steps (integer). Higher = better quality but slower. Model defaults: qwen-image-2.0=30, Qwen-Image=30, Kolors=25, GLM-Image=30, FLUX.1-schnell=4, FLUX.1-dev=28, FLUX.2-dev=20, FLUX.2-klein=8, HunyuanDiT-v1.2=25, SD-XL=30, SD-3.5-turbo=8, SD-3-medium=28, CogView4=50, HiDream=50, z-image-turbo=8, Z-Image=28, LongCat=28"
+        "Number of denoising steps (integer). Higher = better quality but slower. Model defaults: qwen-image-2.0=30, qwen-image-2.0-pro=30, Qwen-Image=30, Qwen-Image-Layered=30, wan2.7=30, Kolors=25, GLM-Image=30, flux-1-schnell=4, FLUX.1-dev=28, FLUX.2-dev=20, FLUX.2-klein=8, SD-XL=30, SD-3.5-turbo=8, SD-3-medium=28, CogView4=50, HiDream=50, z-image-turbo=8, Z-Image=28, LongCat=28"
+    )
+
+    field(:n, :integer,
+      description:
+        "Number of images to generate (integer, 1-4). Default: 1. Only supported by some models."
+    )
+
+    field(:seed, :integer,
+      description:
+        "Random seed for reproducible generation (integer). Set to a fixed value to get the same result across runs. Supported by wan2.7-image, wan2.7-image-pro, and other models."
+    )
+
+    field(:prompt_extend, :boolean,
+      description:
+        "Whether to auto-enhance the prompt using AI (boolean). Default: false. Supported by wan2.7-image, wan2.7-image-pro, and other models."
     )
   end
 
@@ -193,11 +234,13 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
         {:reply, resp, frame}
 
-      size not in @valid_sizes ->
+      size not in @valid_sizes and not (model in @wan_models and size in @wan_sizes) ->
         resp =
           Response.tool()
           |> Response.error(
-            "Invalid size: #{size}. Valid sizes: #{Enum.join(@valid_sizes, ", ")}"
+            "Invalid size: #{size}. Valid sizes: #{Enum.join(@valid_sizes, ", ")}#{
+              if(model in @wan_models, do: " (WAN models also support: #{Enum.join(@wan_sizes, ", ")})", else: "")
+            }"
           )
 
         {:reply, resp, frame}
@@ -227,14 +270,40 @@ defmodule Exhub.MCP.Tools.ImageGen do
     extra_body = build_extra_body(model, params)
     size = normalize_size(size, model)
 
-    body =
-      Jason.encode!(%{
-        "prompt" => prompt,
-        "model" => model,
-        "size" => size,
-        "response_format" => "url",
-        "extra_body" => extra_body
-      })
+    body_map = %{
+      "prompt" => prompt,
+      "model" => model,
+      "size" => size,
+      "response_format" => "url",
+      "extra_body" => extra_body
+    }
+
+    # WAN models support additional top-level params
+    body_map =
+      if model in @wan_models do
+        n = Map.get(params, :n, 1)
+        seed = Map.get(params, :seed)
+        prompt_extend = Map.get(params, :prompt_extend, false)
+        negative_prompt = Map.get(params, :negative_prompt, @default_negative_prompt)
+
+        body_map
+        |> Map.put("n", n)
+        |> then(fn bm ->
+          if is_integer(seed), do: Map.put(bm, "seed", seed), else: bm
+        end)
+        |> then(fn bm ->
+          if prompt_extend, do: Map.put(bm, "prompt_extend", true), else: bm
+        end)
+        |> then(fn bm ->
+          if is_binary(negative_prompt) and negative_prompt != "",
+            do: Map.put(bm, "negative_prompt", negative_prompt),
+            else: bm
+        end)
+      else
+        body_map
+      end
+
+    body = Jason.encode!(body_map)
 
     headers = [
       {"Content-Type", "application/json"},
@@ -318,6 +387,9 @@ defmodule Exhub.MCP.Tools.ImageGen do
     allowed = Map.get(@supported_params, model, [])
     defaults = Map.get(@model_defaults, model, %{})
 
+    # WAN models send negative_prompt at the top level; keep it out of extra_body
+    allowed = if model in @wan_models, do: allowed -- [:negative_prompt], else: allowed
+
     base = %{}
 
     base
@@ -345,7 +417,8 @@ defmodule Exhub.MCP.Tools.ImageGen do
     end
   end
 
-  # qwen-image-2.0 uses "*" as size separator (e.g. "1024*1024")
+  # qwen-image models use "*" as size separator (e.g. "1024*1024")
   defp normalize_size(size, "qwen-image-2.0"), do: String.replace(size, "x", "*")
+  defp normalize_size(size, "qwen-image-2.0-pro"), do: String.replace(size, "x", "*")
   defp normalize_size(size, _model), do: size
 end

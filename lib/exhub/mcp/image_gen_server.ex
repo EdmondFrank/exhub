@@ -6,7 +6,7 @@ defmodule Exhub.MCP.ImageGenServer do
   using the Gitee AI image generation API (OpenAI-compatible).
 
   Supported models: Qwen-Image, Kolors, GLM-Image, FLUX.2-dev,
-  HunyuanDiT-v1.2-Diffusers-Distilled.
+  FLUX.1-dev, flux-1-schnell, Z-Image, LongCat-Image, and more.
 
   The server uses HTTP transport and can be accessed at the /image-gen/mcp endpoint.
   """
