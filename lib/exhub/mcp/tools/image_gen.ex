@@ -161,10 +161,10 @@ defmodule Exhub.MCP.Tools.ImageGen do
     - For FLUX.1-schnell: keep steps at 1-4, guidance_scale at 0 (distilled model)
 
     **WAN model params** (`wan2.7-image`, `wan2.7-image-pro`):
-    - `n`: number of images to generate (1-4)
-    - `seed`: integer seed for reproducible results
-    - `prompt_extend`: auto-enhance the prompt (boolean)
-    - `size`: supports `1K`, `2K`, `4K` aliases
+    - `n`: number of images to generate (1-4, default: 1)
+    - `seed`: integer seed for reproducible results (default: 0)
+    - `prompt_extend`: auto-enhance the prompt (boolean, default: true)
+    - `size`: supports `1K`, `2K`, `4K` aliases; pixel sizes (e.g. `1024x1024`) are auto-converted to the nearest alias
     """
   end
 
@@ -205,12 +205,12 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     field(:seed, :integer,
       description:
-        "Random seed for reproducible generation (integer). Set to a fixed value to get the same result across runs. Supported by wan2.7-image, wan2.7-image-pro, and other models."
+        "Random seed for reproducible generation (integer). WAN models default to 0. Supported by wan2.7-image, wan2.7-image-pro, and other models."
     )
 
     field(:prompt_extend, :boolean,
       description:
-        "Whether to auto-enhance the prompt using AI (boolean). Default: false. Supported by wan2.7-image, wan2.7-image-pro, and other models."
+        "Whether to auto-enhance the prompt using AI (boolean). WAN models default to true. Supported by wan2.7-image, wan2.7-image-pro, and other models."
     )
   end
 
@@ -218,7 +218,13 @@ defmodule Exhub.MCP.Tools.ImageGen do
   def execute(params, frame) do
     prompt = Map.get(params, :prompt)
     model = Map.get(params, :model, "qwen-image-2.0") || "qwen-image-2.0"
-    size = Map.get(params, :size, "1024x1024") || "1024x1024"
+
+    size =
+      if model in @wan_models do
+        Map.get(params, :size, "2K") || "2K"
+      else
+        Map.get(params, :size, "1024x1024") || "1024x1024"
+      end
 
     cond do
       is_nil(prompt) or prompt == "" ->
@@ -282,8 +288,8 @@ defmodule Exhub.MCP.Tools.ImageGen do
     body_map =
       if model in @wan_models do
         n = Map.get(params, :n, 1)
-        seed = Map.get(params, :seed)
-        prompt_extend = Map.get(params, :prompt_extend, false)
+        seed = Map.get(params, :seed, 0)
+        prompt_extend = Map.get(params, :prompt_extend, true)
         negative_prompt = Map.get(params, :negative_prompt, @default_negative_prompt)
 
         body_map
@@ -420,5 +426,30 @@ defmodule Exhub.MCP.Tools.ImageGen do
   # qwen-image models use "*" as size separator (e.g. "1024*1024")
   defp normalize_size(size, "qwen-image-2.0"), do: String.replace(size, "x", "*")
   defp normalize_size(size, "qwen-image-2.0-pro"), do: String.replace(size, "x", "*")
+
+  # WAN models accept 1K/2K/4K aliases; convert pixel sizes to the nearest alias
+  defp normalize_size(size, model) when model in @wan_models do
+    if size in @wan_sizes do
+      size
+    else
+      pixel_size_to_wan(size)
+    end
+  end
+
   defp normalize_size(size, _model), do: size
+
+  # Map a "WxH" pixel size to the nearest WAN K alias based on the max dimension
+  defp pixel_size_to_wan(size) do
+    max_dim =
+      size
+      |> String.split(["x", "*"])
+      |> Enum.map(&String.to_integer/1)
+      |> Enum.max()
+
+    cond do
+      max_dim <= 1024 -> "1K"
+      max_dim <= 2048 -> "2K"
+      true -> "4K"
+    end
+  end
 end

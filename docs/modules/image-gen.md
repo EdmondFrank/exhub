@@ -39,8 +39,8 @@ Generate a high-quality image from a text description.
 | `guidance_scale`      | float   |          | Model default                    | How closely the model follows the prompt. Not supported by `Qwen-Image`. |
 | `num_inference_steps` | integer |          | Model default                    | Denoising steps. Higher = better quality but slower.                     |
 | `n`                   | integer |          | `1`                              | Number of images to generate (1-4). WAN models only.                    |
-| `seed`                | integer |          | —                                | Random seed for reproducible generation. WAN models only.               |
-| `prompt_extend`       | boolean |          | `false`                          | Auto-enhance the prompt using AI. WAN models only.                      |
+| `seed`                | integer |          | `0` (WAN models)                 | Random seed for reproducible generation. WAN models only.               |
+| `prompt_extend`       | boolean |          | `true` (WAN models)              | Auto-enhance the prompt using AI. WAN models only.                      |
 
 ### Supported Models
 
@@ -86,7 +86,7 @@ Generate a high-quality image from a text description.
 | `640x1024`              | 10:16 portrait  |
 | `2048x2048`             | 1:1 high-res    |
 
-> WAN models (`wan2.7-image`, `wan2.7-image-pro`) additionally support the size aliases `1K`, `2K`, and `4K`.
+> WAN models (`wan2.7-image`, `wan2.7-image-pro`) additionally support the size aliases `1K`, `2K`, and `4K`. When a WAN model is selected, pixel sizes (e.g. `1024x1024`) are automatically converted to the nearest alias (`≤1024 → 1K`, `≤2048 → 2K`, `>2048 → 4K`), and the default size is `2K`.
 
 ### Response Format
 
