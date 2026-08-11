@@ -52,6 +52,7 @@ defmodule Exhub.LLMModels do
   # Most GiteeAI models share the same endpoint
   @giteeai_models [
     "step3",
+    "step-3.7-flash",
     "glm-4_5",
     "glm-4_5v",
     "glm-4.6",

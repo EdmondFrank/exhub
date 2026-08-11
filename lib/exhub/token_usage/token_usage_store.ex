@@ -58,6 +58,8 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
     "gemini-2.0-flash" => %{input: 0.1, output: 0.4},
     "gemini-1.5-pro" => %{input: 1.25, output: 5.0},
     "gemini-1.5-flash" => %{input: 0.075, output: 0.3},
+    # Step
+    "step-3.7-flash" => %{input: 0.19, output: 1.13},
     # DeepSeek
     "deepseek-chat" => %{input: 0.27, output: 1.1},
     "deepseek-v3" => %{input: 0.27, output: 1.1},

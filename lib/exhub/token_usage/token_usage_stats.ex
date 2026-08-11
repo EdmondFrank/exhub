@@ -99,6 +99,8 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
     "grok-4.1-fast" => %{input: 0.2, output: 0.5},
     "grok-4.20" => %{input: 1.25, output: 2.5},
     "grok-4.3" => %{input: 1.25, output: 2.5},
+    # Step
+    "step-3.7-flash" => %{input: 0.19, output: 1.13},
     # DeepSeek
     "deepseek-chat" => %{input: 0.32, output: 0.89},
     "deepseek-v3" => %{input: 0.32, output: 0.89},
