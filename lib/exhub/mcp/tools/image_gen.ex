@@ -15,6 +15,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
   # Text-to-image generation models available on Gitee AI Serverless API
   # (excludes editing/upscaling/segmentation/background-removal models)
   @valid_models ~w(
+    gpt-image-2
     qwen-image-2.0
     qwen-image-2.0-pro
     Qwen-Image
@@ -47,6 +48,9 @@ defmodule Exhub.MCP.Tools.ImageGen do
   # Sizes accepted by WAN models (in addition to the standard pixel sizes)
   @wan_sizes ~w(1K 2K 4K)
 
+  # Quality levels accepted by gpt-image-2
+  @gpt_image_qualities ~w(low medium high auto)
+
   @valid_sizes ~w(
     256x256
     512x512
@@ -58,7 +62,9 @@ defmodule Exhub.MCP.Tools.ImageGen do
     1024x640
     640x1024
     2048x2048
-  ) # Which extra_body params each model supports
+  )
+
+  # Which extra_body params each model supports
   @supported_params %{
     "qwen-image-2.0" => [:negative_prompt, :num_inference_steps],
     "qwen-image-2.0-pro" => [:negative_prompt, :num_inference_steps],
@@ -127,6 +133,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
     Generate high-quality images from text descriptions using Gitee AI image generation API.
 
     Supported models (text-to-image):
+    - `gpt-image-2` — OpenAI's latest image model (via Moark), supports `quality` (low/medium/high/auto) and `n` (1-10)
     - `qwen-image-2.0` (default) — Alibaba latest Qwen-Image 2.0, superior quality and text rendering
     - `qwen-image-2.0-pro` — Qwen-Image 2.0 Pro, enhanced quality and detail
     - `Qwen-Image` — Alibaba 20B MMDiT, excellent text rendering in Chinese & English
@@ -165,6 +172,11 @@ defmodule Exhub.MCP.Tools.ImageGen do
     - `seed`: integer seed for reproducible results (default: 0)
     - `prompt_extend`: auto-enhance the prompt (boolean, default: true)
     - `size`: supports `1K`, `2K`, `4K` aliases; pixel sizes (e.g. `1024x1024`) are auto-converted to the nearest alias
+
+    **gpt-image-2 params**:
+    - `quality`: one of `low`, `medium` (default), `high`, `auto`
+    - `n`: number of images to generate (default: 1)
+    - `size` is not supported and is ignored
     """
   end
 
@@ -175,12 +187,17 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
     field(:model, :string,
       description:
-        "Model to use. One of: qwen-image-2.0 (default), qwen-image-2.0-pro, Qwen-Image, Qwen-Image-2512, Qwen-Image-Layered, wan2.7-image, wan2.7-image-pro, Kolors, GLM-Image, flux-1-schnell, FLUX.1-dev, FLUX_1-Krea-dev, FLUX.1-Kontext-dev, FLUX.2-dev, FLUX.2-klein-9B, FLUX.2-klein-4B, stable-diffusion-xl-base-1.0, stable-diffusion-3.5-large-turbo, stable-diffusion-3-medium, CogView4_6B, HiDream-I1-Full, z-image-turbo, Z-Image, LongCat-Image"
+        "Model to use. One of: gpt-image-2, qwen-image-2.0 (default), qwen-image-2.0-pro, Qwen-Image, Qwen-Image-2512, Qwen-Image-Layered, wan2.7-image, wan2.7-image-pro, Kolors, GLM-Image, flux-1-schnell, FLUX.1-dev, FLUX_1-Krea-dev, FLUX.1-Kontext-dev, FLUX.2-dev, FLUX.2-klein-9B, FLUX.2-klein-4B, stable-diffusion-xl-base-1.0, stable-diffusion-3.5-large-turbo, stable-diffusion-3-medium, CogView4_6B, HiDream-I1-Full, z-image-turbo, Z-Image, LongCat-Image"
     )
 
     field(:size, :string,
       description:
-        "Output image size. One of: 256x256, 512x512, 1024x1024 (default), 1024x576, 576x1024, 1024x768, 768x1024, 1024x640, 640x1024, 2048x2048"
+        "Output image size. One of: 256x256, 512x512, 1024x1024 (default), 1024x576, 576x1024, 1024x768, 768x1024, 1024x640, 640x1024, 2048x2048. Ignored by gpt-image-2 (the model picks the output size)."
+    )
+
+    field(:quality, :string,
+      description:
+        "Output quality for gpt-image-2. One of: low, medium (default), high, auto. Ignored by other models."
     )
 
     field(:negative_prompt, :string,
@@ -240,13 +257,24 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
         {:reply, resp, frame}
 
-      size not in @valid_sizes and not (model in @wan_models and size in @wan_sizes) ->
+      size not in @valid_sizes and
+        model != "gpt-image-2" and
+          not (model in @wan_models and size in @wan_sizes) ->
         resp =
           Response.tool()
           |> Response.error(
-            "Invalid size: #{size}. Valid sizes: #{Enum.join(@valid_sizes, ", ")}#{
-              if(model in @wan_models, do: " (WAN models also support: #{Enum.join(@wan_sizes, ", ")})", else: "")
-            }"
+            "Invalid size: #{size}. Valid sizes: #{Enum.join(@valid_sizes, ", ")}#{if(model in @wan_models, do: " (WAN models also support: #{Enum.join(@wan_sizes, ", ")})", else: "")}"
+          )
+
+        {:reply, resp, frame}
+
+      model == "gpt-image-2" and
+        not is_nil(Map.get(params, :quality)) and
+          Map.get(params, :quality) not in @gpt_image_qualities ->
+        resp =
+          Response.tool()
+          |> Response.error(
+            "Invalid quality: #{Map.get(params, :quality)}. Valid qualities: #{Enum.join(@gpt_image_qualities, ", ")}"
           )
 
         {:reply, resp, frame}
@@ -271,6 +299,58 @@ defmodule Exhub.MCP.Tools.ImageGen do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  # gpt-image-2 uses OpenAI-style top-level params and does not support
+  # size / extra_body / negative_prompt / guidance_scale / num_inference_steps.
+  # response_format is intentionally omitted so the provider returns either a
+  # url or b64_json (both are handled by handle_success/6).
+  defp do_generate(prompt, "gpt-image-2", _size, params, api_key, frame) do
+    body_map =
+      %{
+        "prompt" => prompt,
+        "model" => "gpt-image-2"
+      }
+      |> then(fn bm ->
+        n = Map.get(params, :n, 1)
+
+        if is_integer(n) and n >= 1,
+          do: Map.put(bm, "n", n),
+          else: bm
+      end)
+      |> then(fn bm ->
+        quality = Map.get(params, :quality, "medium")
+
+        if is_binary(quality) and quality != "",
+          do: Map.put(bm, "quality", quality),
+          else: bm
+      end)
+
+    body = Jason.encode!(body_map)
+
+    headers = [
+      {"Content-Type", "application/json"},
+      {"Authorization", "Bearer #{api_key}"}
+    ]
+
+    case HTTPoison.post(@api_url, body, headers, recv_timeout: 120_000, timeout: 120_000) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
+        handle_success(resp_body, "gpt-image-2", nil, prompt, %{}, frame)
+
+      {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
+        resp =
+          Response.tool()
+          |> Response.error("Gitee AI API error (HTTP #{status}): #{resp_body}")
+
+        {:reply, resp, frame}
+
+      {:error, %HTTPoison.Error{reason: reason}} ->
+        resp =
+          Response.tool()
+          |> Response.error("HTTP request failed: #{inspect(reason)}")
+
+        {:reply, resp, frame}
+    end
+  end
 
   defp do_generate(prompt, model, size, params, api_key, frame) do
     extra_body = build_extra_body(model, params)
