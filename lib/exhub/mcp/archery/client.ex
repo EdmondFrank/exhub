@@ -1055,45 +1055,123 @@ defmodule Exhub.MCP.Archery.Client do
     request(:post, url, body, headers, cookies)
   end
 
+  # Cap on manually-followed redirect hops (same cap hackney's follow_redirect used).
+  @max_redirects 10
+
   defp request(method, url, body, headers, cookies) do
-    # Build cookie header
+    do_request(method, url, body, headers, cookies, 0)
+  end
+
+  defp do_request(method, url, body, headers, cookies, redirect_count) do
+    {conn_url, conn_headers, ssl_opts} = prepare_connection(url, headers)
+
     cookie_header =
       if map_size(cookies) > 0 do
         cookie_str = Enum.map_join(cookies, "; ", fn {k, v} -> "#{k}=#{v}" end)
-        Map.put(headers, "Cookie", cookie_str)
+        Map.put(conn_headers, "Cookie", cookie_str)
       else
-        headers
+        conn_headers
       end
 
     # Convert headers to list format
     header_list = Enum.map(cookie_header, fn {k, v} -> {k, v} end)
 
-    # Explicitly ignore HTTPS_PROXY and HTTP_PROXY environment variables
+    # Connectivity notes (HTTPoison forwards only a fixed set of options; the
+    # rest must go through the `:hackney` keyword or be dropped):
+    # - `proxy: ""` and `hackney: [no_proxy_env: true]` bypass local
+    #   HTTP(S)_PROXY env vars in both HTTPoison and hackney (see HTTPoison
+    #   build_hackney_proxy_options/1 and hackney.erl maybe_proxy/5).
+    # - `ssl_override: [verify: :verify_none, ...]` is used because some Archery
+    #   deployments serve leaf certificates with a CA-style keyUsage; OTP's
+    #   strict verify_peer rejects them (unsupported_certificate) and closes
+    #   the connection. The site operator should fix the certificate.
+    # - `follow_redirect: false` + manual redirect loop: hackney's built-in
+    #   redirect re-resolves the bare hostname and fails for hosts that are
+    #   only resolvable outside the Erlang DNS resolver, so each hop goes
+    #   through prepare_connection/2.
     options = [
       recv_timeout: 30_000,
-      follow_redirect: true,
-      max_redirect: 10,
-      proxy: nil
+      timeout: 15_000,
+      follow_redirect: false,
+      proxy: "",
+      ssl_override: ssl_opts,
+      hackney: [no_proxy_env: true]
     ]
 
-    case HTTPoison.request(method, url, body, header_list, options) do
+    case HTTPoison.request(method, conn_url, body, header_list, options) do
       {:ok, %HTTPoison.Response{status_code: status, body: resp_body, headers: resp_headers}} ->
         # Parse cookies from response
         new_cookies = parse_cookies(resp_headers, cookies)
         redirect_url = get_redirect_url(resp_headers)
 
-        {:ok,
-         %{
-           status: status,
-           body: resp_body,
-           headers: resp_headers,
-           cookies: new_cookies,
-           redirect_url: redirect_url
-         }}
+        if redirect_url != "" and status in [301, 302, 303, 307, 308] and
+             redirect_count < @max_redirects do
+          # 303 implies GET on the next hop; keep the method otherwise.
+          next_method = if status == 303, do: :get, else: method
+          next_body = if next_method == :get, do: "", else: body
+          next_url = resolve_redirect_url(url, redirect_url)
+
+          do_request(next_method, next_url, next_body, headers, new_cookies, redirect_count + 1)
+        else
+          {:ok,
+           %{
+             status: status,
+             body: resp_body,
+             headers: resp_headers,
+             cookies: new_cookies,
+             redirect_url: redirect_url
+           }}
+        end
 
       {:error, %HTTPoison.Error{reason: reason}} ->
         Logger.error("[Archery] HTTP request error: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  # Rewrites the request URL so hostnames that are not resolvable through the
+  # Erlang DNS resolver (used by hackney's happy-eyeballs connection setup) can
+  # still be connected to via the OS resolver. The original hostname is
+  # preserved via the Host header and SNI so virtual hosting and server name
+  # routing still work.
+  defp prepare_connection(url, headers) do
+    case URI.parse(url) do
+      %URI{host: nil} ->
+        {url, headers, []}
+
+      %URI{host: host} = uri ->
+        char_host = String.to_charlist(host)
+
+        conn_url =
+          case :inet.getaddrs(char_host, :inet) do
+            {:ok, [ip | _]} ->
+              ip_str = ip |> :inet.ntoa() |> to_string()
+              %{uri | host: ip_str} |> URI.to_string()
+
+            _ ->
+              # IPv4 literal or unresolvable: connect as-is.
+              url
+          end
+
+        conn_headers =
+          if conn_url != url, do: Map.put(headers, "Host", host), else: headers
+
+        ssl_opts = [
+          verify: :verify_none,
+          server_name_indication: char_host,
+          versions: [:"tlsv1.2", :"tlsv1.3"]
+        ]
+
+        {conn_url, conn_headers, ssl_opts}
+    end
+  end
+
+  # Resolves a Location header (absolute or relative) against the current URL.
+  defp resolve_redirect_url(current_url, redirect_url) do
+    if URI.parse(redirect_url).host do
+      redirect_url
+    else
+      redirect_url |> URI.merge(current_url) |> URI.to_string()
     end
   end
 
