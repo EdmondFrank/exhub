@@ -948,7 +948,12 @@ defmodule Exhub.MCP.Hub.ClientManager do
           []
       end)
 
-    index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
+    # Include built-in server tools (archery, brain, desktop, ...) — otherwise
+    # a rebuild after an upstream connect/reconnect drops them from the search
+    # index and retrieve_tools can no longer find them.
+    builtin_tools = Exhub.MCP.Hub.BuiltInRegistry.list_all_tools()
+
+    index = Exhub.MCP.Hub.ToolSearch.build_index(tools ++ builtin_tools)
     Exhub.MCP.Hub.Store.put_search_index(index)
   end
 
