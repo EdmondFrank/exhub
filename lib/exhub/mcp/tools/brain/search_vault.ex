@@ -17,6 +17,8 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   alias Exhub.MCP.Brain.RAG.VectorIndex
   alias Exhub.MCP.Brain.Ranking.Ranker
   alias Exhub.MCP.Brain.Ranking.Scorers
+  alias Exhub.MCP.Brain.Search.Policies
+  alias Exhub.MCP.Brain.Search.Selector
 
   require Logger
 
@@ -40,6 +42,13 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     - fusion: "weighted_sum" (default), "rrf" (Reciprocal Rank Fusion), or "max"
     - weights: map of scorer name to weight, e.g. {"freshness": 0.3, "bm25": 0.5}
     - min_score: drop results below this final score (default 0.0)
+
+    Search policies (policy):
+    - "auto" (default): pick the policy from query heuristics
+    - "balanced", "keyword", "semantic", "recency", "filename": built-ins
+    - custom policy name configured under :exhub -> :brain_search
+    - inline map, e.g. {"semantic": "on", "weights": {"semantic": 0.9}, "top_n": 5}
+    Explicit params (search_type/semantic/fusion/weights/min_score) override the policy.
 
     Scorers: bm25, title_match, tag_match, freshness, link_authority, semantic
 
@@ -108,14 +117,19 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   def execute(params, frame) do
     query = Map.get(params, :query)
     scope_path = Map.get(params, :path)
-    search_type = Map.get(params, :search_type, "content")
     case_sensitive = Map.get(params, :case_sensitive, false)
     abs_path = Map.get(params, :abs_path, false)
-    fusion = Map.get(params, :fusion)
-    weights = Map.get(params, :weights, %{}) || %{}
-    min_score = Map.get(params, :min_score, 0.0)
-    semantic = Map.get(params, :semantic, false)
     semantic_limit = Map.get(params, :semantic_limit, 10)
+
+    # Resolve the active search policy (explicit param, config default, or
+    # auto-selected via query heuristics) and derive retrieval + ranking
+    # decisions from it. Explicit params override the policy.
+    policy = resolve_policy(params, query)
+    search_type = effective_search_type(params, policy)
+    semantic = effective_semantic(policy, params, query)
+    fusion = effective_fusion(policy, params)
+    weights = effective_weights(policy, params)
+    min_score = effective_min_score(policy, params)
 
     vault = Helpers.vault_path()
     search_dir = if scope_path, do: Path.join(vault, scope_path), else: vault
@@ -146,8 +160,10 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       context =
         build_context(query, vault, files, query_terms, is_tag_search, tag_query, case_sensitive)
 
-      {notes, context, scorers} =
+      {notes, context, semantic_scorers} =
         maybe_semantic(notes, context, vault, files, semantic, semantic_limit)
+
+      scorers = semantic_scorers || policy.scorers
 
       rank_opts =
         [fusion: fusion, weights: weights, min_score: min_score, context: context]
@@ -156,6 +172,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       ranked =
         Ranker.rank(notes, rank_opts)
 
+      ranked = maybe_top_n(ranked, policy.top_n)
       ranked = if abs_path, do: absolutize(ranked, vault), else: ranked
 
       total_matches =
@@ -174,6 +191,80 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
         {:reply, resp, frame}
     end
   end
+
+  # ── search policy resolution ─────────────────────────────────────────────
+
+  defp resolve_policy(params, query) do
+    policy_param = Map.get(params, :policy)
+
+    if Policies.auto?(policy_param) do
+      Policies.get(auto_select(query))
+    else
+      Policies.resolve(policy_param)
+    end
+  end
+
+  # The Selector picks the concrete policy for `auto` mode; a semantic pick is
+  # demoted to balanced when the operator disabled semantic autodetect.
+  defp auto_select(query) do
+    selected = Selector.select(query)
+
+    if selected == "semantic" and not Policies.semantic_autodetect?() do
+      "balanced"
+    else
+      selected
+    end
+  end
+
+  # Explicit `search_type` wins; otherwise derive from the policy's retrieval
+  # channels. The schema default is "content", so only treat a non-content
+  # value as an explicit override (a policy can still request content).
+  defp effective_search_type(params, policy) do
+    case Map.get(params, :search_type, "content") do
+      "content" -> retrieval_to_search_type(policy.retrieval)
+      explicit -> explicit
+    end
+  end
+
+  defp retrieval_to_search_type([:filename]), do: "filename"
+  defp retrieval_to_search_type([:both]), do: "both"
+  defp retrieval_to_search_type(_), do: "content"
+
+  defp effective_semantic(policy, params, query) do
+    cond do
+      Map.get(params, :semantic, false) == true -> true
+      policy.semantic == :on -> true
+      policy.semantic == :off -> false
+      true ->
+        not String.starts_with?(query, "tag:") and
+          Selector.semantic_query?(query) and
+          Policies.semantic_autodetect?()
+    end
+  end
+
+  defp effective_fusion(policy, params), do: Map.get(params, :fusion) || policy.fusion
+
+  defp effective_weights(policy, params) do
+    case Map.get(params, :weights) do
+      nil -> policy.weights || %{}
+      w when is_map(w) and map_size(w) == 0 -> policy.weights || %{}
+      w -> w
+    end
+  end
+
+  defp effective_min_score(policy, params) do
+    min_score = Map.get(params, :min_score, 0.0)
+
+    if is_number(min_score) and min_score == 0.0 do
+      policy.min_score || 0.0
+    else
+      min_score
+    end
+  end
+
+  defp maybe_top_n(results, nil), do: results
+  defp maybe_top_n(results, n) when is_integer(n) and n > 0, do: Enum.take(results, n)
+  defp maybe_top_n(results, _), do: results
 
   # ── semantic / vector search ───────────────────────────────────────────────
 

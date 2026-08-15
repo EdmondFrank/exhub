@@ -50,7 +50,31 @@ defmodule Exhub.MCP.Brain.Search.Policies do
   @doc "The default policy per `default_policy` config (falls back to `balanced`)."
   @spec default() :: Policy.t()
   def default do
-    get(config() |> Map.get("default_policy", "balanced"))
+    name = config() |> Map.get("default_policy", "balanced") |> to_string()
+
+    # `auto` is not a concrete policy; it is resolved per-query by the
+    # Selector in SearchVault. Guard against infinite fallback recursion.
+    if name == "auto", do: get("balanced"), else: get(name)
+  end
+
+  @doc """
+  Whether auto (heuristic) policy selection applies for the given per-call
+  `policy` value: an explicit `"auto"`, or no policy at all with the
+  configured `default_policy` set to `"auto"`.
+  """
+  @spec auto?(nil | String.t() | atom() | map()) :: boolean()
+  def auto?(nil) do
+    config() |> Map.get("default_policy", "balanced") |> to_string() == "auto"
+  end
+
+  def auto?(%Policy{}), do: false
+  def auto?(value) when is_map(value), do: false
+  def auto?(value), do: to_string(value) == "auto"
+
+  @doc "Whether conversational queries may auto-enable semantic search."
+  @spec semantic_autodetect?() :: boolean()
+  def semantic_autodetect? do
+    config() |> Map.get("semantic_autodetect", false) |> to_boolean()
   end
 
   @doc """
@@ -127,4 +151,8 @@ defmodule Exhub.MCP.Brain.Search.Policies do
   defp stringify_keys(map) do
     Map.new(map, fn {k, v} -> {to_string(k), v} end)
   end
+
+  defp to_boolean(v) when is_boolean(v), do: v
+  defp to_boolean(v) when is_binary(v), do: v in ["true", "1", "yes"]
+  defp to_boolean(_), do: false
 end
