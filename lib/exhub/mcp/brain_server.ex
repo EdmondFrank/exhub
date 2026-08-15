@@ -24,7 +24,9 @@ defmodule Exhub.MCP.BrainServer do
   - `brain_search_vault` — Search notes by content, filename, or tags.
                            Supports `content` / `filename` / `both` search types,
                            hierarchical tag search (`tag:` prefix), scoped search,
-                           case-sensitive mode, and absolute path output.
+                           case-sensitive mode, absolute path output, and
+                           configurable search policies (`policy`) for ranking
+                           and hybrid semantic search.
 
   ### Note Management
   - `brain_create_note`  — Create a new note in the vault.

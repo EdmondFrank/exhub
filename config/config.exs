@@ -24,6 +24,20 @@ config :exhub, :brain_ranking,
     "min_score" => 0.0
   }
 
+# Brain vault search policies. A policy bundles retrieval + ranking
+# hyper-parameters; the default ("auto") picks a policy from query heuristics.
+#   - "default_policy": "auto" | any built-in/custom policy name
+#   - "semantic_autodetect": allow conversational queries to auto-enable vector
+#     search (requires a configured embedding provider under :brain_rag)
+#   - "policies": custom/overridden policies, deep-merged over built-ins of the
+#     same name (built-ins: balanced, keyword, semantic, recency, filename)
+config :exhub, :brain_search,
+  %{
+    "default_policy" => "auto",
+    "semantic_autodetect" => true,
+    "policies" => %{}
+  }
+
 # Brain RAG (semantic/vector search) configuration.
 # Provider is "openai" (default) or "gitee_ai" (moark endpoint).
 # - For "openai", the API key comes from :exhub -> :openai_api_key.

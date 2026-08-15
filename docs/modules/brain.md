@@ -121,6 +121,7 @@ Search for notes by content, filename, or tags.
 | `search_type`    | string  | `"content"`  | `"content"`, `"filename"`, or `"both"`                            |
 | `case_sensitive` | boolean | `false`      | Enable case-sensitive matching                                    |
 | `abs_path`       | boolean | `false`      | Return absolute filesystem paths instead of relative              |
+| `policy`         | any     | `"auto"`     | Search policy: `"auto"`, `"balanced"`, `"keyword"`, `"semantic"`, `"recency"`, `"filename"`, a custom config name, or an inline map |
 | `semantic`       | boolean | `false`      | Enable hybrid vector (RAG) semantic search                        |
 | `semantic_limit` | integer | `10`         | Max notes returned from vector search when `semantic` is enabled  |
 
@@ -140,6 +141,43 @@ Hierarchical tags are supported — `tag:project` also matches `#project/active`
 - Response always starts with `Vault: <path>`
 - Each matching file is listed with its matching lines (`L<n>: <text>`)
 - Filename matches are shown as `Filename match: <path>`
+
+**Search policies:**
+
+`brain_search_vault` can be driven by a *search policy* — a named bundle of
+retrieval + ranking hyper-parameters selected via the `policy` parameter:
+
+| Policy      | Retrieval  | Semantic   | Notes                                   |
+|-------------|------------|------------|-----------------------------------------|
+| `balanced`  | content    | `auto`     | Default weights                         |
+| `keyword`   | content    | `off`      | Fast; BM25 boosted                      |
+| `semantic`  | content    | `on`       | Semantic weight boosted to 0.6          |
+| `recency`   | content    | `auto`     | Freshness weight boosted to 0.6         |
+| `filename`  | filename   | `off`      | Filename-only channel                   |
+
+With `policy: "auto"` (the default), the policy is picked from the query:
+tag queries and single words use `keyword`, queries mentioning
+`recent`/`latest`/`new` use `recency`, conversational queries (≥ 4 words)
+use `semantic` (when `semantic_autodetect` is enabled), otherwise `balanced`.
+
+Explicit parameters (`search_type`, `semantic`, `fusion`, `weights`,
+`min_score`) override the policy when present. Inline policies can also be
+passed as a map, e.g. `{"semantic": "on", "weights": {"semantic": 0.9}, "top_n": 5}`.
+
+Custom policies are configured in `config/config.exs` and deep-merged over
+the built-in of the same name:
+
+```elixir
+config :exhub, :brain_search,
+  %{
+    "default_policy" => "auto",
+    "semantic_autodetect" => true,
+    "policies" => %{
+      "keyword" => %{"weights" => %{"bm25" => 0.6}},           # override built-in
+      "my_policy" => %{"semantic" => "on", "top_n" => 5}       # custom
+    }
+  }
+```
 
 **Examples:**
 

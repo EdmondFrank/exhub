@@ -9,7 +9,8 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   `max`.
 
   Ranking is tunable via optional `fusion`, `weights`, and `min_score`
-  parameters; defaults live in config (`:exhub -> :brain_ranking`).
+  parameters, or via a named/inline search `policy` bundle; defaults live in
+  config (`:exhub -> :brain_ranking` and `:exhub -> :brain_search`).
   """
 
   alias Anubis.Server.Response
