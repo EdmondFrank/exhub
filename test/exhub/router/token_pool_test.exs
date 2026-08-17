@@ -147,4 +147,88 @@ defmodule Exhub.Router.TokenPoolTest do
       assert TokenPool.resolve_token("deepseek-v3", body, fallback: "fallback") == "default-key"
     end
   end
+
+  describe "estimate_langchain_tokens/1" do
+    test "estimates from LangChain message structs" do
+      messages = [
+        LangChain.Message.new_system!("You are a helpful assistant."),
+        LangChain.Message.new_user!("Hello")
+      ]
+
+      assert TokenPool.estimate_langchain_tokens(messages) > 0
+    end
+
+    test "estimates from ContentPart lists" do
+      messages = [
+        %LangChain.Message{
+          role: :user,
+          content: [
+            %LangChain.Message.ContentPart{type: :text, content: "Hello there"},
+            %LangChain.Message.ContentPart{type: :text, content: "Second part"}
+          ]
+        }
+      ]
+
+      assert TokenPool.estimate_langchain_tokens(messages) >= 4
+    end
+
+    test "tolerates plain maps and non-list inputs" do
+      assert TokenPool.estimate_langchain_tokens([%{"content" => "hi"}]) >= 0
+      assert TokenPool.estimate_langchain_tokens(nil) == 0
+    end
+  end
+
+  describe "resolve_langchain_key/3" do
+    test "returns fallback when the pool is disabled" do
+      assert TokenPool.resolve_langchain_key("deepseek-v3", [%LangChain.Message{role: :user, content: "hi"}], fallback: "original") ==
+               "original"
+    end
+
+    test "returns fallback for non-GiteeAI models" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+
+      assert TokenPool.resolve_langchain_key("claude-sonnet-4", [], fallback: "original") == "original"
+    end
+
+    test "uses the token-based pool for small contexts" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      key =
+        TokenPool.resolve_langchain_key(
+          "openai/deepseek-v3",
+          [LangChain.Message.new_user!("short")],
+          fallback: "original"
+        )
+
+      assert key == "token-key"
+    end
+
+    test "uses the request-based pool at or above the threshold" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      key =
+        TokenPool.resolve_langchain_key(
+          "deepseek-v3",
+          [LangChain.Message.new_user!(String.duplicate("x", 80_001))],
+          fallback: "original"
+        )
+
+      assert key == "request-key"
+    end
+
+    test "falls back when the selected mode key is unset" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+
+      key =
+        TokenPool.resolve_langchain_key(
+          "deepseek-v3",
+          [LangChain.Message.new_user!(String.duplicate("x", 80_001))],
+          fallback: "original"
+        )
+
+      assert key == "original"
+    end
+  end
 end

@@ -7,6 +7,7 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.ChatModels.ChatAnthropic
   alias LangChain.LangChainError
   alias Exhub.Llm.LlmConfigServer
+  alias Exhub.Router.TokenPool
   require Logger
 
   def create_llm_chain do
@@ -20,6 +21,8 @@ defmodule Exhub.Llm.Chain do
   end
 
   def execute(llm_chain, initial_messages) do
+    llm_chain = maybe_apply_pool(llm_chain, initial_messages)
+
     case LLMChain.new!(llm_chain)
          |> LLMChain.add_messages(initial_messages)
          |> LLMChain.run(mode: :while_needs_response) do
@@ -33,6 +36,8 @@ defmodule Exhub.Llm.Chain do
   end
 
   def execute(llm_chain, initial_messages, functions, custom_context) do
+    llm_chain = maybe_apply_pool(llm_chain, initial_messages)
+
     case LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
          |> LLMChain.add_tools(functions)
          |> LLMChain.add_messages(initial_messages)
@@ -47,6 +52,7 @@ defmodule Exhub.Llm.Chain do
   end
 
   def run(llm_chain, initial_messages, _functions, custom_context, callbacks \\ %{}) do
+    llm_chain = maybe_apply_pool(llm_chain, initial_messages)
     chain = LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
     # chain = if functions != [], do: LLMChain.add_tools(chain, functions), else: chain
     chain = LLMChain.add_messages(chain, initial_messages)
@@ -55,6 +61,8 @@ defmodule Exhub.Llm.Chain do
   end
 
   def execute_with_schema(llm_chain, initial_messages, json_schema) do
+    llm_chain = maybe_apply_pool(llm_chain, initial_messages)
+
     # Add response_format to the LLM configuration for structured output
     updated_llm =
       Map.put(llm_chain.llm, :response_format, %{
@@ -120,5 +128,20 @@ defmodule Exhub.Llm.Chain do
       llm: llm,
       verbose: false
     }
+  end
+
+  # Swaps the llm api_key to the Gitee AI token-pool key when the pool
+  # applies to the model and the request messages. No-op otherwise, keeping
+  # the originally configured key untouched.
+  defp maybe_apply_pool(llm_chain, messages) do
+    with %{llm: %{model: model, api_key: current_key}} <- llm_chain,
+         true <- is_binary(model),
+         pooled_key when is_binary(pooled_key) <-
+           TokenPool.resolve_langchain_key(model, messages, fallback: current_key),
+         true <- pooled_key != current_key do
+      %{llm_chain | llm: Map.put(llm_chain.llm, :api_key, pooled_key)}
+    else
+      _ -> llm_chain
+    end
   end
 end

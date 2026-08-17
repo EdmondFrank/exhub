@@ -151,11 +151,94 @@ defmodule Exhub.Router.TokenPool do
 
   def estimate_tokens(_), do: 0
 
+  @doc """
+  Estimates context tokens from a LangChain message list.
+
+  Accepts `%LangChain.Message{}` structs (binary `content` or
+  `%LangChain.Message.ContentPart{}` lists) as well as plain maps with a
+  `content` / `"content"` key. Returns 0 for non-list inputs.
+
+  ## Examples
+
+      iex> Exhub.Router.TokenPool.estimate_langchain_tokens([
+      ...>   LangChain.Message.new_user!("Hello")
+      ...> ])
+      1
+  """
+  @spec estimate_langchain_tokens(any()) :: non_neg_integer()
+  def estimate_langchain_tokens(messages) when is_list(messages) do
+    body =
+      Enum.map(messages, fn
+        %LangChain.Message{content: content} -> %{"content" => flatten_langchain_content(content)}
+        %{content: content} when not is_nil(content) -> %{"content" => flatten_langchain_content(content)}
+        %{"content" => content} when not is_nil(content) -> %{"content" => flatten_langchain_content(content)}
+        _ -> %{"content" => ""}
+      end)
+
+    estimate_tokens(%{"messages" => body})
+  end
+
+  def estimate_langchain_tokens(_), do: 0
+
+  @doc """
+  Resolves the token-pool `Authorization` key for a LangChain request.
+
+  Same policy as `resolve_token/3` but for chains: the context size is
+  estimated from the LangChain `messages` that will be sent, so the pool
+  can be picked right before execution. Returns `fallback` (or `nil`) when
+  the pool does not apply — e.g. pool disabled or a non-GiteeAI model —
+  so callers can keep their existing key untouched.
+  """
+  @spec resolve_langchain_key(String.t() | nil, list(), Keyword.t()) :: String.t() | nil
+  def resolve_langchain_key(model, messages, opts \\ []) do
+    fallback = Keyword.get(opts, :fallback)
+
+    if enabled?() and giteeai_model?(bare_model(model)) do
+      token_count = estimate_langchain_tokens(messages)
+      mode = select_mode(token_count)
+
+      case api_key(mode) do
+        "" ->
+          fallback
+
+        token ->
+          Logger.info(
+            "[TokenPool] #{inspect(model)} (LangChain) — estimated #{token_count} " <>
+              "context tokens, using #{mode} pool"
+          )
+
+          token
+      end
+    else
+      fallback
+    end
+  end
+
   defp giteeai_model?(model) when is_binary(model) do
     model in Exhub.LLMModels.giteeai_models() and model not in Exhub.LLMModels.minimax_models()
   end
 
   defp giteeai_model?(_), do: false
+
+  # Strips the provider prefix (e.g. "openai/deepseek-v3") used by LLM config
+  # model names so GiteeAI membership checks match the bare model name.
+  defp bare_model(model) when is_binary(model), do: model |> String.split("/") |> List.last()
+  defp bare_model(_), do: nil
+
+  defp flatten_langchain_content(content) when is_binary(content), do: content
+
+  defp flatten_langchain_content(content) when is_list(content) do
+    content
+    |> Enum.map(fn
+      %LangChain.Message.ContentPart{content: c} when is_binary(c) -> c
+      %{content: c} when is_binary(c) -> c
+      %{"content" => c} when is_binary(c) -> c
+      _ -> ""
+    end)
+    |> Enum.join("\n")
+  end
+
+  defp flatten_langchain_content(content), do: inspect(content)
 
   defp token_key, do: Application.get_env(:exhub, @token_mode_key, "")
   defp request_key, do: Application.get_env(:exhub, @request_mode_key, "")
