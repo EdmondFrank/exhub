@@ -6,6 +6,7 @@ defmodule Exhub.MCP.MacUse.Helpers do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Encoding
 
   @axcli_bin "axcli"
 
@@ -84,6 +85,8 @@ defmodule Exhub.MCP.MacUse.Helpers do
   # ── Response Helpers ───────────────────────────────────────────────────
 
   def toon_response(%Response{} = resp, data) when is_map(data) do
+    data = Encoding.sanitize_utf8(data)
+
     encoded =
       try do
         Toon.encode!(data)
@@ -95,7 +98,7 @@ defmodule Exhub.MCP.MacUse.Helpers do
   end
 
   def toon_response(%Response{} = resp, data) when is_binary(data) do
-    Response.text(resp, data)
+    Response.text(resp, Encoding.sanitize_utf8(data))
   end
 
   def toon_response(%Response{} = resp, data) do

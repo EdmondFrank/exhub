@@ -8,6 +8,7 @@ defmodule Exhub.MCP.Brain.Helpers do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Brain.GitignoreParser
+  alias Exhub.MCP.Encoding
 
   @doc """
   Returns the configured Obsidian vault path.
@@ -70,6 +71,8 @@ defmodule Exhub.MCP.Brain.Helpers do
   """
   @spec toon_response(Response.t(), map()) :: Response.t()
   def toon_response(%Response{} = resp, data) when is_map(data) do
+    data = Encoding.sanitize_utf8(data)
+
     encoded =
       try do
         Toon.encode!(data)

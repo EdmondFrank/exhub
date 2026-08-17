@@ -18,6 +18,7 @@ defmodule Exhub.MCP.Desktop.Helpers do
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Encoding
 
   @doc """
   Encode a map as TOON and add it as text content to a tool response.
@@ -26,6 +27,8 @@ defmodule Exhub.MCP.Desktop.Helpers do
   """
   @spec toon_response(Response.t(), map()) :: Response.t()
   def toon_response(%Response{} = resp, data) when is_map(data) do
+    data = Encoding.sanitize_utf8(data)
+
     encoded =
       try do
         Toon.encode!(data)

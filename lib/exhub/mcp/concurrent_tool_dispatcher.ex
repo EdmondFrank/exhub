@@ -38,6 +38,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
   alias Anubis.Server.Transport.StreamableHTTP
+  alias Exhub.MCP.Encoding
   alias Exhub.MCP.ServerHelpers
 
   require Logger
@@ -210,13 +211,13 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
   defp reply_result(conn, {:reply, result, _frame}, request_id, session_id, wants_sse, server, opts) do
     response = Message.build_response(result, request_id)
-    encoded = JSON.encode!(response)
+    encoded = response |> Encoding.sanitize_utf8() |> JSON.encode!()
     send_response(conn, encoded, session_id, wants_sse, server, opts)
   end
 
   defp reply_error(conn, %Error{} = error, request_id, session_id, wants_sse, server, opts) do
     error_map = Error.build_json_rpc(error, request_id)
-    encoded = JSON.encode!(error_map)
+    encoded = error_map |> Encoding.sanitize_utf8() |> JSON.encode!()
     send_response(conn, encoded, session_id, wants_sse, server, opts)
   end
 
