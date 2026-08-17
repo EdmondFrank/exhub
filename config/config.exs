@@ -4,6 +4,14 @@ config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 
 config :exhub, :shell, "zsh"
 
+# Gitee AI (moark) token pool: two billing-mode access tokens and the
+# context-token threshold that selects between them (< threshold →
+# token-based, >= threshold → request-based). Override in runtime.exs.
+config :exhub,
+  giteeai_token_api_key: "",
+  giteeai_request_api_key: "",
+  giteeai_pool_threshold: 20_000
+
 # Obsidian vault path for the Brain MCP server.
 # Override in runtime.exs or environment-specific config.
 config :exhub, :obsidian_vault_path, "~/GTD/PKB"

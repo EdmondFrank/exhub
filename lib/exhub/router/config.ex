@@ -215,7 +215,49 @@ defmodule Exhub.Router.Config do
   """
   @spec get_auth_headers(model(), :openai | :anthropic) :: [{String.t(), String.t()}]
   def get_auth_headers(model, :openai) do
+    build_openai_headers(model, get_model_api_key(model))
+  end
+
+  def get_auth_headers(model, :anthropic) do
     token = get_model_api_key(model)
+    base_headers = [{"x-api-key", token}]
+
+    # Add X-Failover-Enabled header for gitee_ai upstream models
+    headers =
+      if model in @giteeai_models and model not in @minimax_models do
+        [{"X-Failover-Enabled", "true"} | base_headers]
+      else
+        base_headers
+      end
+
+    custom_headers = Exhub.Router.Settings.headers(model, :anthropic)
+    log_custom_headers(custom_headers, model, :anthropic)
+    merge_custom_headers(headers, custom_headers)
+  end
+
+  @doc """
+  Returns the authorization headers for a Gitee AI upstream request using
+  the token pool.
+
+  Resolves the `Authorization` token via `Exhub.Router.TokenPool` — which
+  picks the token-based or request-based pool key from the estimated context
+  token count in `body_params` — when a pool is configured for the model.
+  Falls back to `get_auth_headers/2` behavior otherwise.
+
+  ## Examples
+
+      iex> Exhub.Router.Config.get_pooled_auth_headers("deepseek-v3", :openai, %{
+      ...>   "messages" => [%{"content" => "Hello"}]
+      ...> })
+      [{"authorization", "Bearer <pooled_key>"}, {"X-Failover-Enabled", "true"}]
+  """
+  @spec get_pooled_auth_headers(model(), :openai, map()) :: [{String.t(), String.t()}]
+  def get_pooled_auth_headers(model, :openai, body_params) do
+    token = Exhub.Router.TokenPool.resolve_token(model, body_params, fallback: get_model_api_key(model))
+    build_openai_headers(model, token)
+  end
+
+  defp build_openai_headers(model, token) do
     base_headers = [{"authorization", "Bearer #{token}"}]
 
     headers =
@@ -233,23 +275,6 @@ defmodule Exhub.Router.Config do
 
     custom_headers = Exhub.Router.Settings.headers(model, :openai)
     log_custom_headers(custom_headers, model, :openai)
-    merge_custom_headers(headers, custom_headers)
-  end
-
-  def get_auth_headers(model, :anthropic) do
-    token = get_model_api_key(model)
-    base_headers = [{"x-api-key", token}]
-
-    # Add X-Failover-Enabled header for gitee_ai upstream models
-    headers =
-      if model in @giteeai_models and model not in @minimax_models do
-        [{"X-Failover-Enabled", "true"} | base_headers]
-      else
-        base_headers
-      end
-
-    custom_headers = Exhub.Router.Settings.headers(model, :anthropic)
-    log_custom_headers(custom_headers, model, :anthropic)
     merge_custom_headers(headers, custom_headers)
   end
 
@@ -485,6 +510,8 @@ defmodule Exhub.Router.Config do
 
     # Update all API keys in application environment
     Application.put_env(:exhub, :giteeai_api_key, fetch_secret.("gitee_api_key"))
+    Application.put_env(:exhub, :giteeai_token_api_key, fetch_secret.("giteeai_token_api_key"))
+    Application.put_env(:exhub, :giteeai_request_api_key, fetch_secret.("giteeai_request_api_key"))
     Application.put_env(:exhub, :openai_api_key, fetch_secret.("openai_api_key"))
     Application.put_env(:exhub, :burncloud_api_key, fetch_secret.("burncloud_api_key"))
 

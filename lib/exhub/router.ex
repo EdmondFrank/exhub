@@ -154,7 +154,9 @@ defmodule Exhub.Router do
     proxy = if use_proxy, do: RouterConfig.get_proxy(), else: ""
 
     options = [
-      custom_headers: RouterConfig.get_auth_headers(model, :openai),
+      # Token pool picks the Gitee AI billing pool (token- vs request-based)
+      # from the estimated context size; falls back to the default key.
+      custom_headers: RouterConfig.get_pooled_auth_headers(model, :openai, conn.body_params),
       client_options: [
         timeout: RouterConfig.get_timeout(),
         recv_timeout: RouterConfig.get_timeout(),

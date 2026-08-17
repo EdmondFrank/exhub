@@ -145,4 +145,62 @@ defmodule Exhub.Router.ConfigTest do
              _ -> false
            end)
   end
+
+  describe "get_pooled_auth_headers/3" do
+    setup do
+      original = %{
+        giteeai_api_key: Application.get_env(:exhub, :giteeai_api_key),
+        giteeai_token_api_key: Application.get_env(:exhub, :giteeai_token_api_key),
+        giteeai_request_api_key: Application.get_env(:exhub, :giteeai_request_api_key)
+      }
+
+      Application.put_env(:exhub, :giteeai_api_key, "default-key")
+      Application.delete_env(:exhub, :giteeai_token_api_key)
+      Application.delete_env(:exhub, :giteeai_request_api_key)
+
+      on_exit(fn ->
+        Enum.each(original, fn {key, value} ->
+          if value == nil,
+            do: Application.delete_env(:exhub, key),
+            else: Application.put_env(:exhub, key, value)
+        end)
+      end)
+
+      :ok
+    end
+
+    test "uses the default key and keeps failover header when the pool is disabled" do
+      headers =
+        Config.get_pooled_auth_headers("deepseek-v3", :openai, %{
+          "messages" => [%{"content" => "Hello"}]
+        })
+
+      assert {"authorization", "Bearer default-key"} in headers
+      assert {"X-Failover-Enabled", "true"} in headers
+    end
+
+    test "selects the token-based pool key for small contexts" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      headers =
+        Config.get_pooled_auth_headers("deepseek-v3", :openai, %{
+          "messages" => [%{"content" => "short"}]
+        })
+
+      assert {"authorization", "Bearer token-key"} in headers
+    end
+
+    test "selects the request-based pool key at or above the threshold" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      headers =
+        Config.get_pooled_auth_headers("qwen3.5-27b", :openai, %{
+          "messages" => [%{"content" => String.duplicate("x", 80_001)}]
+        })
+
+      assert {"authorization", "Bearer request-key"} in headers
+    end
+  end
 end

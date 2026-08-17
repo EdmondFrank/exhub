@@ -13,6 +13,8 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
     end
 
     giteeai_api_key = fetch_secret.("gitee_api_key")
+    giteeai_token_api_key = fetch_secret.("giteeai_token_api_key")
+    giteeai_request_api_key = fetch_secret.("giteeai_request_api_key")
     openai_api_key = fetch_secret.("openai_api_key")
     gitee_cookie = fetch_secret.("gitee_cookie")
 
@@ -32,6 +34,11 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
 
     config :exhub,
       giteeai_api_key: giteeai_api_key,
+      # Token pool for Gitee AI billing modes: token-based vs request-based
+      # pools, selected per request from the estimated context token count.
+      giteeai_token_api_key: giteeai_token_api_key,
+      giteeai_request_api_key: giteeai_request_api_key,
+      giteeai_pool_threshold: 20_000,
       openai_api_key: openai_api_key,
       burncloud_api_key: fetch_secret.("burncloud_api_key"),
       burncloud_gemini_api_key: fetch_secret.("burncloud_gemini_api_key"),
