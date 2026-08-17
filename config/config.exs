@@ -10,7 +10,7 @@ config :exhub, :shell, "zsh"
 config :exhub,
   giteeai_token_api_key: "",
   giteeai_request_api_key: "",
-  giteeai_pool_threshold: 25_000
+  giteeai_pool_threshold: 20_000
 
 # Obsidian vault path for the Brain MCP server.
 # Override in runtime.exs or environment-specific config.
