@@ -1,5 +1,32 @@
 # Recent Enhancements
 
+## Gitee AI Token Pool — Context-Based Billing Selection
+
+- **New Feature**: Gitee AI (moark) upstream requests now automatically pick between the token-based and request-based billing pools based on the estimated context token count.
+- **Why**: The moark Serverless API bills in two modes — per-token (deducted from a token resource package) and flat per-request. Small contexts are cheaper on the token pool; large contexts are capped by the flat per-request price.
+- **Selection Rule**: Context tokens `< :giteeai_pool_threshold` (default `20_000`) → `:token_based` pool; `>=` threshold → `:request_based` pool. Unknown token counts fall back to `:token_based`.
+- **New Config Keys** (`config/config.exs`, overridable in `config/runtime.exs` via SecretVault):
+  - `:giteeai_token_api_key` — access token for the token-based pool
+  - `:giteeai_request_api_key` — access token for the request-based pool
+  - `:giteeai_pool_threshold` — context-token threshold (default `20_000`)
+  - When neither pool key is set the pool is disabled and requests keep using the regular `:giteeai_api_key`, preserving existing behavior.
+- **New Module**: `Exhub.Router.TokenPool`
+  - `threshold/0`, `enabled?/0`, `select_mode/1`, `api_key/1`
+  - `estimate_tokens/1` — estimates context tokens from an OpenAI-style body (`messages`/`system`/`tools`)
+  - `resolve_token/3` — resolves the `Authorization` token for an OpenAI proxy request from `body_params`, falling back to the default key
+  - `estimate_langchain_tokens/1` — estimates tokens from `%LangChain.Message{}` lists (binary or ContentPart content)
+  - `resolve_langchain_key/3` — resolves the pool key for a LangChain request; strips provider prefixes (e.g. `openai/deepseek-v3`) before model membership checks
+- **Router Wiring**: `Exhub.Router.Config.get_pooled_auth_headers/3` resolves the pooled `Authorization` token from `body_params`; `Exhub.Router` now uses it for OpenAI upstream requests.
+- **LangChain Wiring**: `Exhub.Llm.Chain` `maybe_apply_pool/2` swaps the LLM `api_key` for the pooled key right before chain execution — a no-op when the pool doesn't apply (non-GiteeAI model or pool disabled).
+- **Modified Files**:
+  - `config/config.exs`, `config/runtime.exs` — pool config keys
+  - `lib/exhub/router.ex`, `lib/exhub/router/config.ex` — pooled auth headers
+  - `lib/exhub/router/token_pool.ex` — NEW: token pool selection module
+  - `lib/llm/chain.ex` — LangChain pool application
+  - `test/exhub/router/config_test.exs`, `test/exhub/router/token_pool_test.exs` — tests
+
+---
+
 ## Gitee AI Model Alias Forwarding — `deepseek-v4-flash` → `deepseek-v4-flash-0731`
 
 - **New Feature**: `deepseek-v4-flash` is now forwarded to the Gitee AI upstream API as `deepseek-v4-flash-0731` automatically.

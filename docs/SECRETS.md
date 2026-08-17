@@ -134,6 +134,12 @@ mix scr.insert dev bailiancloud_api_key "your-bailiancloud-api-key"
 # Gitee AI API (alternative provider)
 mix scr.insert dev gitee_api_key "your-gitee-ai-api-key"
 
+# Gitee AI token pool — token-based billing mode key (small contexts)
+mix scr.insert dev giteeai_token_api_key "your-giteeai-token-pool-key"
+
+# Gitee AI token pool — request-based billing mode key (large contexts)
+mix scr.insert dev giteeai_request_api_key "your-giteeai-request-pool-key"
+
 # OpenAI API (for OpenAI-compatible endpoints)
 mix scr.insert dev openai_api_key "your-openai-api-key"
 

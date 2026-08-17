@@ -100,6 +100,8 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    Or insert secrets individually with `mix scr.insert`:
    ```bash
    mix scr.insert dev gitee_api_key        "your-gitee-ai-api-key"
+   mix scr.insert dev giteeai_token_api_key    "your-giteeai-token-pool-key"
+   mix scr.insert dev giteeai_request_api_key  "your-giteeai-request-pool-key"
    mix scr.insert dev openai_api_key       "your-openai-api-key"
    mix scr.insert dev gitee_cookie         "your-gitee-cookie-string"
    mix scr.insert dev siliconflow_api_key  "your-siliconflow-key"
@@ -133,6 +135,20 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    ```
 
    The `api_base` field can be customized per model while still using SecretVault-managed API keys.
+
+   #### Gitee AI Token Pool (optional)
+
+   Gitee AI (moark) bills in two modes — per-token and flat per-request. Exhub can automatically pick the cheaper pool per request based on the estimated context size:
+
+   ```elixir
+   # config/config.exs (defaults shown; override in runtime.exs)
+   config :exhub,
+     giteeai_token_api_key: "",      # token-based billing pool key (small contexts)
+     giteeai_request_api_key: "",    # request-based billing pool key (large contexts)
+     giteeai_pool_threshold: 20_000  # estimated context tokens at/above this → request-based pool
+   ```
+
+   Contexts below the threshold use the token-based key; contexts at or above it use the request-based (flat-fee) key. The pool applies to Gitee AI upstream router requests and LangChain chains, and is disabled when neither pool key is set — falling back to the regular `giteeai_api_key`. See [docs/recent-enhancements.md](docs/recent-enhancements.md) for details.
 
    #### Runtime Router Headers
 
