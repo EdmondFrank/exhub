@@ -150,6 +150,7 @@ mix scr.insert dev gemini_api_key "your-gemini-key"
 mix scr.insert dev cohere_api_key "your-cohere-key"
 mix scr.insert dev samba_api_key "your-samba-key"
 mix scr.insert dev mimo_api_key "your-mimo-key"
+mix scr.insert dev runinfra_api_key "your-runinfra-key"
 ```
 
 ### Editing Secrets

@@ -40,7 +40,8 @@ defmodule Exhub.LLMModels do
     infini: "https://cloud.infini-ai.com/maas/v1",
     kiro: "http://localhost:8000/v1",
     nvidia: "https://integrate.api.nvidia.com/v1",
-    baidu_anthropic: "http://211.23.3.236:27545/v1"
+    baidu_anthropic: "http://211.23.3.236:27545/v1",
+    runinfra: "https://api.runinfra.ai/v1"
   }
 
   @default_upstream "https://api.moark.com/v1"
@@ -152,6 +153,11 @@ defmodule Exhub.LLMModels do
     "nvidia/nemotron-3-ultra-550b-a55b"
   ]
 
+  # RunInfra AI models
+  @runinfra_models [
+    "qwen3-8-27b"
+  ]
+
   # ============================================================================
   # Model Normalization Mappings
   # ============================================================================
@@ -236,6 +242,12 @@ defmodule Exhub.LLMModels do
   """
   @spec nvidia_models() :: [String.t()]
   def nvidia_models, do: @nvidia_models
+
+  @doc """
+  Returns the list of RunInfra models.
+  """
+  @spec runinfra_models() :: [String.t()]
+  def runinfra_models, do: @runinfra_models
 
   @doc """
   Returns the Infini model mapping (prefixed → actual).
@@ -339,6 +351,9 @@ defmodule Exhub.LLMModels do
       model in @nvidia_models ->
         :nvidia
 
+      model in @runinfra_models ->
+        :runinfra
+
       true ->
         nil
     end
@@ -376,7 +391,8 @@ defmodule Exhub.LLMModels do
       @infini_models ++
       @openrouter_models ++
       @kiro_models ++
-      @nvidia_models
+      @nvidia_models ++
+      @runinfra_models
   end
 
   # ============================================================================

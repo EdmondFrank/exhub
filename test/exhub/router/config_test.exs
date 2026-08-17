@@ -49,6 +49,24 @@ defmodule Exhub.Router.ConfigTest do
     refute {"X-package-id", "8848"} in headers
   end
 
+  test "adds a per-request X-Client-Request-Id header for RunInfra models" do
+    h1 = Config.get_auth_headers("qwen3-8-27b", :openai)
+    h2 = Config.get_auth_headers("qwen3-8-27b", :openai)
+
+    [{name, id1}] = for {n, v} <- h1, n == "X-Client-Request-Id", do: {n, v}
+    [{name, id2}] = for {n, v} <- h2, n == "X-Client-Request-Id", do: {n, v}
+
+    assert name == "X-Client-Request-Id"
+    assert id1 != id2
+    assert {:ok, _} = UUID.info(id1)
+  end
+
+  test "does not add X-Client-Request-Id for non-RunInfra models" do
+    headers = Config.get_auth_headers("deepseek-v3", :openai)
+
+    refute Enum.any?(headers, fn {n, _} -> n == "X-Client-Request-Id" end)
+  end
+
   test "configured values replace duplicate non-sensitive base header names", %{config_path: path} do
     File.write!(
       path,

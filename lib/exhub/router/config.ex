@@ -65,6 +65,7 @@ defmodule Exhub.Router.Config do
   @openrouter_models LLMModels.openrouter_models()
   @kiro_models LLMModels.kiro_models()
   @nvidia_models LLMModels.nvidia_models()
+  @runinfra_models LLMModels.runinfra_models()
 
   # Models that require reasoning_content to be present in assistant tool-call
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
@@ -119,6 +120,9 @@ defmodule Exhub.Router.Config do
       model in @nvidia_models ->
         @provider_urls.nvidia
 
+      model in @runinfra_models ->
+        @provider_urls.runinfra
+
       true ->
         Logger.debug("No specific target for model #{model}, using default")
         @default_upstream
@@ -170,6 +174,9 @@ defmodule Exhub.Router.Config do
       model in @nvidia_models ->
         Application.get_env(:exhub, :nvidia_api_key, "")
 
+      model in @runinfra_models ->
+        Application.get_env(:exhub, :runinfra_api_key, "")
+
       true ->
         Application.get_env(:exhub, :giteeai_api_key, "")
     end
@@ -188,6 +195,7 @@ defmodule Exhub.Router.Config do
   def use_proxy_for_model?(model) when is_binary(model) do
     model in @openrouter_models or
       model in @nvidia_models or
+      model in @runinfra_models or
       model in ["minimax-m2.1", "minimax-m2-preview"]
   end
 
@@ -211,10 +219,16 @@ defmodule Exhub.Router.Config do
     base_headers = [{"authorization", "Bearer #{token}"}]
 
     headers =
-      if model in @giteeai_models and model not in @minimax_models do
-        [{"X-Failover-Enabled", "true"} | base_headers]
-      else
-        base_headers
+      cond do
+        model in @runinfra_models ->
+          # RunInfra requires a per-request client request id.
+          [{"X-Client-Request-Id", UUID.uuid4()} | base_headers]
+
+        model in @giteeai_models and model not in @minimax_models ->
+          [{"X-Failover-Enabled", "true"} | base_headers]
+
+        true ->
+          base_headers
       end
 
     custom_headers = Exhub.Router.Settings.headers(model, :openai)
@@ -488,6 +502,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :anthropic_api_key, fetch_secret.("anthropic_api_key"))
     Application.put_env(:exhub, :openrouter_api_key, fetch_secret.("openrouter_api_key"))
     Application.put_env(:exhub, :nvidia_api_key, fetch_secret.("nvidia_api_key"))
+    Application.put_env(:exhub, :runinfra_api_key, fetch_secret.("runinfra_api_key"))
 
     Application.put_env(
       :exhub,

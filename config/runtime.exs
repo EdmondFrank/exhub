@@ -43,6 +43,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       anthropic_api_key: fetch_secret.("anthropic_api_key"),
       baidu_anthropic_api_key: fetch_secret.("baidu_anthropic_api_key"),
       openrouter_api_key: fetch_secret.("openrouter_api_key"),
+      runinfra_api_key: fetch_secret.("runinfra_api_key"),
       llms: llms_config,
       proxy: "http://127.0.0.1:7890",
       default_timeout: 300_000,
