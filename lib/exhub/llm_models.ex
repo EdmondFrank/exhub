@@ -41,7 +41,8 @@ defmodule Exhub.LLMModels do
     kiro: "http://localhost:8000/v1",
     nvidia: "https://integrate.api.nvidia.com/v1",
     baidu_anthropic: "http://211.23.3.236:27545/v1",
-    runinfra: "https://api.runinfra.ai/v1"
+    runinfra: "https://api.runinfra.ai/v1",
+    orcarouter: "https://api.orcarouter.ai/v1"
   }
 
   @default_upstream "https://api.moark.com/v1"
@@ -158,6 +159,13 @@ defmodule Exhub.LLMModels do
     "qwen3-8-27b"
   ]
 
+  # OrcaRouter AI models (OpenAI-compatible aggregator)
+  @orcarouter_models [
+    "tencent/hy3-free",
+    "deepseek/deepseek-v4-flash-free",
+    "qwen/qwen3.8-27b-free"
+  ]
+
   # ============================================================================
   # Model Normalization Mappings
   # ============================================================================
@@ -248,6 +256,12 @@ defmodule Exhub.LLMModels do
   """
   @spec runinfra_models() :: [String.t()]
   def runinfra_models, do: @runinfra_models
+
+  @doc """
+  Returns the list of OrcaRouter models.
+  """
+  @spec orcarouter_models() :: [String.t()]
+  def orcarouter_models, do: @orcarouter_models
 
   @doc """
   Returns the Infini model mapping (prefixed → actual).
@@ -354,6 +368,9 @@ defmodule Exhub.LLMModels do
       model in @runinfra_models ->
         :runinfra
 
+      model in @orcarouter_models ->
+        :orcarouter
+
       true ->
         nil
     end
@@ -392,7 +409,8 @@ defmodule Exhub.LLMModels do
       @openrouter_models ++
       @kiro_models ++
       @nvidia_models ++
-      @runinfra_models
+      @runinfra_models ++
+      @orcarouter_models
   end
 
   # ============================================================================

@@ -66,6 +66,7 @@ defmodule Exhub.Router.Config do
   @kiro_models LLMModels.kiro_models()
   @nvidia_models LLMModels.nvidia_models()
   @runinfra_models LLMModels.runinfra_models()
+  @orcarouter_models LLMModels.orcarouter_models()
 
   # Models that require reasoning_content to be present in assistant tool-call
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
@@ -123,6 +124,9 @@ defmodule Exhub.Router.Config do
       model in @runinfra_models ->
         @provider_urls.runinfra
 
+      model in @orcarouter_models ->
+        @provider_urls.orcarouter
+
       true ->
         Logger.debug("No specific target for model #{model}, using default")
         @default_upstream
@@ -177,6 +181,9 @@ defmodule Exhub.Router.Config do
       model in @runinfra_models ->
         Application.get_env(:exhub, :runinfra_api_key, "")
 
+      model in @orcarouter_models ->
+        Application.get_env(:exhub, :orcarouter_api_key, "")
+
       true ->
         Application.get_env(:exhub, :giteeai_api_key, "")
     end
@@ -196,6 +203,7 @@ defmodule Exhub.Router.Config do
     model in @openrouter_models or
       model in @nvidia_models or
       model in @runinfra_models or
+      model in @orcarouter_models or
       model in ["minimax-m2.1", "minimax-m2-preview"]
   end
 
@@ -253,7 +261,9 @@ defmodule Exhub.Router.Config do
   """
   @spec get_pooled_auth_headers(model(), :openai, map()) :: [{String.t(), String.t()}]
   def get_pooled_auth_headers(model, :openai, body_params) do
-    token = Exhub.Router.TokenPool.resolve_token(model, body_params, fallback: get_model_api_key(model))
+    token =
+      Exhub.Router.TokenPool.resolve_token(model, body_params, fallback: get_model_api_key(model))
+
     build_openai_headers(model, token)
   end
 
@@ -511,7 +521,13 @@ defmodule Exhub.Router.Config do
     # Update all API keys in application environment
     Application.put_env(:exhub, :giteeai_api_key, fetch_secret.("gitee_api_key"))
     Application.put_env(:exhub, :giteeai_token_api_key, fetch_secret.("giteeai_token_api_key"))
-    Application.put_env(:exhub, :giteeai_request_api_key, fetch_secret.("giteeai_request_api_key"))
+
+    Application.put_env(
+      :exhub,
+      :giteeai_request_api_key,
+      fetch_secret.("giteeai_request_api_key")
+    )
+
     Application.put_env(:exhub, :openai_api_key, fetch_secret.("openai_api_key"))
     Application.put_env(:exhub, :burncloud_api_key, fetch_secret.("burncloud_api_key"))
 
@@ -530,6 +546,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :openrouter_api_key, fetch_secret.("openrouter_api_key"))
     Application.put_env(:exhub, :nvidia_api_key, fetch_secret.("nvidia_api_key"))
     Application.put_env(:exhub, :runinfra_api_key, fetch_secret.("runinfra_api_key"))
+    Application.put_env(:exhub, :orcarouter_api_key, fetch_secret.("orcarouter_api_key"))
 
     Application.put_env(
       :exhub,

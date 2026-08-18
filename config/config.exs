@@ -10,18 +10,7 @@ config :exhub, :shell, "zsh"
 config :exhub,
   giteeai_token_api_key: "",
   giteeai_request_api_key: "",
-  giteeai_pool_threshold: 16_000
-
-# Gitee AI early stream termination: when an upstream SSE chunk contains one of
-# these sentinels (Gitee AI emits "<mask>DONE</mask>" once generation is
-# effectively complete), Exhub stops reading the upstream stream immediately —
-# saving billing for tokens that would never be delivered — and appends a
-# well-formed terminator so the downstream still receives a complete response.
-# When this list is non-empty, Exhub also injects a system prompt into Gitee AI
-# requests instructing the model to end its final answer with the sentinel, so
-# the proxy reliably knows when to stop. Set to [] to disable both. Override in
-# runtime.exs if needed.
-config :exhub, :giteeai_early_done_markers, ["<mask>DONE</mask>"]
+  giteeai_pool_threshold: 20_000
 
 # Obsidian vault path for the Brain MCP server.
 # Override in runtime.exs or environment-specific config.

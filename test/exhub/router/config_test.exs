@@ -72,6 +72,7 @@ defmodule Exhub.Router.ConfigTest do
       path,
       ~s({"headers":[{"models":["deepseek-v3"],"headers":{"X-Failover-Enabled":"false"}}]})
     )
+
     Settings.reload()
 
     headers = Config.get_auth_headers("deepseek-v3", :openai)
@@ -90,6 +91,7 @@ defmodule Exhub.Router.ConfigTest do
       path,
       ~s({"headers":[{"headers":{"authorization":"attacker","X-Api-Key":"attacker","X-package-id":"8848"}}]})
     )
+
     System.put_env("EXHUB_ROUTER_CONFIG", path)
     Settings.reload()
 
@@ -140,10 +142,60 @@ defmodule Exhub.Router.ConfigTest do
 
     headers = Config.get_auth_headers("deepseek-v3", :openai)
     refute {"X-package-id", "8848"} in headers
+
     assert Enum.any?(headers, fn
              {"authorization", value} -> String.starts_with?(value, "Bearer ")
              _ -> false
            end)
+  end
+
+  describe "orcarouter models" do
+    setup do
+      original = Application.get_env(:exhub, :orcarouter_api_key)
+      Application.put_env(:exhub, :orcarouter_api_key, "orcarouter-test-key")
+
+      on_exit(fn ->
+        if original == nil,
+          do: Application.delete_env(:exhub, :orcarouter_api_key),
+          else: Application.put_env(:exhub, :orcarouter_api_key, original)
+      end)
+
+      :ok
+    end
+
+    @orcarouter_models [
+      "tencent/hy3-free",
+      "deepseek/deepseek-v4-flash-free",
+      "qwen/qwen3.8-27b-free"
+    ]
+
+    test "routes to the orcarouter endpoint" do
+      for model <- @orcarouter_models do
+        assert Config.get_model_target(model) == "https://api.orcarouter.ai/v1"
+      end
+    end
+
+    test "resolves the orcarouter api key" do
+      for model <- @orcarouter_models do
+        assert Config.get_model_api_key(model) == "orcarouter-test-key"
+      end
+    end
+
+    test "uses the configured proxy for orcarouter models" do
+      for model <- @orcarouter_models do
+        assert Config.use_proxy_for_model?(model)
+      end
+    end
+
+    test "sends plain Bearer authorization for orcarouter models" do
+      for model <- @orcarouter_models do
+        headers = Config.get_auth_headers(model, :openai)
+
+        assert {"authorization", "Bearer orcarouter-test-key"} in headers
+        refute Enum.any?(headers, fn {n, _} -> n == "X-Client-Request-Id" end)
+        refute Enum.any?(headers, fn {n, _} -> n == "X-Failover-Enabled" end)
+      end
+    end
   end
 
   describe "get_pooled_auth_headers/3" do
