@@ -9,6 +9,18 @@ defmodule Exhub.ProxyPlug do
   # Models that require reasoning_content to be preserved across turns.
   @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"]
 
+  # Early stream termination: when an upstream SSE chunk contains one of these
+  # sentinels (e.g. Gitee AI emits "<mask>DONE</mask>" once generation is
+  # effectively complete), the proxy stops reading from the upstream stream
+  # immediately — saving billing for tokens that would never be delivered —
+  # and appends a well-formed terminator so the downstream still receives a
+  # complete, parseable response. Configurable via
+  # `config :exhub, :giteeai_early_done_markers, [...]`; an empty list disables.
+  @early_done_config_key :giteeai_early_done_markers
+  @default_early_done_markers ["<mask>DONE</mask>"]
+  @openai_sse_done "data: [DONE]\n\n"
+  @anthropic_sse_stop "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
   @doc """
   Returns whether proxy should be used for the given provider.
 
@@ -96,7 +108,8 @@ defmodule Exhub.ProxyPlug do
     end
   end
 
-  defp wrap_stream(stream, model_name, provider, request_body) do
+  @doc false
+  def wrap_stream(stream, model_name, provider, request_body) do
     acc_ref = :erlang.unique_integer([:positive, :monotonic])
     acc_ref_bin = Integer.to_string(acc_ref)
 
@@ -105,24 +118,194 @@ defmodule Exhub.ProxyPlug do
     wrapped_stream =
       stream
       |> Stream.transform(
-        fn -> {acc_pid, acc_ref_bin, []} end,
-        fn element, {pid, ref, acc} ->
-          case element do
-            {:chunk, chunk} ->
-              send(pid, {:accumulate, ref, chunk})
-              {[element], {pid, ref, [chunk | acc]}}
-
-            other ->
-              {[other], {pid, ref, acc}}
-          end
-        end,
-        fn {pid, ref, _chunks} ->
+        fn -> {acc_pid, acc_ref_bin, [], scanner_init()} end,
+        &transform_stream_element/2,
+        &flush_stream_tail/1,
+        fn {pid, ref, _chunks, _scanner} ->
           send(pid, {:process, ref, model_name, provider})
           :ok
         end
       )
 
     wrapped_stream
+  end
+
+  # ── Early stream termination (<mask>DONE</mask>) ──────────────────────────
+
+  # The scanner buffers the trailing partial SSE frame (bytes since the last
+  # "\n\n" boundary) so a marker can be detected even when it is split across
+  # upstream chunks. Only complete frames are ever emitted, so the downstream
+  # never receives a truncated, unparseable JSON event.
+  defp scanner_init do
+    %{markers: early_done_markers(), carry: "", anthropic?: false, done: false, dropped: 0}
+  end
+
+  defp early_done_markers do
+    Application.get_env(:exhub, @early_done_config_key, @default_early_done_markers) || []
+  end
+
+  defp transform_stream_element({:chunk, chunk}, {pid, ref, acc, scanner}) do
+    if scanner.done do
+      # We already emitted the truncated frames + terminator; stop reading the
+      # upstream stream so the connection is closed as soon as possible.
+      updated = %{scanner | dropped: scanner.dropped + byte_size(chunk)}
+
+      Logger.debug(fn ->
+        "Early-done marker already seen; ignoring #{byte_size(chunk)} more upstream bytes"
+      end)
+
+      {:halt, {pid, ref, acc, updated}}
+    else
+      case process_chunk(chunk, scanner) do
+        {:emit, emitted, updated} ->
+          acc = maybe_accumulate(pid, ref, acc, emitted)
+          {emit_chunks(emitted), {pid, ref, acc, updated}}
+
+        {:terminate, emitted, terminator, updated} ->
+          updated = %{updated | done: true}
+          acc = maybe_accumulate(pid, ref, acc, emitted)
+          {emit_chunks(emitted) ++ [{:chunk, terminator}], {pid, ref, acc, updated}}
+      end
+    end
+  end
+
+  defp transform_stream_element(_other, {pid, ref, acc, %{done: true} = scanner}) do
+    {:halt, {pid, ref, acc, scanner}}
+  end
+
+  defp transform_stream_element(other, {pid, ref, acc, scanner}) do
+    {[other], {pid, ref, acc, scanner}}
+  end
+
+  defp process_chunk(chunk, %{markers: []} = scanner), do: {:emit, chunk, scanner}
+
+  defp process_chunk(chunk, scanner) do
+    combined = scanner.carry <> chunk
+
+    case find_marker(combined, scanner.markers) do
+      nil ->
+        {frames, partial} = split_at_last_frame_boundary(combined)
+
+        updated = %{
+          scanner
+          | carry: partial,
+            anthropic?: scanner.anthropic? or anthropic_sse?(frames)
+        }
+
+        {:emit, frames, updated}
+
+      {pos, marker} ->
+        # Everything from the marker onward is dropped. Only complete SSE
+        # frames (ending in "\n\n") are forwarded; the partial frame that
+        # carried the marker is dropped rather than emitted half-broken.
+        prefix = binary_part(combined, 0, pos)
+        emitted = truncate_to_frame_boundary(prefix)
+        anthropic? = scanner.anthropic? or anthropic_sse?(prefix)
+        terminator = if anthropic?, do: @anthropic_sse_stop, else: @openai_sse_done
+
+        Logger.info(
+          "Early-done marker #{inspect(marker)} detected; truncating stream and " <>
+            "appending #{if anthropic?, do: "Anthropic message_stop", else: "OpenAI [DONE]"} terminator"
+        )
+
+        {:terminate, emitted, terminator, %{scanner | carry: "", anthropic?: anthropic?}}
+    end
+  end
+
+  # Splits at the last "\n\n" boundary: frames = everything up to and including
+  # that boundary, partial = the incomplete frame after it (held for detection).
+  # Falls back to holding the whole input (never emitting partial frames) unless
+  # the hold grows beyond @max_partial_frame_bytes, in which case it is flushed
+  # as-is to avoid unbounded memory for non-SSE streams.
+  @max_partial_frame_bytes 64 * 1024
+
+  defp split_at_last_frame_boundary(combined) do
+    case :binary.matches(combined, "\n\n") do
+      [] ->
+        if byte_size(combined) > @max_partial_frame_bytes do
+          {combined, ""}
+        else
+          {"", combined}
+        end
+
+      matches ->
+        {pos, len} = List.last(matches)
+        boundary = pos + len
+
+        {binary_part(combined, 0, boundary),
+         binary_part(combined, boundary, byte_size(combined) - boundary)}
+    end
+  end
+
+  defp find_marker(combined, markers) do
+    markers
+    |> Enum.reduce(:none, fn marker, best ->
+      case :binary.match(combined, marker) do
+        {pos, _len} ->
+          case best do
+            :none -> {pos, marker}
+            {best_pos, _} when pos < best_pos -> {pos, marker}
+            _ -> best
+          end
+
+        :nomatch ->
+          best
+      end
+    end)
+    |> case do
+      :none -> nil
+      match -> match
+    end
+  end
+
+  @doc false
+  def truncate_to_frame_boundary(binary) do
+    case :binary.matches(binary, "\n\n") do
+      [] ->
+        ""
+
+      matches ->
+        {pos, len} = List.last(matches)
+        binary_part(binary, 0, pos + len)
+    end
+  end
+
+  defp anthropic_sse?(binary) do
+    String.contains?(binary, "event: ")
+  end
+
+  defp emit_chunks(""), do: []
+  defp emit_chunks(binary), do: [{:chunk, binary}]
+
+  defp maybe_accumulate(_pid, _ref, acc, ""), do: acc
+
+  defp maybe_accumulate(pid, ref, acc, binary) do
+    send(pid, {:accumulate, ref, binary})
+    [binary | acc]
+  end
+
+  # Runs when the upstream stream ends on its own (no marker seen): emit any
+  # withheld bytes so nothing is silently dropped.
+  defp flush_stream_tail({pid, ref, acc, %{done: true} = scanner}) do
+    if scanner.dropped > 0 do
+      Logger.debug("Early-done termination: dropped #{scanner.dropped} bytes after the marker")
+    end
+
+    {:halt, {pid, ref, acc, scanner}}
+  end
+
+  defp flush_stream_tail({pid, ref, acc, %{carry: ""} = scanner}) do
+    {:halt, {pid, ref, acc, scanner}}
+  end
+
+  defp flush_stream_tail({pid, ref, acc, scanner}) do
+    Logger.info(
+      "Early-done marker never fired; flushing #{byte_size(scanner.carry)} trailing " <>
+        "bytes at stream end"
+    )
+
+    acc = maybe_accumulate(pid, ref, acc, scanner.carry)
+    {[{:chunk, scanner.carry}], {pid, ref, acc, %{scanner | carry: ""}}}
   end
 
   defp stream_accumulator(ref, chunks, request_body) do
@@ -213,6 +396,7 @@ defmodule Exhub.ProxyPlug do
   defp encode_body_with_model_transforms(body_params) do
     body_params = fill_tool_calls_content(body_params)
     body_params = normalize_developer_role(body_params)
+    body_params = inject_early_done_prompt(body_params)
 
     # Normalize model name by stripping prefixes before sending to API
     body_params =
@@ -292,6 +476,52 @@ defmodule Exhub.ProxyPlug do
   end
 
   defp normalize_developer_role(body_params), do: body_params
+
+  # When early stream termination is enabled, the upstream model must be told to
+  # emit the configured done marker once its response is final — otherwise the
+  # scanner never sees it. Injection is gated on the same config the scanner
+  # reads (`:giteeai_early_done_markers`) and restricted to Gitee AI models so
+  # other providers routed through this plug are left untouched.
+  @doc false
+  def inject_early_done_prompt(body_params) do
+    with markers when markers != [] <- early_done_markers(),
+         %{"model" => model} when is_binary(model) <- body_params,
+         :giteeai <- Exhub.LLMModels.model_provider(model),
+         %{"messages" => messages} when is_list(messages) <- body_params do
+      Logger.debug(
+        "Injecting early-done marker prompt for giteeai model #{inspect(model)} " <>
+          "(markers: #{inspect(markers)})"
+      )
+
+      Map.put(body_params, "messages", prepend_early_done_prompt(markers, messages))
+    else
+      _ -> body_params
+    end
+  end
+
+  defp prepend_early_done_prompt(markers, messages) do
+    prompt = early_done_prompt(markers)
+
+    case messages do
+      [%{"role" => "system", "content" => content} = first | rest]
+      when is_binary(content) ->
+        [%{first | "content" => content <> "\n\n" <> prompt} | rest]
+
+      _ ->
+        [%{"role" => "system", "content" => prompt} | messages]
+    end
+  end
+
+  defp early_done_prompt(markers) do
+    listed =
+      markers
+      |> Enum.map(&("\"" <> &1 <> "\""))
+      |> Enum.join(" or ")
+
+    "End your final answer with the exact literal marker #{listed} as the very " <>
+      "last characters — no trailing text, whitespace, or newline after it. " <>
+      "Never emit the marker anywhere else."
+  end
 
   defp extract_model_name(conn) do
     case conn.body_params do
