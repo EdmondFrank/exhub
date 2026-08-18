@@ -67,6 +67,7 @@ defmodule Exhub.Router.Config do
   @nvidia_models LLMModels.nvidia_models()
   @runinfra_models LLMModels.runinfra_models()
   @orcarouter_models LLMModels.orcarouter_models()
+  @bai_models LLMModels.bai_models()
 
   # Models that require reasoning_content to be present in assistant tool-call
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
@@ -77,6 +78,25 @@ defmodule Exhub.Router.Config do
   @giteeai_model_aliases %{
     "deepseek-v4-flash" => "deepseek-v4-flash-0731"
   }
+
+  # Default provider routing order (highest priority first). This order can be
+  # overridden at runtime via the router settings JSON (see
+  # `Exhub.Router.Settings.provider_order/0`). Providers not listed in the
+  # JSON fall back to this list.
+  @default_provider_order [
+    :bai,
+    :giteeai,
+    :kimi,
+    :minimaxi,
+    :mimo,
+    :openrouter,
+    :burncloud,
+    :infini,
+    :kiro,
+    :nvidia,
+    :runinfra,
+    :orcarouter
+  ]
 
   @doc """
   Returns the target URL for a given model.
@@ -93,43 +113,20 @@ defmodule Exhub.Router.Config do
   def get_model_target(nil), do: @default_upstream
 
   def get_model_target(model) when is_binary(model) do
-    cond do
-      model in @giteeai_models and model not in @minimax_models ->
-        @provider_urls.giteeai
-
-      model == "kimi-for-coding" ->
-        @provider_urls.kimi
-
-      model in @minimax_models ->
-        @provider_urls.minimaxi
-
-      model in @mimo_models ->
-        @provider_urls.mimo
-
-      model in @openrouter_models ->
-        @provider_urls.openrouter
-
-      model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"] ->
-        get_burncloud_target()
-
-      model in @infini_models ->
-        @provider_urls.infini
-
-      model in @kiro_models ->
-        @provider_urls.kiro
-
-      model in @nvidia_models ->
-        @provider_urls.nvidia
-
-      model in @runinfra_models ->
-        @provider_urls.runinfra
-
-      model in @orcarouter_models ->
-        @provider_urls.orcarouter
-
-      true ->
-        Logger.debug("No specific target for model #{model}, using default")
-        @default_upstream
+    case provider_for_model(model) do
+      :bai -> @provider_urls.bai
+      :giteeai -> @provider_urls.giteeai
+      :kimi -> @provider_urls.kimi
+      :minimaxi -> @provider_urls.minimaxi
+      :mimo -> @provider_urls.mimo
+      :openrouter -> @provider_urls.openrouter
+      :burncloud -> get_burncloud_target()
+      :infini -> @provider_urls.infini
+      :kiro -> @provider_urls.kiro
+      :nvidia -> @provider_urls.nvidia
+      :runinfra -> @provider_urls.runinfra
+      :orcarouter -> @provider_urls.orcarouter
+      _ -> @default_upstream
     end
   end
 
@@ -150,42 +147,20 @@ defmodule Exhub.Router.Config do
   end
 
   def get_model_api_key(model) when is_binary(model) do
-    cond do
-      model in @giteeai_models and model not in @minimax_models ->
-        Application.get_env(:exhub, :giteeai_api_key, "")
-
-      model == "kimi-for-coding" ->
-        Application.get_env(:exhub, :kimi_api_key, "")
-
-      model in @minimax_models ->
-        Application.get_env(:exhub, :minimax_api_key, "")
-
-      model in @mimo_models ->
-        Application.get_env(:exhub, :mimo_api_key, "")
-
-      model in @openrouter_models ->
-        Application.get_env(:exhub, :openrouter_api_key, "")
-
-      model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"] ->
-        Application.get_env(:exhub, :burncloud_gemini_api_key, "")
-
-      model in @infini_models ->
-        Application.get_env(:exhub, :infini_api_key, "")
-
-      model in @kiro_models ->
-        Application.get_env(:exhub, :kiro_api_key, "")
-
-      model in @nvidia_models ->
-        Application.get_env(:exhub, :nvidia_api_key, "")
-
-      model in @runinfra_models ->
-        Application.get_env(:exhub, :runinfra_api_key, "")
-
-      model in @orcarouter_models ->
-        Application.get_env(:exhub, :orcarouter_api_key, "")
-
-      true ->
-        Application.get_env(:exhub, :giteeai_api_key, "")
+    case provider_for_model(model) do
+      :bai -> Application.get_env(:exhub, :bai_api_key, "")
+      :giteeai -> Application.get_env(:exhub, :giteeai_api_key, "")
+      :kimi -> Application.get_env(:exhub, :kimi_api_key, "")
+      :minimaxi -> Application.get_env(:exhub, :minimax_api_key, "")
+      :mimo -> Application.get_env(:exhub, :mimo_api_key, "")
+      :openrouter -> Application.get_env(:exhub, :openrouter_api_key, "")
+      :burncloud -> Application.get_env(:exhub, :burncloud_gemini_api_key, "")
+      :infini -> Application.get_env(:exhub, :infini_api_key, "")
+      :kiro -> Application.get_env(:exhub, :kiro_api_key, "")
+      :nvidia -> Application.get_env(:exhub, :nvidia_api_key, "")
+      :runinfra -> Application.get_env(:exhub, :runinfra_api_key, "")
+      :orcarouter -> Application.get_env(:exhub, :orcarouter_api_key, "")
+      _ -> Application.get_env(:exhub, :giteeai_api_key, "")
     end
   end
 
@@ -200,10 +175,7 @@ defmodule Exhub.Router.Config do
   """
   @spec use_proxy_for_model?(model()) :: boolean()
   def use_proxy_for_model?(model) when is_binary(model) do
-    model in @openrouter_models or
-      model in @nvidia_models or
-      model in @runinfra_models or
-      model in @orcarouter_models or
+    provider_for_model(model) in [:openrouter, :nvidia, :runinfra, :orcarouter, :bai] or
       model in ["minimax-m2.1", "minimax-m2-preview"]
   end
 
@@ -230,9 +202,11 @@ defmodule Exhub.Router.Config do
     token = get_model_api_key(model)
     base_headers = [{"x-api-key", token}]
 
+    provider = provider_for_model(model)
+
     # Add X-Failover-Enabled header for gitee_ai upstream models
     headers =
-      if model in @giteeai_models and model not in @minimax_models do
+      if provider == :giteeai do
         [{"X-Failover-Enabled", "true"} | base_headers]
       else
         base_headers
@@ -270,13 +244,18 @@ defmodule Exhub.Router.Config do
   defp build_openai_headers(model, token) do
     base_headers = [{"authorization", "Bearer #{token}"}]
 
+    provider = provider_for_model(model)
+
     headers =
       cond do
-        model in @runinfra_models ->
+        provider == :bai ->
+          base_headers
+
+        provider == :runinfra ->
           # RunInfra requires a per-request client request id.
           [{"X-Client-Request-Id", UUID.uuid4()} | base_headers]
 
-        model in @giteeai_models and model not in @minimax_models ->
+        provider == :giteeai ->
           [{"X-Failover-Enabled", "true"} | base_headers]
 
         true ->
@@ -339,6 +318,38 @@ defmodule Exhub.Router.Config do
   """
   @spec reload_router_settings() :: :ok
   def reload_router_settings, do: Exhub.Router.Settings.reload()
+
+  @doc """
+  Returns the provider atom that should serve `model`, taking the runtime
+  router settings `provider_order` into account. Falls back to the
+  hardcoded default order when no runtime order is configured.
+  """
+  @spec provider_for_model(model()) :: atom()
+  def provider_for_model(model) when is_binary(model) do
+    order =
+      case Exhub.Router.Settings.provider_order() do
+        [] -> @default_provider_order
+        configured -> configured
+      end
+
+    Enum.find(order, :default, fn provider ->
+      provider_matches?(provider, model)
+    end)
+  end
+
+  defp provider_matches?(:bai, model), do: model in @bai_models
+  defp provider_matches?(:giteeai, model), do: model in @giteeai_models and model not in @minimax_models
+  defp provider_matches?(:kimi, model), do: model == "kimi-for-coding"
+  defp provider_matches?(:minimaxi, model), do: model in @minimax_models
+  defp provider_matches?(:mimo, model), do: model in @mimo_models
+  defp provider_matches?(:openrouter, model), do: model in @openrouter_models
+  defp provider_matches?(:burncloud, model), do: model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"]
+  defp provider_matches?(:infini, model), do: model in @infini_models
+  defp provider_matches?(:kiro, model), do: model in @kiro_models
+  defp provider_matches?(:nvidia, model), do: model in @nvidia_models
+  defp provider_matches?(:runinfra, model), do: model in @runinfra_models
+  defp provider_matches?(:orcarouter, model), do: model in @orcarouter_models
+  defp provider_matches?(_unknown, _model), do: false
 
   @doc """
   Returns the target URL for Anthropic API requests.
@@ -434,7 +445,11 @@ defmodule Exhub.Router.Config do
   """
   @spec resolve_model_alias(model()) :: model()
   def resolve_model_alias(model) when is_binary(model) do
-    Map.get(@giteeai_model_aliases, model, model)
+    if model in @bai_models do
+      model
+    else
+      Map.get(@giteeai_model_aliases, model, model)
+    end
   end
 
   @doc """
@@ -547,6 +562,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :nvidia_api_key, fetch_secret.("nvidia_api_key"))
     Application.put_env(:exhub, :runinfra_api_key, fetch_secret.("runinfra_api_key"))
     Application.put_env(:exhub, :orcarouter_api_key, fetch_secret.("orcarouter_api_key"))
+    Application.put_env(:exhub, :bai_api_key, fetch_secret.("bai_api_key"))
 
     Application.put_env(
       :exhub,

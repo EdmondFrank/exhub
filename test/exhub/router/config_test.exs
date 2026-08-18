@@ -198,6 +198,51 @@ defmodule Exhub.Router.ConfigTest do
     end
   end
 
+  describe "bai models" do
+    setup do
+      original = Application.get_env(:exhub, :bai_api_key)
+      Application.put_env(:exhub, :bai_api_key, "bai-test-key")
+
+      on_exit(fn ->
+        if original == nil,
+          do: Application.delete_env(:exhub, :bai_api_key),
+          else: Application.put_env(:exhub, :bai_api_key, original)
+      end)
+
+      :ok
+    end
+
+    @bai_models ["deepseek-v4-flash"]
+
+    test "routes to the bai endpoint" do
+      for model <- @bai_models do
+        assert Config.get_model_target(model) == "https://api.b.ai/v1"
+      end
+    end
+
+    test "resolves the bai api key" do
+      for model <- @bai_models do
+        assert Config.get_model_api_key(model) == "bai-test-key"
+      end
+    end
+
+    test "uses the configured proxy for bai models" do
+      for model <- @bai_models do
+        assert Config.use_proxy_for_model?(model)
+      end
+    end
+
+    test "sends plain Bearer authorization for bai models" do
+      for model <- @bai_models do
+        headers = Config.get_auth_headers(model, :openai)
+
+        assert {"authorization", "Bearer bai-test-key"} in headers
+        refute Enum.any?(headers, fn {n, _} -> n == "X-Client-Request-Id" end)
+        refute Enum.any?(headers, fn {n, _} -> n == "X-Failover-Enabled" end)
+      end
+    end
+  end
+
   describe "get_pooled_auth_headers/3" do
     setup do
       original = %{

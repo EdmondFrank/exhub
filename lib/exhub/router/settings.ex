@@ -80,7 +80,7 @@ defmodule Exhub.Router.Settings do
     provider = provider |> to_string() |> String.downcase()
     model = String.downcase(model)
 
-    load_rules()
+    load_config().rules
     |> Enum.filter(&matches?(&1, model, provider))
     |> Enum.reduce(%{}, fn rule, acc ->
       Enum.reduce(rule.headers, acc, fn {name, value}, m ->
@@ -88,6 +88,18 @@ defmodule Exhub.Router.Settings do
       end)
     end)
     |> Map.values()
+  end
+
+  @doc """
+  Returns the configured provider routing order as a list of atoms.
+
+  Providers are listed in descending priority order: the first provider in
+  the list that supports a given model is used. An empty list means the
+  built-in default order should be used (see `Exhub.Router.Config`).
+  """
+  @spec provider_order() :: [atom()]
+  def provider_order do
+    load_config().provider_order
   end
 
   @doc """
@@ -102,17 +114,17 @@ defmodule Exhub.Router.Settings do
 
   # --- loading and caching ---
 
-  defp load_rules do
+  defp load_config do
     path = path()
 
     case cached(path) do
       :stale ->
-        rules = parse_file(path)
-        :persistent_term.put(@cache_key, {path, metadata(path), rules})
-        rules
+        config = parse_file(path)
+        :persistent_term.put(@cache_key, {path, metadata(path), config})
+        config
 
-      rules ->
-        rules
+      config ->
+        config
     end
   end
 
@@ -121,10 +133,10 @@ defmodule Exhub.Router.Settings do
       :miss ->
         :stale
 
-      {^path, meta, rules} ->
-        if unchanged?(meta, path), do: rules, else: :stale
+      {^path, meta, config} ->
+        if unchanged?(meta, path), do: config, else: :stale
 
-      {_other_path, _meta, _rules} ->
+      {_other_path, _meta, _config} ->
         :stale
     end
   end
@@ -148,11 +160,11 @@ defmodule Exhub.Router.Settings do
   defp parse_file(path) do
     case File.read(path) do
       {:error, :enoent} ->
-        []
+        %{rules: [], provider_order: []}
 
       {:error, reason} ->
         Logger.warning("Unable to read router settings file #{path}: #{inspect(reason)}")
-        []
+        %{rules: [], provider_order: []}
 
       {:ok, content} ->
         parse_content(content)
@@ -161,23 +173,52 @@ defmodule Exhub.Router.Settings do
 
   defp parse_content(content) do
     case Jason.decode(content) do
-      {:ok, %{"headers" => rules}} when is_list(rules) ->
-        Enum.flat_map(rules, fn rule ->
-          case parse_rule(rule) do
-            nil -> []
-            parsed -> [parsed]
-          end
-        end)
+      {:ok, json} when is_map(json) ->
+        %{
+          rules: parse_rules(Map.get(json, "headers")),
+          provider_order: parse_provider_order(Map.get(json, "provider_order"))
+        }
 
       {:ok, _other} ->
-        Logger.warning("Router settings file must contain a \"headers\" list")
-        []
+        Logger.warning("Router settings file must be a JSON object")
+        %{rules: [], provider_order: []}
 
       {:error, error} ->
         Logger.warning("Invalid JSON in router settings: #{inspect(error)}")
-        []
+        %{rules: [], provider_order: []}
     end
   end
+
+  defp parse_rules(nil), do: []
+  defp parse_rules(rules) when is_list(rules) do
+    Enum.flat_map(rules, fn rule ->
+      case parse_rule(rule) do
+        nil -> []
+        parsed -> [parsed]
+      end
+    end)
+  end
+  defp parse_rules(_), do: []
+
+  defp parse_provider_order(nil), do: []
+  defp parse_provider_order(list) when is_list(list) do
+    Enum.flat_map(list, fn
+      name when is_binary(name) ->
+        try do
+          [String.to_existing_atom(name)]
+        rescue
+          ArgumentError ->
+            Logger.warning(
+              "Unknown provider in router settings provider_order: #{inspect(name)}"
+            )
+            []
+        end
+
+      _ ->
+        []
+    end)
+  end
+  defp parse_provider_order(_), do: []
 
   defp parse_rule(%{"headers" => headers} = rule) when is_map(headers) and map_size(headers) > 0 do
     with {:ok, model_patterns} <- parse_patterns(rule, :models),

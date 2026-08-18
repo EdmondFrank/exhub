@@ -172,6 +172,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    - A missing file is treated as empty; malformed JSON or invalid rules are logged and ignored.
    - When custom headers apply to a forwarded request, they are logged (header names only, never values) at `info` level.
    - Changes are picked up automatically (file metadata cache); use `Exhub.Router.Config.reload_router_settings/0` to force reload. See `priv/router.json.example` and `Exhub.Router.Settings`.
+   - Optionally, `provider_order` lists provider names in descending priority order. When a model is supported by multiple providers, the first listed provider is used. An empty or absent list falls back to the built-in order.
 
    #### Other Optional Configuration
 

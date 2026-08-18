@@ -16,6 +16,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
     giteeai_token_api_key = fetch_secret.("giteeai_token_api_key")
     giteeai_request_api_key = fetch_secret.("giteeai_request_api_key")
     openai_api_key = fetch_secret.("openai_api_key")
+    bai_api_key = fetch_secret.("bai_api_key")
     gitee_cookie = fetch_secret.("gitee_cookie")
 
     # Build llms config from Exhub.LLMModels (single source of truth)
@@ -52,6 +53,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       openrouter_api_key: fetch_secret.("openrouter_api_key"),
       runinfra_api_key: fetch_secret.("runinfra_api_key"),
       orcarouter_api_key: fetch_secret.("orcarouter_api_key"),
+      bai_api_key: bai_api_key,
       llms: llms_config,
       proxy: "http://127.0.0.1:7890",
       default_timeout: 300_000,

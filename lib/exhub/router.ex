@@ -153,10 +153,19 @@ defmodule Exhub.Router do
     use_proxy = RouterConfig.use_proxy_for_model?(model)
     proxy = if use_proxy, do: RouterConfig.get_proxy(), else: ""
 
+    # Only use Gitee AI token pooling when the model target is Gitee AI.
+    # Different upstream providers may expose the same model name, but they
+    # should not consume Gitee AI billing tokens.
+    custom_headers =
+      if String.contains?(target_url, "gitee") or String.contains?(target_url, "moark") do
+        RouterConfig.get_pooled_auth_headers(model, :openai, conn.body_params)
+      else
+        token = RouterConfig.get_model_api_key(model)
+        [{"Authorization", "Bearer #{token}"}]
+      end
+
     options = [
-      # Token pool picks the Gitee AI billing pool (token- vs request-based)
-      # from the estimated context size; falls back to the default key.
-      custom_headers: RouterConfig.get_pooled_auth_headers(model, :openai, conn.body_params),
+      custom_headers: custom_headers,
       client_options: [
         timeout: RouterConfig.get_timeout(),
         recv_timeout: RouterConfig.get_timeout(),

@@ -42,7 +42,8 @@ defmodule Exhub.LLMModels do
     nvidia: "https://integrate.api.nvidia.com/v1",
     baidu_anthropic: "http://211.23.3.236:27545/v1",
     runinfra: "https://api.runinfra.ai/v1",
-    orcarouter: "https://api.orcarouter.ai/v1"
+    orcarouter: "https://api.orcarouter.ai/v1",
+    bai: "https://api.b.ai/v1"
   }
 
   @default_upstream "https://api.moark.com/v1"
@@ -166,6 +167,9 @@ defmodule Exhub.LLMModels do
     "qwen/qwen3.8-27b-free"
   ]
 
+  # B.AI models (temporary: only DeepSeek-V4-Flash)
+  @bai_models ["deepseek-v4-flash"]
+
   # ============================================================================
   # Model Normalization Mappings
   # ============================================================================
@@ -264,6 +268,12 @@ defmodule Exhub.LLMModels do
   def orcarouter_models, do: @orcarouter_models
 
   @doc """
+  Returns the list of B.AI models.
+  """
+  @spec bai_models() :: [String.t()]
+  def bai_models, do: @bai_models
+
+  @doc """
   Returns the Infini model mapping (prefixed → actual).
   """
   @spec infini_model_mapping() :: %{String.t() => String.t()}
@@ -341,6 +351,9 @@ defmodule Exhub.LLMModels do
   @spec model_provider(String.t()) :: atom() | nil
   def model_provider(model) when is_binary(model) do
     cond do
+      model in @bai_models ->
+        :bai
+
       model in @giteeai_models and model not in @minimax_models ->
         :giteeai
 
@@ -410,7 +423,8 @@ defmodule Exhub.LLMModels do
       @kiro_models ++
       @nvidia_models ++
       @runinfra_models ++
-      @orcarouter_models
+      @orcarouter_models ++
+      @bai_models
   end
 
   # ============================================================================
