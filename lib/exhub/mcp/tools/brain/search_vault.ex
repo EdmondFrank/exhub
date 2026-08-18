@@ -140,7 +140,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     with :ok <- Helpers.validate_in_vault(vault, search_dir) do
       files = Helpers.list_md_files(vault, search_dir, gitignore_patterns: gitignore_patterns)
 
-      is_tag_search = String.starts_with?(query, "tag:")
+      is_tag_search = query != nil and String.starts_with?(query, "tag:")
       tag_query = if is_tag_search, do: normalize_tag(String.slice(query, 4..-1//1)), else: nil
       query_terms = split_query_into_words(if is_tag_search, do: "", else: query)
 
@@ -223,6 +223,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   defp effective_search_type(params, policy) do
     case Map.get(params, :search_type, "content") do
       "content" -> retrieval_to_search_type(policy.retrieval)
+      "auto" -> retrieval_to_search_type(policy.retrieval)
       explicit -> explicit
     end
   end
@@ -231,7 +232,8 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   defp retrieval_to_search_type([:both]), do: "both"
   defp retrieval_to_search_type(_), do: "content"
 
-  defp effective_semantic(policy, params, query) do
+  defp effective_semantic(_policy, _params, query) when is_nil(query), do: false
+  defp effective_semantic(policy, params, query) when is_binary(query) do
     cond do
       Map.get(params, :semantic, false) == true -> true
       policy.semantic == :on -> true
@@ -508,6 +510,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     end)
   end
 
+  defp split_query_into_words(nil), do: []
   defp split_query_into_words(query) do
     query
     |> String.split(~r/\s+/, trim: true)

@@ -19,7 +19,9 @@ defmodule Exhub.MCP.Brain.Search.Selector do
   @recency_words ~w(recent latest newest new)
 
   @doc "Select the policy name for `query`."
-  @spec select(String.t()) :: String.t()
+  @spec select(String.t() | nil) :: String.t()
+  def select(nil), do: "balanced"
+  def select(""), do: "balanced"
   def select(query) do
     cond do
       String.starts_with?(query, "tag:") -> "keyword"
