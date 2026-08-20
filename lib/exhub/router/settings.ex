@@ -38,6 +38,26 @@ defmodule Exhub.Router.Settings do
   - Credential headers (`authorization`, `x-api-key`, `proxy-authorization`,
     and case-insensitive equivalents) are never emitted.
 
+  ### `reasoning_effort` rules
+
+  An optional top-level `reasoning_effort` list controls model-specific
+  `reasoning_effort` values injected into the request body (e.g. for
+  Moonshot kimi-k3). Each rule carries `models`, `providers`, and `effort`:
+
+      {
+        "reasoning_effort": [
+          {
+            "models": ["kimi-k3"],
+            "providers": ["openai"],
+            "effort": "high"
+          }
+        ]
+      }
+
+  Valid effort values are `"low"`, `"medium"`, or `"high"`. The first
+  matching rule wins. When no rule matches, the client's original
+  `reasoning_effort` value (if any) is preserved.
+
   ## Caching and reload
 
   The parsed rules are cached alongside the file's metadata (mtime and size).
@@ -103,6 +123,23 @@ defmodule Exhub.Router.Settings do
   end
 
   @doc """
+  Returns the configured `reasoning_effort` for a matching model and provider.
+
+  Matches the first rule whose `models` and `providers` patterns match the
+  given model and provider. Returns `nil` when no rule matches.
+  """
+  @spec reasoning_effort(String.t(), atom()) :: String.t() | nil
+  def reasoning_effort(model, provider) when is_binary(model) do
+    provider = provider |> to_string() |> String.downcase()
+    model = String.downcase(model)
+
+    load_config().reasoning_effort_rules
+    |> Enum.find_value(fn rule ->
+      if matches?(rule, model, provider), do: rule.effort
+    end)
+  end
+
+  @doc """
   Explicitly invalidates the cached settings so the next lookup re-reads the
   configuration file.
   """
@@ -160,11 +197,11 @@ defmodule Exhub.Router.Settings do
   defp parse_file(path) do
     case File.read(path) do
       {:error, :enoent} ->
-        %{rules: [], provider_order: []}
+        %{rules: [], provider_order: [], reasoning_effort_rules: []}
 
       {:error, reason} ->
         Logger.warning("Unable to read router settings file #{path}: #{inspect(reason)}")
-        %{rules: [], provider_order: []}
+        %{rules: [], provider_order: [], reasoning_effort_rules: []}
 
       {:ok, content} ->
         parse_content(content)
@@ -176,7 +213,8 @@ defmodule Exhub.Router.Settings do
       {:ok, json} when is_map(json) ->
         %{
           rules: parse_rules(Map.get(json, "headers")),
-          provider_order: parse_provider_order(Map.get(json, "provider_order"))
+          provider_order: parse_provider_order(Map.get(json, "provider_order")),
+          reasoning_effort_rules: parse_reasoning_effort_rules(Map.get(json, "reasoning_effort"))
         }
 
       {:ok, _other} ->
@@ -219,6 +257,28 @@ defmodule Exhub.Router.Settings do
     end)
   end
   defp parse_provider_order(_), do: []
+
+  defp parse_reasoning_effort_rules(nil), do: []
+  defp parse_reasoning_effort_rules(rules) when is_list(rules) do
+    Enum.flat_map(rules, fn rule ->
+      case parse_reasoning_effort_rule(rule) do
+        nil -> []
+        parsed -> [parsed]
+      end
+    end)
+  end
+  defp parse_reasoning_effort_rules(_), do: []
+
+  defp parse_reasoning_effort_rule(%{"effort" => effort} = rule)
+       when is_binary(effort) and effort in ["low", "medium", "high"] do
+    with {:ok, model_patterns} <- parse_patterns(rule, :models),
+         {:ok, provider_patterns} <- parse_patterns(rule, :providers) do
+      %{models: model_patterns, providers: provider_patterns, effort: effort}
+    else
+      :invalid -> nil
+    end
+  end
+  defp parse_reasoning_effort_rule(_), do: nil
 
   defp parse_rule(%{"headers" => headers} = rule) when is_map(headers) and map_size(headers) > 0 do
     with {:ok, model_patterns} <- parse_patterns(rule, :models),

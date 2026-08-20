@@ -226,7 +226,17 @@ defmodule Exhub.ProxyPlug do
             |> Exhub.Router.Config.normalize_model_name()
             |> Exhub.Router.Config.resolve_model_alias()
 
-          Map.put(body_params, "model", normalized_model)
+          body_params = Map.put(body_params, "model", normalized_model)
+
+          # Inject reasoning_effort from router.json if configured for this model
+          provider = Exhub.Router.Config.provider_for_model(model)
+          effort = Exhub.Router.Settings.reasoning_effort(model, provider)
+
+          if is_binary(effort) do
+            Map.put(body_params, "reasoning_effort", effort)
+          else
+            body_params
+          end
       end
 
     case body_params do

@@ -8,5 +8,12 @@
         "X-package-id": "8848"
       }
     }
+  ],
+  "reasoning_effort": [
+    {
+      "models": ["kimi-k3"],
+      "providers": ["openai"],
+      "effort": "high"
+    }
   ]
 }
