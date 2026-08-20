@@ -233,6 +233,10 @@ defmodule Exhub.ProxyPlug do
           effort = Exhub.Router.Settings.reasoning_effort(model, provider)
 
           if is_binary(effort) do
+            Logger.info(
+              "[ReasoningEffort] Override for model=#{model} provider=#{provider} effort=#{effort}"
+            )
+
             Map.put(body_params, "reasoning_effort", effort)
           else
             body_params
