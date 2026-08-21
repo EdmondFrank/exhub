@@ -126,7 +126,17 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     end
   end
 
+  defp ensure_erlexec_started do
+    case Application.ensure_all_started(:erlexec) do
+      {:ok, _apps} -> :ok
+      {:error, {:already_started, _}} -> :ok
+      _ -> :ok
+    end
+  end
+
   defp start_interactive_process(process_id, command, working_dir) do
+    ensure_erlexec_started()
+
     # Register the process FIRST so append_output calls don't get dropped
     entry_attrs = %{
       pid: nil,
@@ -181,6 +191,8 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   end
 
   defp start_pty_process(process_id, command, working_dir) do
+    ensure_erlexec_started()
+
     # Register the process FIRST so append_output calls don't get dropped
     entry_attrs = %{
       pid: nil,

@@ -52,6 +52,11 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
     - return_output: Whether to include the process output in the response
       (default: true). When true, the response includes output, status,
       exit_code, and total_lines.
+    - auto_newline: Whether to append a newline (\\n) to the input before
+      sending (default: false). Automatically defaults to true for PTY
+      processes (those started with pty: true), since PTY modes require
+      newlines for command execution. Set to false explicitly to send
+      input without a trailing newline.
     """
   end
 
@@ -79,6 +84,12 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
       description:
         "Whether to include the process output in the response (default: true). When true, the response includes output, status, exit_code, and total_lines."
     )
+
+    field(:auto_newline, :boolean,
+      default: false,
+      description:
+        "Whether to append a newline (\\n) to the input before sending (default: false). Automatically defaults to true for PTY processes."
+    )
   end
 
   @impl true
@@ -88,10 +99,31 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
     mode = Map.get(params, :mode, "raw")
     wait_seconds = Map.get(params, :wait_seconds, 2)
     return_output = Map.get(params, :return_output, true)
+    auto_newline = Map.get(params, :auto_newline)
 
     case prepare_input(input, mode) do
       {:ok, expanded_input, input_expanded} ->
-        case ProcessStore.send_input(process_id, expanded_input) do
+        # Determine auto_newline: if not explicitly set, default to true for PTY
+        # processes (backend: :erlexec)
+        effective_auto_newline =
+          if is_nil(auto_newline) do
+            case ProcessStore.get(process_id) do
+              nil -> false
+              entry -> entry.backend == :erlexec
+            end
+          else
+            auto_newline
+          end
+
+        # Append newline if auto_newline is enabled
+        final_input =
+          if effective_auto_newline do
+            expanded_input <> "\n"
+          else
+            expanded_input
+          end
+
+        case ProcessStore.send_input(process_id, final_input) do
           :ok ->
             # Wait for the specified duration to allow the process to produce output
             if wait_seconds > 0, do: Process.sleep(wait_seconds * 1000)
@@ -103,7 +135,8 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
             response_data = %{
               "success" => true,
               "process_id" => process_id,
-              "input_expanded" => input_expanded
+              "input_expanded" => input_expanded,
+              "auto_newline" => effective_auto_newline
             }
 
             response_data =

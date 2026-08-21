@@ -20,7 +20,11 @@ defmodule Exhub.MCP.Desktop.ExecListener do
     _ref = Process.monitor(parent)
 
     case :exec.run(command, exec_opts) do
-      {:ok, _erl_pid, ospid} ->
+      {:ok, erl_pid, ospid} ->
+        Logger.debug(
+          "[ExecListener] Process #{process_id} started via erlexec: erl_pid=#{inspect(erl_pid)} ospid=#{ospid}"
+        )
+
         send(parent, {:exec_started, ospid})
         do_loop(process_id, ospid, parent)
 
@@ -32,6 +36,10 @@ defmodule Exhub.MCP.Desktop.ExecListener do
   defp do_loop(process_id, ospid, parent) do
     receive do
       {stream, ^ospid, data} when stream in [:stdout, :stderr] ->
+        Logger.debug(
+          "[ExecListener] Received #{stream} data (#{byte_size(data)} bytes) for process #{process_id}"
+        )
+
         ProcessStore.append_output(process_id, data)
         do_loop(process_id, ospid, parent)
 

@@ -152,6 +152,43 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
       assert extract_field(resp, "input_sent") == ""
       assert extract_field(resp, "input_expanded") == false
     end
+
+    test "auto_newline: true includes auto_newline in response", %{process_id: pid} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        InteractWithProcess.execute(
+          %{process_id: pid, input: "hello", auto_newline: true},
+          frame
+        )
+
+      refute resp.isError
+      assert extract_field(resp, "auto_newline") == true
+    end
+
+    test "auto_newline: false includes auto_newline in response", %{process_id: pid} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        InteractWithProcess.execute(
+          %{process_id: pid, input: "hello", auto_newline: false},
+          frame
+        )
+
+      refute resp.isError
+      assert extract_field(resp, "auto_newline") == false
+    end
+
+    test "auto_newline defaults to false for non-PTY processes", %{process_id: pid} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        InteractWithProcess.execute(%{process_id: pid, input: "hello"}, frame)
+
+      refute resp.isError
+      # For non-PTY (port-based) processes, auto_newline should default to false
+      assert extract_field(resp, "auto_newline") == false
+    end
   end
 
   # ==========================================================================

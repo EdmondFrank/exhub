@@ -127,6 +127,47 @@ defmodule Exhub.MCP.Tools.Desktop.SshPtyE2ETest do
       KillProcess.execute(%{process_id: process_id}, frame)
   end
 
+  test "SSH PTY session: auto_newline defaults to true for PTY processes", %{key_path: key_path} do
+    ssh_cmd = @ssh_command <> " -i #{key_path}"
+
+    # Step 1: Start SSH session with PTY
+    frame = %{}
+
+    {:reply, resp, ^frame} =
+      StartProcess.execute(
+        %{command: ssh_cmd, interactive: true, pty: true, working_dir: @project_dir},
+        frame
+      )
+
+    refute resp.isError, "start_process failed: #{inspect(resp.content)}"
+    process_id = extract_field(resp, "process_id")
+    assert process_id, "No process_id in response"
+
+    # Step 2: Wait for shell prompt
+    result = wait_for_output(process_id, ~r/[\\$#>%]/, 15_000)
+    assert result, "Timed out waiting for SSH shell prompt"
+
+    # Step 3: Send `echo hello` WITHOUT explicit \n — auto_newline should
+    # default to true because the process has backend: :erlexec
+    {:reply, resp, ^frame} =
+      InteractWithProcess.execute(
+        %{process_id: process_id, input: "echo hello"},
+        frame
+      )
+
+    refute resp.isError
+    assert extract_field(resp, "auto_newline") == true,
+           "Expected auto_newline=true for PTY process"
+
+    # Step 4: Wait for output containing "hello" (from the echo command)
+    {:ok, output} = wait_for_output(process_id, "hello", 10_000)
+    assert output =~ "hello", "Expected 'hello' in output after auto_newline echo"
+
+    # Step 5: Clean up — kill the SSH process
+    {:reply, _kill_resp, ^frame} =
+      KillProcess.execute(%{process_id: process_id}, frame)
+  end
+
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
