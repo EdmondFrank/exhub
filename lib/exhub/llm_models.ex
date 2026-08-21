@@ -137,7 +137,8 @@ defmodule Exhub.LLMModels do
     "minimax/minimax-m2:free",
     "openrouter/polaris-alpha",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "tencent/hy3:free"
+    "tencent/hy3:free",
+    "stealth/ox-alpha"
   ]
 
   # Kiro Gateway models (local Claude proxy)
