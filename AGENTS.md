@@ -100,6 +100,37 @@ code immediately.
 4. Verify with `exhub_get_status` / `exhub_get_version` or
    `curl localhost:9069`.
 
+### Activating new supervision-tree children without restart
+
+Hot reload only swaps BEAM code. A **new** child added to the supervision tree
+in `application.ex` will NOT be started in the running VM — and starting it
+via plain RPC (`bin/exhub rpc 'MyModule.start_link()'`) fails silently later:
+the new process is *linked* to the transient RPC evaluator, so it gets killed
+when the RPC session disconnects (verified the hard way).
+
+Zero-downtime recipe for new modules (verified with `Exhub.BrainIndexRefresh`,
+a Quantum scheduler added to the tree):
+
+```sh
+# 1) Inject runtime config if the module needs config.exs settings —
+#    release sys.config is only read at VM boot; the running VM still
+#    has the old one.
+bin/exhub rpc 'Application.put_env(:exhub, MyNewModule, jobs: [...])'
+
+# 2) Attach the child spec to the permanent supervisor. It survives
+#    because Exhub.Supervisor is permanent.
+bin/exhub rpc 'Supervisor.start_child(Exhub.Supervisor, MyNewModule)'
+
+# 3) Verify processes are alive and registered.
+bin/exhub rpc 'IO.inspect(Process.whereis(MyNewModule))'
+```
+
+- Only needed for modules that must run as part of the supervision tree
+  (GenServers, Quantum schedulers, stores…). Pure code changes need nothing
+  beyond step 2 of the deploy flow above.
+- After the next full VM restart, the `application.ex` child spec takes over
+  naturally — no manual step remains.
+
 ### Self-management MCP tools (upstream server `exhub`, route `/exhub/mcp`)
 
 | Tool | Safe? | Purpose |
