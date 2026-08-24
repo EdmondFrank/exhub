@@ -86,8 +86,11 @@ defmodule Exhub.MCP.Tools.WebSearch do
       {"Authorization", "Bearer #{api_key}"}
     ]
 
-    case HTTPoison.post(@giteeai_web_search_url, Jason.encode!(body), headers,
-           recv_timeout: 25_000
+    case HTTPoison.post(
+           @giteeai_web_search_url,
+           Jason.encode!(body),
+           headers,
+           [recv_timeout: 25_000] ++ Exhub.TLSCompat.httpoison_opts(@giteeai_web_search_url)
          ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
         case Jason.decode(response_body) do

@@ -123,7 +123,11 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   defp build_file_field(file) do
     cond do
       String.starts_with?(file, ["http://", "https://"]) ->
-        case HTTPoison.get(file, [], recv_timeout: @http_timeout_ms, timeout: @http_timeout_ms) do
+        case HTTPoison.get(
+               file,
+               [recv_timeout: @http_timeout_ms, timeout: @http_timeout_ms] ++
+                 Exhub.TLSCompat.httpoison_opts(file)
+             ) do
           {:ok, %HTTPoison.Response{status_code: 200, body: content, headers: resp_headers}} ->
             filename = file |> URI.parse() |> Map.get(:path, "document") |> Path.basename()
             filename = if filename == "" or filename == "/", do: "document", else: filename
@@ -170,9 +174,11 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
     url = "#{@task_url}/#{task_id}"
     headers = [{"Authorization", "Bearer #{api_key}"}]
 
-    case HTTPoison.get(url, headers,
-           recv_timeout: @poll_http_timeout_ms,
-           timeout: @poll_http_timeout_ms
+    case HTTPoison.get(
+           url,
+           headers,
+           [recv_timeout: @poll_http_timeout_ms, timeout: @poll_http_timeout_ms] ++
+             Exhub.TLSCompat.httpoison_opts(url)
          ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
         case Jason.decode(resp_body) do
@@ -226,9 +232,10 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
       Map.has_key?(output, "file_url") ->
         file_url = Map.get(output, "file_url")
 
-        case HTTPoison.get(file_url, [],
-               recv_timeout: @http_timeout_ms,
-               timeout: @http_timeout_ms
+        case HTTPoison.get(
+               file_url,
+               [recv_timeout: @http_timeout_ms, timeout: @http_timeout_ms] ++
+                 Exhub.TLSCompat.httpoison_opts(file_url)
              ) do
           {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
             String.trim(body)

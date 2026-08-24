@@ -124,9 +124,11 @@ defmodule Exhub.MCP.Tools.Look do
         {"Authorization", "Bearer #{api_key}"}
       ]
 
-      case HTTPoison.post(@api_url, Jason.encode!(body), headers,
-             recv_timeout: 120_000,
-             timeout: 120_000
+      case HTTPoison.post(
+             @api_url,
+             Jason.encode!(body),
+             headers,
+             [recv_timeout: 120_000, timeout: 120_000] ++ Exhub.TLSCompat.httpoison_opts(@api_url)
            ) do
         {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
           handle_success(resp_body, frame)

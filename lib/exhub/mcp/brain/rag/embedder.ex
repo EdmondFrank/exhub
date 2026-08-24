@@ -108,9 +108,12 @@ defmodule Exhub.MCP.Brain.RAG.Embedder do
         {"Authorization", "Bearer #{api_key}"}
       ]
 
-      case HTTPoison.post(url, Jason.encode!(body), headers,
-             recv_timeout: @http_timeout_ms,
-             timeout: @http_timeout_ms
+      case HTTPoison.post(
+             url,
+             Jason.encode!(body),
+             headers,
+             [recv_timeout: @http_timeout_ms, timeout: @http_timeout_ms] ++
+               Exhub.TLSCompat.httpoison_opts(url)
            ) do
         {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
           {:ok, resp_body}

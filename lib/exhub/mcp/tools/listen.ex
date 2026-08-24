@@ -124,9 +124,12 @@ defmodule Exhub.MCP.Tools.Listen do
         {"Content-Type", content_type}
       ]
 
-      case HTTPoison.post(@api_url, body, headers,
-             recv_timeout: @request_timeout,
-             timeout: @request_timeout
+      case HTTPoison.post(
+             @api_url,
+             body,
+             headers,
+             [recv_timeout: @request_timeout, timeout: @request_timeout] ++
+               Exhub.TLSCompat.httpoison_opts(@api_url)
            ) do
         {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
           handle_success(resp_body, frame)

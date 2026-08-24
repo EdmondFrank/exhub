@@ -97,6 +97,8 @@ defmodule Exhub.Application do
        session_idle_timeout: 86_400_000 * 365},
       # Brain RAG vector index (SQLite + sqlite-vec)
       Exhub.MCP.Brain.RAG.VectorIndex,
+      # Brain Index Refresh — daily incremental rebuild via Quantum scheduler
+      Exhub.BrainIndexRefresh,
       # MCP Brain Server (Obsidian vault as second brain)
       {Exhub.MCP.BrainServer,
        transport: :streamable_http,

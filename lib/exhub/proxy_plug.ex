@@ -44,11 +44,16 @@ defmodule Exhub.ProxyPlug do
   Forward connection to upstream server with proper error handling.
   """
   def forward_upstream(conn, upstream, opts \\ []) do
+    # TLS compat opts first so caller-provided client_options win on conflict.
+    client_options =
+      Exhub.TLSCompat.httpoison_opts(upstream)
+      |> Keyword.merge(Keyword.get(opts, :client_options, []))
+
     params =
       ReverseProxyPlug.init(
         upstream: upstream,
         response_mode: Keyword.get(opts, :response_mode, :stream),
-        client_options: Keyword.get(opts, :client_options, []),
+        client_options: client_options,
         preserve_host_header: Keyword.get(opts, :preserve_host_header, false)
       )
 

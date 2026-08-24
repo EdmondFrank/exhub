@@ -146,8 +146,9 @@ The `*exhub*` buffer holds the backend process output (the service log,
 including ANSI escapes). Through the MCP hub upstream `emacs`:
 
 ```json
-// emacs_read_buffer
-{"buffer_name": "*exhub*", "start_line": 1, "end_line": 50}
+// emacs_read_buffer — reverse: true counts lines from the END of the buffer,
+// so this returns the latest 50 log lines directly (no top-of-buffer scan).
+{"buffer_name": "*exhub*", "reverse": true, "end_line": 50}
 ```
 
 Related buffers: `*exhub-reload*` and `*exhub-release*` (build output),

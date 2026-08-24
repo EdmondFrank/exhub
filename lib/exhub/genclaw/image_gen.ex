@@ -49,7 +49,12 @@ defmodule Exhub.Genclaw.ImageGen do
       headers = auth_headers(json: true)
       Logger.info("[Genclaw.ImageGen] t2i model=#{model} size=#{size}")
 
-      resp = Req.post!(@t2i_url, json: body, headers: headers, receive_timeout: 120_000)
+      resp =
+        Req.post!(
+          @t2i_url,
+          [json: body, headers: headers, receive_timeout: 120_000] ++
+            Exhub.TLSCompat.req_opts()
+        )
 
       handle_response(resp, "t2i")
     end)
@@ -73,7 +78,9 @@ defmodule Exhub.Genclaw.ImageGen do
     end
 
     do_generate_with_retry(fn ->
-      Logger.info("[Genclaw.ImageGen] i2i model=#{model} size=#{size} refs=#{length(reference_images)}")
+      Logger.info(
+        "[Genclaw.ImageGen] i2i model=#{model} size=#{size} refs=#{length(reference_images)}"
+      )
 
       if model == "qwen-image-2.0" do
         # qwen-image-2.0 uses the generations endpoint with images as base64 data URLs
@@ -93,7 +100,14 @@ defmodule Exhub.Genclaw.ImageGen do
         }
 
         headers = auth_headers(json: true)
-        resp = Req.post!(@t2i_url, json: body, headers: headers, receive_timeout: 120_000)
+
+        resp =
+          Req.post!(
+            @t2i_url,
+            [json: body, headers: headers, receive_timeout: 120_000] ++
+              Exhub.TLSCompat.req_opts()
+          )
+
         handle_response(resp, "i2i")
       else
         # Other models use the multipart edits endpoint
@@ -110,7 +124,14 @@ defmodule Exhub.Genclaw.ImageGen do
         ]
 
         headers = auth_headers(json: false)
-        resp = Req.post!(@i2i_url, form_multipart: form, headers: headers, receive_timeout: 120_000)
+
+        resp =
+          Req.post!(
+            @i2i_url,
+            [form_multipart: form, headers: headers, receive_timeout: 120_000] ++
+              Exhub.TLSCompat.req_opts()
+          )
+
         handle_response(resp, "i2i")
       end
     end)
@@ -191,7 +212,7 @@ defmodule Exhub.Genclaw.ImageGen do
   defp download_image(url, tool) do
     out_path = Session.gen_png_path(tool)
 
-    resp = Req.get!(url, receive_timeout: 120_000)
+    resp = Req.get!(url, [receive_timeout: 120_000] ++ Exhub.TLSCompat.req_opts())
 
     case resp do
       %Req.Response{status: 200, body: body} when is_binary(body) ->
@@ -231,7 +252,17 @@ defmodule Exhub.Genclaw.ImageGen do
 
   defp infer_mime(path) do
     ext = Path.extname(path) |> String.downcase()
-    Map.get(%{".png" => "image/png", ".jpg" => "image/jpeg", ".jpeg" => "image/jpeg",
-              ".webp" => "image/webp", ".gif" => "image/gif"}, ext, "image/png")
+
+    Map.get(
+      %{
+        ".png" => "image/png",
+        ".jpg" => "image/jpeg",
+        ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        ".gif" => "image/gif"
+      },
+      ext,
+      "image/png"
+    )
   end
 end

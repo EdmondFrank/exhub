@@ -332,7 +332,15 @@ defmodule Exhub.MCP.Tools.ImageGen do
       {"Authorization", "Bearer #{api_key}"}
     ]
 
-    case HTTPoison.post(@api_url, body, headers, recv_timeout: 120_000, timeout: 120_000) do
+    case HTTPoison.post(
+           @api_url,
+           body,
+           headers,
+           [
+             recv_timeout: 120_000,
+             timeout: 120_000
+           ] ++ Exhub.TLSCompat.httpoison_opts(@api_url)
+         ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
         handle_success(resp_body, "gpt-image-2", nil, prompt, %{}, frame)
 
@@ -396,7 +404,15 @@ defmodule Exhub.MCP.Tools.ImageGen do
       {"Authorization", "Bearer #{api_key}"}
     ]
 
-    case HTTPoison.post(@api_url, body, headers, recv_timeout: 120_000, timeout: 120_000) do
+    case HTTPoison.post(
+           @api_url,
+           body,
+           headers,
+           [
+             recv_timeout: 120_000,
+             timeout: 120_000
+           ] ++ Exhub.TLSCompat.httpoison_opts(@api_url)
+         ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
         handle_success(resp_body, model, size, prompt, extra_body, frame)
 

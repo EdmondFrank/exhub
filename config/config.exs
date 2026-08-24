@@ -75,4 +75,11 @@ config :exhub, :secret_vault,
 
 # secrets_dir: "priv/secrets"
 
+# Brain index refresh — daily incremental rebuild of the vector index
+# (Runs at 3:00 AM by default; change the cron expression as needed.)
+config :exhub, Exhub.BrainIndexRefresh,
+  jobs: [
+    daily: [schedule: "0 3 * * *", task: {Exhub.BrainIndexRefresh, :run_refresh, []}]
+  ]
+
 import_config "#{config_env()}.exs"

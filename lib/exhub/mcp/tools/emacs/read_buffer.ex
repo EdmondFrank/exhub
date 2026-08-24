@@ -27,6 +27,10 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
       or the filename for file-visiting buffers.
     - start_line: Optional 1-based line number to start reading from
     - end_line: Optional 1-based line number to stop reading at (inclusive)
+    - reverse: Optional boolean (default false). When true, start_line/end_line
+      are counted from the END of the buffer (1 = last line). Ideal for log
+      buffers where new content is appended at the bottom — fetch the latest
+      lines directly without scanning from the top.
 
     When start_line/end_line are omitted, returns the entire buffer content.
     Character count is included in the response header.
@@ -36,6 +40,7 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
     - Read file buffer: {"buffer_name": "myfile.el"}
     - Read specific lines: {"buffer_name": "myfile.el", "start_line": 10, "end_line": 20}
     - Read from line to end: {"buffer_name": "config.el", "start_line": 50}
+    - Read last 100 lines of a log: {"buffer_name": "*exhub*", "reverse": true, "end_line": 100}
     """
   end
 
@@ -45,6 +50,12 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
     field(:start_line, :integer, description: "Start line number (1-based, optional)")
 
     field(:end_line, :integer, description: "End line number (1-based, optional)")
+
+    field(:reverse, :boolean,
+      description:
+        "Count start_line/end_line from the END of the buffer (1 = last line). e.g. {reverse: true, end_line: N} returns the last N lines",
+      default: false
+    )
   end
 
   @impl true
@@ -52,18 +63,31 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
     buffer_name = Map.get(params, :buffer_name)
     start_line = Map.get(params, :start_line)
     end_line = Map.get(params, :end_line)
+    reverse? = Map.get(params, :reverse, false) == true
 
-    command = build_read_command(buffer_name, start_line, end_line)
+    command = build_read_command(buffer_name, start_line, end_line, reverse?)
 
     case Helpers.send_command(command) do
       {:ok, response} ->
         content = parse_buffer_content(response)
 
         output =
-          if start_line || end_line do
-            "Buffer '#{buffer_name}' (lines #{start_line || 1}-#{end_line || "end"}):\n\n#{content}"
-          else
-            "Buffer '#{buffer_name}' (#{String.length(content)} chars):\n\n#{content}"
+          cond do
+            reverse? && (start_line || end_line) ->
+              range =
+                case {start_line, end_line} do
+                  {s, e} when s != nil and e != nil -> "bottom lines #{s}-#{e}"
+                  {nil, e} -> "last #{e} lines"
+                  {s, nil} -> "bottom lines #{s}-end"
+                end
+
+              "Buffer '#{buffer_name}' (reverse, #{range}):\n\n#{content}"
+
+            start_line || end_line ->
+              "Buffer '#{buffer_name}' (lines #{start_line || 1}-#{end_line || "end"}):\n\n#{content}"
+
+            true ->
+              "Buffer '#{buffer_name}' (#{String.length(content)} chars):\n\n#{content}"
           end
 
         resp = Response.tool() |> Response.text(output)
@@ -75,19 +99,30 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
     end
   end
 
-  defp build_read_command(buffer_name, nil, nil) do
+  @doc false
+  def build_read_command(buffer_name, start_line, end_line, reverse \\ false) do
+    name = Helpers.escape_elisp(buffer_name)
+
+    if reverse do
+      build_reverse_command(name, start_line, end_line)
+    else
+      build_forward_command(name, start_line, end_line)
+    end
+  end
+
+  defp build_forward_command(name, nil, nil) do
     """
-    (with-current-buffer "#{Helpers.escape_elisp(buffer_name)}"
+    (with-current-buffer "#{name}"
       (buffer-substring-no-properties (point-min) (point-max)))
     """
   end
 
-  defp build_read_command(buffer_name, start_line, end_line) do
+  defp build_forward_command(name, start_line, end_line) do
     start = start_line || 1
     end_val = end_line || "nil"
 
     """
-    (with-current-buffer "#{Helpers.escape_elisp(buffer_name)}"
+    (with-current-buffer "#{name}"
       (save-excursion
         (goto-char (point-min))
         (forward-line (1- #{start}))
@@ -96,6 +131,32 @@ defmodule Exhub.MCP.Tools.Emacs.ReadBuffer do
               (buffer-substring-no-properties start-pos (point-max))
             (forward-line (1- (- #{end_val} #{start})))
             (buffer-substring-no-properties start-pos (point))))))
+    """
+  end
+
+  # Reverse mode: start_line/end_line count from the bottom of the buffer.
+  # Total line count is resolved inside Emacs so a single round trip suffices;
+  # reverse bounds are translated into forward bounds before slicing.
+  defp build_reverse_command(name, start_line, end_line) do
+    rev_s = start_line || "nil"
+    rev_e = end_line || "nil"
+
+    """
+    (with-current-buffer "#{name}"
+      (save-excursion
+        (goto-char (point-max))
+        (let* ((total (line-number-at-pos (point)))
+               (rev-s (or #{rev_s} 1))
+               (rev-e (or #{rev_e} total))
+               (fwd-start (max 1 (+ 1 (- total rev-e))))
+               (fwd-end (min total (+ 1 (- total rev-s)))))
+          (goto-char (point-min))
+          (forward-line (1- fwd-start))
+          (let ((start-pos (point)))
+            (if (>= fwd-end total)
+                (buffer-substring-no-properties start-pos (point-max))
+              (forward-line (1- (- fwd-end fwd-start)))
+              (buffer-substring-no-properties start-pos (point)))))))
     """
   end
 
