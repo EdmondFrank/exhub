@@ -71,7 +71,6 @@ defmodule Exhub.SocketHandler do
   end
 
   def websocket_info({:send_to_emacs, message}, state) do
-    Logger.debug("[exhub] sending message to emacs \"#{message}\"")
     {:reply, {:text, message}, state}
   end
 
