@@ -59,6 +59,8 @@
 (defvar blink-search-exhub-start-update-list nil)
 (defvar blink-search-exhub-idle-timer nil)
 (defvar blink-search-exhub-elisp-symbol-size 0)
+(defvar blink-search-exhub-preview-window nil)
+(defvar blink-search-exhub-focus-timer nil)
 
 ;; ===========================================================================
 ;; Customization
@@ -226,7 +228,8 @@ Nil means search the current directory only."
 (defun blink-search-exhub-init-bottom-layout ()
   "Initialize the bottom split window layout."
   (let* ((input-height 3)
-         (tooltip-height 1))
+         (tooltip-height 1)
+         (cand-win (selected-window)))
     ;; Split: top (original) / candidate / tooltip+input
     (delete-other-windows)
     (switch-to-buffer blink-search-exhub-candidate-buffer)
@@ -237,7 +240,13 @@ Nil means search the current directory only."
       ;; Create input window below tooltip
       (let ((input-win (split-window tooltip-win (- input-height) 'below)))
         (set-window-buffer input-win blink-search-exhub-input-buffer)
-        (select-window input-win)))))
+        (select-window input-win)
+        ;; Dedicate all session windows so `display-buffer' (warnings,
+        ;; completions, help popups...) can never replace their buffers:
+        ;; a replaced input window silently kills all navigation and
+        ;; every render guard afterwards.
+        (dolist (win (list cand-win tooltip-win input-win))
+          (set-window-dedicated-p win t))))))
 
 ;; ===========================================================================
 ;; Disable options for search buffers
@@ -350,7 +359,12 @@ With prefix ARG, search current symbol."
     (setq blink-search-exhub-idle-timer
           (run-with-idle-timer blink-search-exhub-elisp-symbol-update-idle
                                t
-                               #'blink-search-exhub-run-idle-updates))))
+                               #'blink-search-exhub-run-idle-updates)))
+
+  ;; Focus guard: re-anchor focus stolen by async popups while open
+  (unless blink-search-exhub-focus-timer
+    (setq blink-search-exhub-focus-timer
+          (run-with-timer 0.4 0.4 #'blink-search-exhub-focus-guard))))
 
 ;; ===========================================================================
 ;; Input Monitoring
@@ -512,6 +526,25 @@ With prefix ARG, search current symbol."
 ;; Quit
 ;; ===========================================================================
 
+(defun blink-search-exhub-focus-guard ()
+  "Re-select the input window when a foreign popup stole focus.
+Async popups (flymake/lsp logs, warnings) can select their own window
+between renders even though session windows are dedicated; left alone
+this breaks repeated C-n/M-n navigation because the keymap lives in the
+input buffer only.  Session windows are left untouched so deliberate
+navigation inside the layout still works."
+  (when (and blink-search-exhub-window-configuration
+             (not (active-minibuffer-window)))
+    (let ((input-win (get-buffer-window blink-search-exhub-input-buffer)))
+      (when (and input-win
+                 (not (memq (selected-window)
+                            (list input-win
+                                  (get-buffer-window blink-search-exhub-candidate-buffer)
+                                  (get-buffer-window blink-search-exhub-backend-buffer)
+                                  (get-buffer-window blink-search-exhub-tooltip-buffer)
+                                  blink-search-exhub-preview-window))))
+        (select-window input-win)))))
+
 (defun blink-search-exhub-quit ()
   "Quit blink-search and restore window configuration."
   (interactive)
@@ -521,7 +554,11 @@ With prefix ARG, search current symbol."
   (when blink-search-exhub-idle-timer
     (cancel-timer blink-search-exhub-idle-timer)
     (setq blink-search-exhub-idle-timer nil))
+  (when blink-search-exhub-focus-timer
+    (cancel-timer blink-search-exhub-focus-timer)
+    (setq blink-search-exhub-focus-timer nil))
   (setq blink-search-exhub-elisp-symbol-size 0)
+  (setq blink-search-exhub-preview-window nil)
 
   (when blink-search-exhub-window-configuration
     (set-window-configuration blink-search-exhub-window-configuration)
@@ -536,13 +573,61 @@ With prefix ARG, search current symbol."
 ;; Rendering (called from Elixir via WebSocket)
 ;; ===========================================================================
 
+(defun blink-search-exhub-select-preview-window ()
+  "Select a persistent preview window, creating one if needed.
+The preview window is split off the candidate window so previews never
+replace the buffer of the input or candidate windows.  A newly split
+preview window is dedicated so `display-buffer' cannot steal or replace
+it either."
+  (if (and (window-live-p blink-search-exhub-preview-window)
+           (not (memq blink-search-exhub-preview-window
+                      (list (get-buffer-window blink-search-exhub-input-buffer)
+                            (get-buffer-window blink-search-exhub-candidate-buffer)
+                            (get-buffer-window blink-search-exhub-backend-buffer)))))
+      (select-window blink-search-exhub-preview-window)
+    (let* ((cand-win (get-buffer-window blink-search-exhub-candidate-buffer))
+           (session-windows
+            (list cand-win
+                  (get-buffer-window blink-search-exhub-tooltip-buffer)
+                  (get-buffer-window blink-search-exhub-input-buffer)
+                  (get-buffer-window blink-search-exhub-backend-buffer)))
+           (fresh-win
+            (and cand-win
+                 (ignore-errors
+                   (select-window cand-win)
+                   (split-window (selected-window) nil 'right t))))
+           ;; Fallbacks, in order: the window showing the user's original
+           ;; buffer (any window outside the session layout), then — as a
+           ;; last resort — the candidate window.  Never run previews in
+           ;; the input/candidate/backend window when avoidable: opening a
+           ;; file there replaces its buffer and kills rendering and focus
+           ;; restoration for the rest of the session.
+           (fallback-win
+            (let ((found nil))
+              (dolist (win (window-list) found)
+                (when (and (not found) (not (memq win session-windows)))
+                  (setq found win)))))
+           (preview-win (or fresh-win fallback-win cand-win)))
+      (when fresh-win
+        (set-window-dedicated-p fresh-win t))
+      (setq blink-search-exhub-preview-window preview-win)
+      (select-window preview-win))))
+
 (defmacro blink-search-exhub-select-input-window (&rest body)
-  "Evaluate BODY, then re-select the input window."
+  "Evaluate BODY in the preview window, then re-select the input window.
+BODY typically opens a file/buffer for preview.  It must not run with
+the input window selected: `find-file' would replace the input window's
+buffer, after which `(get-buffer-window ...input-buffer)' returns nil,
+focus is lost and repeated C-n/M-n navigation stops working."
   (declare (indent 0))
-  `(let ((result (progn ,@body)))
-    (when (get-buffer-window blink-search-exhub-input-buffer)
-      (select-window (get-buffer-window blink-search-exhub-input-buffer)))
-    result))
+  `(let ((input-window (get-buffer-window blink-search-exhub-input-buffer)))
+     (when input-window
+       (unwind-protect
+           (progn
+             (blink-search-exhub-select-preview-window)
+             ,@body)
+         (when (window-live-p input-window)
+           (select-window input-window))))))
 
 (defun blink-search-exhub-goto-column (column)
   "Move point to COLUMN, handling mixed CJK/ASCII correctly."
@@ -576,20 +661,36 @@ Called via WebSocket by the ExHub BlinkSearch server."
     (setq blink-search-exhub-items-number search-items-number)
     (setq blink-search-exhub-backend-number backend-number)
 
-    (if (> backend-number 1)
-        (blink-search-exhub-show-backend-window)
-      (blink-search-exhub-hide-backend-window))
+    ;; Render with the window selection frozen: backend-window juggling
+    ;; below must never leak focus, otherwise repeated C-n/M-n navigation
+    ;; silently breaks (keymap lives in the input buffer only).
+    (save-selected-window
+      (if (> backend-number 1)
+          (blink-search-exhub-show-backend-window)
+        (blink-search-exhub-hide-backend-window))
+      (blink-search-exhub-render))
 
-    (blink-search-exhub-render)))
+    ;; Self-heal focus: async popups (flymake log, lsp dialogs, warnings)
+    ;; can steal the selected window between renders even though session
+    ;; windows are dedicated.  Every render re-anchors selection to the
+    ;; input window so repeated C-n/M-n navigation never breaks.
+    (let ((input-win (get-buffer-window blink-search-exhub-input-buffer)))
+      (when (and input-win (not (eq (selected-window) input-win)))
+        (select-window input-win)))))
 
 (defun blink-search-exhub-show-backend-window ()
   "Show the backend detail window."
   (unless (get-buffer-window blink-search-exhub-backend-buffer)
     (save-excursion
       (blink-search-exhub-select-window-safe (get-buffer-window blink-search-exhub-candidate-buffer))
-      (split-window (selected-window) nil 'right t)
-      (other-window 1)
-      (switch-to-buffer blink-search-exhub-backend-buffer)
+      (let ((backend-win (ignore-errors
+                           (split-window (selected-window) nil 'right t))))
+        (if backend-win
+            (progn
+              (set-window-buffer backend-win blink-search-exhub-backend-buffer)
+              (set-window-dedicated-p backend-win t))
+          ;; No room to split: degrade by reusing the candidate window.
+          (set-window-buffer (selected-window) blink-search-exhub-backend-buffer)))
       (blink-search-exhub-select-window-safe (get-buffer-window blink-search-exhub-input-buffer)))))
 
 (defun blink-search-exhub-hide-backend-window ()
