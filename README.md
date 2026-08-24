@@ -26,6 +26,7 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Document Extraction**: MCP-based document text extraction (PDF, DOCX, images, etc.) via Gitee AI Unlimited-OCR, supporting both local files and remote URLs. Returns extracted content in Markdown format at `/doc-extract/mcp`.
 - **ACP Agent MCP Server**: MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex. Spawn, manage, and interact with AI coding agents via MCP tools at `/agent/mcp`. Supports session management, prompts, permission handling, and multi-agent pipelines.
 - **Vault (Org-mode Password Book)**: Emacs org-mode password vault integrated with Exhub. Encrypts secrets with AES-256-GCM on the backend and stores them as org links (`[[exhub-vault:CIPHERTEXT][description]]`). Supports quick insert (`C-c v i`), decrypt & copy (`C-c v c` / `C-c C-o`), and decrypt & show (`C-c v s`). Reuses the existing `SECRET_VAULT_PASSWORD` — no additional configuration needed.
+- **Blink Search**: Elixir-powered incremental multi-backend searcher for Emacs — an OTP port of blink-search replacing the Python/EPC backend. Concurrent searches across 13 backends (files via `fd`, content via `rg`, PDFs via `rga`, buffers, recent files, imenu, elisp symbols, Google suggest, history, key-value store, common directories) with progressive rendering, group navigation, quick-key actions, and search history. Scoped prefixes: `#` current buffer, `!` grep files, `;` grep PDFs, `:` current PDF. See [docs/modules/blink-search.md](docs/modules/blink-search.md).
 - **Brain (Obsidian Vault)**: MCP-based interface to an Obsidian vault as a "second brain". Exposes tools for listing notes and directories (recursive, flat, absolute paths) and searching by content, filename, or tags (including hierarchical tag search) at `/brain/mcp`.
 - **MCP Tool Filtering**: All MCP servers support `x-include-tools` and `x-exclude-tools` headers for filtering the `tools/list` response. Include only specific tools or exclude unwanted ones via comma-separated tool names.
 - **MCP Hub (Unified Gateway)**: Aggregates multiple upstream MCP servers into a single endpoint with `{server}__{tool}` namespacing. Supports virtual route proxying for direct 1:1 server access. Now includes **TF-IDF tool search** (`retrieve_tools`) for intelligent discovery, **health monitoring** with auto-reconnect and exponential backoff, and structured logging for all tool calls. Features **built-in server integration** — all 14 local MCP servers are auto-registered and accessed directly in-process via `BuiltInRegistry`, bypassing HTTP loopback for zero-latency tool calls. Hub tools are now modular `Anubis.Server.Component` modules (`retrieve_tools`, `call_tools`), and ETS ownership is centralized in `Hub.Store`.
@@ -235,32 +236,33 @@ Use the `exhub-send` function to send messages to the Elixir server:
 
 ## Documentation
 
-| Module             | Description                                                    | Doc                                                          |
-|--------------------|----------------------------------------------------------------|--------------------------------------------------------------|
-| exhub-tool         | MCP tool server integration (Git, File, K8s, Gitee, GitHub)    | [docs/modules/tool.md](docs/modules/tool.md)                 |
-| exhub-chat         | Chat, code generation, translation, and document polishing     | [docs/modules/chat.md](docs/modules/chat.md)                 |
-| exhub-agent        | Agent-based interactions and tool orchestration                | [docs/modules/agent.md](docs/modules/agent.md)               |
-| exhub-translate    | Symbol and region translation utilities                        | [docs/modules/translate.md](docs/modules/translate.md)       |
-| exhub-file         | File operations and Markdown preview                           | [docs/modules/file.md](docs/modules/file.md)                 |
-| exhub-fim          | LLM-powered fill-in-the-middle code completion                 | [docs/modules/fim.md](docs/modules/fim.md)                   |
-| exhub-keep-alive   | macOS Bluetooth connection maintenance                         | [docs/modules/keep-alive.md](docs/modules/keep-alive.md)     |
-| exhub-health-check | URL monitoring with webhook notifications                      | [docs/modules/health-check.md](docs/modules/health-check.md) |
-| exhub-habit        | MCP-based habit/environment config storage                     | [docs/modules/habit.md](docs/modules/habit.md)               |
-| exhub-web-tools    | MCP web search and URL fetch tools                             | [docs/modules/web-tools.md](docs/modules/web-tools.md)       |
-| exhub-think        | MCP reasoning scratchpad (think & plan tools)                  | [docs/modules/think.md](docs/modules/think.md)               |
-| exhub-archery      | MCP Archery SQL audit platform integration                     | [docs/modules/archery.md](docs/modules/archery.md)           |
-| exhub-time         | MCP time utilities (timezone conversion, current time)         | [docs/modules/time.md](docs/modules/time.md)                 |
-| exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)             | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
-| exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)                | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
-| exhub-todo         | MCP multi-tenant todo list management with TTL expiry          | [docs/modules/todo.md](docs/modules/todo.md)                 |
-| exhub-desktop      | MCP desktop commander (filesystem, search, process management) | [docs/modules/desktop.md](docs/modules/desktop.md)           |
-| exhub-mac-use      | MCP macOS native app automation (accessibility via axcli)      | [docs/modules/mac-use.md](docs/modules/mac-use.md)           |
-| exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI  | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
-| exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration          | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
-| exhub-vault        | Org-mode password vault (AES-256-GCM encrypted org links)     | [docs/modules/vault.md](docs/modules/vault.md)               |
-| exhub-brain        | MCP Obsidian vault "second brain" (list & search notes)        | [docs/modules/brain.md](docs/modules/brain.md)               |
-| exhub-mcp-hub      | MCP Hub — unified gateway with search, health, auto-reconnect  | [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)           |
-| exhub-agent-hub    | Agent Hub — sagents-based agent orchestration platform         | [docs/modules/agent-hub.md](docs/modules/agent-hub.md)       |
+| Module             | Description                                                           | Doc                                                          |
+|--------------------|-----------------------------------------------------------------------|--------------------------------------------------------------|
+| exhub-tool         | MCP tool server integration (Git, File, K8s, Gitee, GitHub)           | [docs/modules/tool.md](docs/modules/tool.md)                 |
+| exhub-chat         | Chat, code generation, translation, and document polishing            | [docs/modules/chat.md](docs/modules/chat.md)                 |
+| exhub-agent        | Agent-based interactions and tool orchestration                       | [docs/modules/agent.md](docs/modules/agent.md)               |
+| exhub-translate    | Symbol and region translation utilities                               | [docs/modules/translate.md](docs/modules/translate.md)       |
+| exhub-file         | File operations and Markdown preview                                  | [docs/modules/file.md](docs/modules/file.md)                 |
+| exhub-fim          | LLM-powered fill-in-the-middle code completion                        | [docs/modules/fim.md](docs/modules/fim.md)                   |
+| exhub-keep-alive   | macOS Bluetooth connection maintenance                                | [docs/modules/keep-alive.md](docs/modules/keep-alive.md)     |
+| exhub-health-check | URL monitoring with webhook notifications                             | [docs/modules/health-check.md](docs/modules/health-check.md) |
+| exhub-habit        | MCP-based habit/environment config storage                            | [docs/modules/habit.md](docs/modules/habit.md)               |
+| exhub-web-tools    | MCP web search and URL fetch tools                                    | [docs/modules/web-tools.md](docs/modules/web-tools.md)       |
+| exhub-think        | MCP reasoning scratchpad (think & plan tools)                         | [docs/modules/think.md](docs/modules/think.md)               |
+| exhub-archery      | MCP Archery SQL audit platform integration                            | [docs/modules/archery.md](docs/modules/archery.md)           |
+| exhub-time         | MCP time utilities (timezone conversion, current time)                | [docs/modules/time.md](docs/modules/time.md)                 |
+| exhub-browser-use  | MCP Chrome browser automation via kuri-agent (CDP)                    | [docs/modules/browser-use.md](docs/modules/browser-use.md)   |
+| exhub-image-gen    | MCP AI image generation via Gitee AI (5 models)                       | [docs/modules/image-gen.md](docs/modules/image-gen.md)       |
+| exhub-todo         | MCP multi-tenant todo list management with TTL expiry                 | [docs/modules/todo.md](docs/modules/todo.md)                 |
+| exhub-desktop      | MCP desktop commander (filesystem, search, process management)        | [docs/modules/desktop.md](docs/modules/desktop.md)           |
+| exhub-mac-use      | MCP macOS native app automation (accessibility via axcli)             | [docs/modules/mac-use.md](docs/modules/mac-use.md)           |
+| exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI         | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
+| exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration                 | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
+| exhub-vault        | Org-mode password vault (AES-256-GCM encrypted org links)             | [docs/modules/vault.md](docs/modules/vault.md)               |
+| exhub-brain        | MCP Obsidian vault "second brain" (list & search notes)               | [docs/modules/brain.md](docs/modules/brain.md)               |
+| exhub-blink-search | Elixir-powered multi-backend incremental searcher (blink-search port) | [docs/modules/blink-search.md](docs/modules/blink-search.md) |
+| exhub-mcp-hub      | MCP Hub — unified gateway with search, health, auto-reconnect         | [docs/modules/mcp-hub.md](docs/modules/mcp-hub.md)           |
+| exhub-agent-hub    | Agent Hub — sagents-based agent orchestration platform                | [docs/modules/agent-hub.md](docs/modules/agent-hub.md)       |
 
 For a full changelog see [docs/recent-enhancements.md](docs/recent-enhancements.md).
 For secrets management see [docs/SECRETS.md](docs/SECRETS.md) and [docs/MIGRATION.md](docs/MIGRATION.md).

@@ -1,5 +1,27 @@
 # Recent Enhancements
 
+## Blink Search — Elixir Port of blink-search (Python/EPC → OTP)
+
+- **New Feature**: blink-search-exhub, an Elixir-powered port of the blink-search Emacs package. The Python/EPC subprocess backend is replaced by an Exhub GenServer coordinating concurrent backend searches over the existing WebSocket connection.
+- **Architecture**:
+  - Emacs frontend: `blink-search-exhub.el` — window layout, input monitoring, rendering, keybindings; pushes buffer list / recentf / imenu / elisp symbols to the server.
+  - Coordinator: `Exhub.BlinkSearch.Server` (supervision tree child) — parallel per-backend search Tasks with stale-result ticker suppression, action dispatch, history recording.
+  - Renderer: `Exhub.BlinkSearch.Renderer` — pure pagination/aggregation logic mirroring upstream's `BlinkSearch` class (candidate/backend/group navigation, scroll windows).
+  - Behaviour: `Exhub.BlinkSearch.Backend` + shared helpers (fuzzy regex matching, rg JSON parsing, Exile process runner); backends under `lib/exhub/blink_search/backends/`.
+  - Dispatch: `Exhub.ResponseHandlers.ExhubBlinkSearch` handles `["blink-search", action, ...]` WebSocket messages.
+- **Backends (13)**: History, Buffer List, Common Directory, Find File (`fd`), Recent File, IMenu, Elisp Symbol, Google Suggest (honors `:exhub, :proxy`), Key Value (file-based store), Grep File (`rg --json`), Grep PDF (`rga --json`, multi-directory with `$Dn` path compression), Current Buffer (`rg` on temp copy), PDF.
+- **UI**: scoped search prefixes (`#` current buffer, `!` grep files, `;` grep PDFs, `:` current PDF), quick-key direct actions (`M-<key>`), group jumps (`M-j`/`M-k`), preview (`C-M-m`) and continue-search (`C-l`).
+- **Config sync from Emacs**: common directories, grep-pdf search paths, current buffer content, and idle-synced elisp symbols are pushed to the server on start/idle.
+- **Modified Files**:
+  - `blink-search-exhub.el` — NEW: Emacs frontend
+  - `lib/exhub/blink_search/` — NEW: server, renderer, backend behaviour, 13 backends
+  - `lib/exhub/response_handlers/exhub_blink_search.ex` — NEW: WebSocket dispatch
+  - `lib/exhub/default_response_handler.ex`, `lib/exhub/application.ex` — routing + supervision tree child
+  - `test/exhub/blink_search/`, `test/exhub/response_handlers/exhub_blink_search_test.exs` — NEW: unit tests (37)
+  - `docs/modules/blink-search.md` — NEW: module documentation
+
+---
+
 ## Gitee AI Token Pool — Context-Based Billing Selection
 
 - **New Feature**: Gitee AI (moark) upstream requests now automatically pick between the token-based and request-based billing pools based on the estimated context token count.

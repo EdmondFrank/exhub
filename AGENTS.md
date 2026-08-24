@@ -131,6 +131,36 @@ bin/exhub rpc 'IO.inspect(Process.whereis(MyNewModule))'
 - After the next full VM restart, the `application.ex` child spec takes over
   naturally — no manual step remains.
 
+### Hot-reloading Elisp frontends (no Emacs restart)
+
+The elisp side (`blink-search-exhub.el`, `exhub.el`) has its own analogue of
+`Exhub.HotReload.reload/0`: re-evaluating the file redefines `defun`s and
+`defmacro`s in place, so the next call uses the new code without restarting
+Emacs.
+
+From the agent shell (works because the running Emacs has `(server-start)`):
+
+```sh
+emacsclient -e '(load-file "~/.emacs.d/site-lisp/exhub/blink-search-exhub.el")'
+```
+
+Inside Emacs: `M-x load-file RET blink-search-exhub.el`, or `M-x eval-buffer`
+in the file's buffer.
+
+Caveats:
+
+- `defvar`/`defcustom` keep their current values on reload — changed defaults
+  do NOT apply until you set them manually or restart Emacs.
+- Same for keymaps: `blink-search-exhub-mode-map` is defined with `defvar`, so
+  keymap edits are ignored while the variable is bound. Force them with
+  `emacsclient -e '(makunbound (quote blink-search-exhub-mode-map))'` before
+  reloading.
+- Top-level `add-to-list` calls are idempotent — repeated reloads are safe.
+- Reload only adds/redefines: DELETED functions remain defined until restart
+  (`fmakunbound`/`makunbound` them explicitly if they must go away).
+- An active blink-search session holds closures over old definitions; quit it
+  (`C-g`) and start a fresh search after reloading.
+
 ### Self-management MCP tools (upstream server `exhub`, route `/exhub/mcp`)
 
 | Tool | Safe? | Purpose |

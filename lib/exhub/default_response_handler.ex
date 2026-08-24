@@ -7,6 +7,7 @@ defmodule Exhub.DefaultResponseHandler do
   alias Exhub.ResponseHandlers.ExhubAgent
   alias Exhub.ResponseHandlers.ExhubConfig
   alias Exhub.ResponseHandlers.ExhubVault
+  alias Exhub.ResponseHandlers.ExhubBlinkSearch
 
   require Logger
 
@@ -24,6 +25,7 @@ defmodule Exhub.DefaultResponseHandler do
               "exhub-config" -> ExhubConfig.call(args)
               "exhub-agent" -> ExhubAgent.call(args)
               "exhub-vault" -> ExhubVault.call(args)
+              "blink-search" -> ExhubBlinkSearch.call(args)
               action -> Logger.debug("Unknown action: #{action}, data: #{inspect(data)}")
             end
 
