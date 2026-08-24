@@ -119,11 +119,6 @@ defmodule Exhub.Router.TokenPool do
       mode = select_mode(token_count)
       token = api_key(mode)
 
-      Logger.info(
-        "[TokenPool] #{inspect(model)} — estimated #{token_count} context tokens, " <>
-          "using #{mode} pool (#{token != fallback})"
-      )
-
       token
     else
       fallback

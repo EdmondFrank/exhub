@@ -99,6 +99,18 @@ Nil means search the current directory only."
   :type 'string
   :group 'blink-search-exhub)
 
+(defcustom blink-search-exhub-kv-db-path
+  (expand-file-name (concat user-emacs-directory "blink-search-kv.db"))
+  "Path to the SQLite database for the Key Value Store backend."
+  :type 'string
+  :group 'blink-search-exhub)
+
+(defcustom blink-search-exhub-kv-db-table
+  "blink_search_kv"
+  "Table name for the Key Value Store backend."
+  :type 'string
+  :group 'blink-search-exhub)
+
 (defcustom blink-search-exhub-flash-line-delay 0.3
   "Seconds to flash the current line after navigation."
   :type 'number
@@ -335,6 +347,11 @@ With prefix ARG, search current symbol."
   (when blink-search-exhub-grep-pdf-search-paths
     (blink-search-exhub-call-flat "init_grep_pdf_paths"
                                   blink-search-exhub-grep-pdf-search-paths))
+
+  ;; Push Key Value Store config
+  (blink-search-exhub-call-flat "update" "Key Value"
+                                (list blink-search-exhub-kv-db-path
+                                      blink-search-exhub-kv-db-table))
 
   ;; Send current buffer content for Current Buffer backend
   (blink-search-exhub-call-flat "init_current_buffer"

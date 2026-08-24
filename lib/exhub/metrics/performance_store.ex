@@ -188,10 +188,6 @@ defmodule Exhub.Metrics.PerformanceStore do
     # Update aggregated stats
     update_aggregate(state.agg_table, metric_type, entity, date_key, duration_ms, status, state)
 
-    Logger.debug(
-      "[PerfMetrics] Recorded #{metric_type}/#{entity}: #{duration_ms}ms (#{status})"
-    )
-
     {:noreply, %{state | dirty: true, raw_seq: seq}}
   end
 

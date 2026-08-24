@@ -51,7 +51,6 @@ defmodule Exhub.SocketHandler do
   end
 
   def websocket_handle({:text, message}, state) do
-    Logger.debug("Received message #{inspect(message)}")
     dispatch_message(message)
     # Check if this is an emacs_response message
     case parse_emacs_response(message) do

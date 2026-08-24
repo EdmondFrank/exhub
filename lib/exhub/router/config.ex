@@ -264,7 +264,6 @@ defmodule Exhub.Router.Config do
       end
 
     custom_headers = Exhub.Router.Settings.headers(model, :openai)
-    log_custom_headers(custom_headers, model, :openai)
     merge_custom_headers(headers, custom_headers)
   end
 

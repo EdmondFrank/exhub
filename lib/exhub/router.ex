@@ -173,14 +173,10 @@ defmodule Exhub.Router do
       ]
     ]
 
-    Logger.info(
-      "[OpenAI Proxy] Forwarding request - model: #{inspect(model)}, target: #{target_url}, proxy: #{proxy}"
-    )
-
     start = System.monotonic_time(:millisecond)
     conn = ProxyPlug.forward_upstream(conn, target_url, options)
     duration = System.monotonic_time(:millisecond) - start
-    Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
+    Logger.info("[OpenAI Proxy] #{inspect(model)} \u2192 #{target_url}: #{duration}ms")
     PerformanceTracker.record_llm_proxy(model || "openai", duration, provider: "openai")
     conn
   end

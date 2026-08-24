@@ -269,10 +269,6 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
 
         :ets.insert(state.table, {key, updated_record})
 
-        Logger.debug(
-          "[TokenUsage] Updated aggregate for #{model} on #{date_key}: +#{input_tokens} input, +#{output_tokens} output, +1 request"
-        )
-
       [] ->
         record = %{
           id: generate_id(),
