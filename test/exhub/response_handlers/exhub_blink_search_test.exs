@@ -48,6 +48,17 @@ defmodule Exhub.ResponseHandlers.ExhubBlinkSearchTest do
              )
     end
 
+    test "parses update action when items arrives as a JSON object (alist-to-object)" do
+      # Emacs json-encode converts [["name", pos], ...] alists to JSON objects,
+      # e.g. {"name": [pos]}. Ensure the map form routes to update_backend.
+      assert ExhubBlinkSearch.call([
+               "blink-search",
+               "update",
+               "IMenu",
+               %{"foo" => [100], "bar" => [200]}
+             ]) == nil
+    end
+
     test "parses init actions" do
       assert ExhubBlinkSearch.call(["blink-search", "init_search_dir", "/tmp"]) == nil
 
@@ -79,6 +90,16 @@ defmodule Exhub.ResponseHandlers.ExhubBlinkSearchTest do
                nil,
                ExhubBlinkSearch.call(["blink-search", "init_common_directory", "not-a-list"])
              )
+    end
+
+    test "parses init_common_directory when dirs arrives as a JSON object" do
+      # Emacs json-encode converts [["HOME", "~/"], ...] alists to JSON objects,
+      # e.g. {"HOME": ["~/"]}. Ensure the map form routes to set_common_directory.
+      assert ExhubBlinkSearch.call([
+               "blink-search",
+               "init_common_directory",
+               %{"HOME" => ["~/"], "P" => ["~/projects"]}
+             ]) == nil
     end
 
     test "parses init_grep_pdf_paths" do

@@ -32,9 +32,13 @@ defmodule Exhub.BlinkSearch.Backends.IMenu do
 
   @impl true
   def update(items, state) do
-    # items is a list of [name, position] pairs from Emacs
+    # items is a list of [name, position] pairs from Emacs.
+    # When Emacs sends [["name", pos], ...], json-encode converts it to
+    # {"name": [pos], ...} (alist-to-object), which we then convert back
+    # to [name, [pos]] pairs in the handler. Handle both forms.
     item_dict =
       Enum.reduce(items, %{}, fn
+        [name, [position]], acc -> Map.put(acc, to_string(name), position)
         [name, position], acc -> Map.put(acc, to_string(name), position)
         %{"name" => name, "position" => position}, acc -> Map.put(acc, to_string(name), position)
         _, acc -> acc

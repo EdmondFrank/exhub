@@ -93,6 +93,15 @@ defmodule Exhub.ResponseHandlers.ExhubBlinkSearch do
     nil
   end
 
+  def call(["blink-search", "update", backend_name, items]) when is_map(items) do
+    # Emacs json-encode converts alist-like lists (e.g. [["name", pos], ...])
+    # to JSON objects ({"name": [pos], ...}). Convert the map back to a list
+    # of [key, value] pairs so backends receive the expected format.
+    pairs = Enum.map(items, fn {key, value} -> [to_string(key), value] end)
+    Server.update_backend(to_string(backend_name), pairs)
+    nil
+  end
+
   def call(["blink-search", "init_search_dir", start_dir]) do
     Server.init_search_dir(to_string(start_dir))
     nil
@@ -110,6 +119,19 @@ defmodule Exhub.ResponseHandlers.ExhubBlinkSearch do
         %{"name" => name, "path" => path} -> [[to_string(name), to_string(path)]]
         {name, path} when is_binary(name) and is_binary(path) -> [[name, path]]
         _ -> []
+      end)
+
+    Server.set_common_directory(normalized)
+    nil
+  end
+
+  def call(["blink-search", "init_common_directory", dirs]) when is_map(dirs) do
+    # Emacs json-encode converts alist-like lists to JSON objects.
+    # e.g. [["HOME", "~/"]] → {"HOME": ["~/"]}
+    normalized =
+      Enum.map(dirs, fn {alias_name, path} ->
+        path_str = if is_list(path), do: List.first(path, ""), else: path
+        [to_string(alias_name), to_string(path_str)]
       end)
 
     Server.set_common_directory(normalized)
