@@ -314,18 +314,6 @@ defmodule Exhub.BlinkSearch.Server do
   def handle_cast(:select_next_backend, state) do
     render = Renderer.select_next_backend(state.render)
     send_render_to_emacs(render)
-
-    # Also trigger select action for the newly focused backend item
-    case Renderer.selected_backend_item(render) do
-      {backend_name, candidate} ->
-        module = Map.get(@backend_modules, backend_name)
-        backend_state = Map.get(state.backend_states, backend_name, %{})
-        if module, do: module.select(candidate, backend_state)
-
-      nil ->
-        :ok
-    end
-
     {:noreply, %{state | render: render}}
   end
 
@@ -333,17 +321,6 @@ defmodule Exhub.BlinkSearch.Server do
   def handle_cast(:select_prev_backend, state) do
     render = Renderer.select_prev_backend(state.render)
     send_render_to_emacs(render)
-
-    case Renderer.selected_backend_item(render) do
-      {backend_name, candidate} ->
-        module = Map.get(@backend_modules, backend_name)
-        backend_state = Map.get(state.backend_states, backend_name, %{})
-        if module, do: module.select(candidate, backend_state)
-
-      nil ->
-        :ok
-    end
-
     {:noreply, %{state | render: render}}
   end
 

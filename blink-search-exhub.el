@@ -116,6 +116,16 @@ Nil means search the current directory only."
   :type 'number
   :group 'blink-search-exhub)
 
+(defcustom blink-search-exhub-candidate-lines 10
+  "Height in text rows of the candidate list panel."
+  :type 'natnum
+  :group 'blink-search-exhub)
+
+(defcustom blink-search-exhub-input-lines 3
+  "Height in text rows of the search input window."
+  :type 'natnum
+  :group 'blink-search-exhub)
+
 ;; ===========================================================================
 ;; Faces
 ;; ===========================================================================
@@ -238,18 +248,30 @@ Nil means search the current directory only."
       20)))
 
 (defun blink-search-exhub-init-bottom-layout ()
-  "Initialize the bottom split window layout."
-  (let* ((input-height 3)
-         (tooltip-height 1)
-         (cand-win (selected-window)))
-    ;; Split: top (original) / candidate / tooltip+input
-    (delete-other-windows)
-    (switch-to-buffer blink-search-exhub-candidate-buffer)
-
-    ;; Create tooltip window at bottom
-    (let ((tooltip-win (split-window nil (- (+ tooltip-height input-height)) 'below)))
+  "Initialize the compact bottom panel layout.
+A small panel (candidates / tooltip / input) is split off the bottom
+of the current window; all other windows stay visible and untouched,
+so searching never hides the user's work.  Falls back to the legacy
+full-frame layout when there is no room for the panel."
+  (let* ((tooltip-height 1)
+         (input-height blink-search-exhub-input-lines)
+         (panel-height (+ blink-search-exhub-candidate-lines
+                          tooltip-height
+                          input-height))
+         (panel-win (condition-case nil
+                        (split-window (selected-window) (- panel-height) 'below)
+                      (error nil))))
+    (if panel-win
+        ;; Compact path: the candidate window is the top of the panel.
+        (set-window-buffer panel-win blink-search-exhub-candidate-buffer)
+      ;; Degrade: take over the frame when there is not enough room.
+      (delete-other-windows)
+      (switch-to-buffer blink-search-exhub-candidate-buffer))
+    ;; Both paths now have the candidate window selected: build the
+    ;; tooltip+input stack below it and dedicate every session window.
+    (let ((cand-win (selected-window))
+          (tooltip-win (split-window nil (- (+ tooltip-height input-height)) 'below)))
       (set-window-buffer tooltip-win blink-search-exhub-tooltip-buffer)
-      ;; Create input window below tooltip
       (let ((input-win (split-window tooltip-win (- input-height) 'below)))
         (set-window-buffer input-win blink-search-exhub-input-buffer)
         (select-window input-win)
@@ -592,10 +614,11 @@ navigation inside the layout still works."
 
 (defun blink-search-exhub-select-preview-window ()
   "Select a persistent preview window, creating one if needed.
-The preview window is split off the candidate window so previews never
-replace the buffer of the input or candidate windows.  A newly split
-preview window is dedicated so `display-buffer' cannot steal or replace
-it either."
+In the compact bottom-panel layout the session windows are too small
+for useful previews, so reuse an existing window outside the session
+(the user's real windows above the panel) first; only when none exists
+split the candidate window as a last resort.  A newly split preview
+window is dedicated so `display-buffer' cannot steal or replace it."
   (if (and (window-live-p blink-search-exhub-preview-window)
            (not (memq blink-search-exhub-preview-window
                       (list (get-buffer-window blink-search-exhub-input-buffer)
@@ -608,23 +631,27 @@ it either."
                   (get-buffer-window blink-search-exhub-tooltip-buffer)
                   (get-buffer-window blink-search-exhub-input-buffer)
                   (get-buffer-window blink-search-exhub-backend-buffer)))
-           (fresh-win
-            (and cand-win
-                 (ignore-errors
-                   (select-window cand-win)
-                   (split-window (selected-window) nil 'right t))))
-           ;; Fallbacks, in order: the window showing the user's original
-           ;; buffer (any window outside the session layout), then — as a
-           ;; last resort — the candidate window.  Never run previews in
-           ;; the input/candidate/backend window when avoidable: opening a
-           ;; file there replaces its buffer and kills rendering and focus
-           ;; restoration for the rest of the session.
-           (fallback-win
+           ;; Prefer any window outside the session layout: it is large,
+           ;; and quitting restores its buffer via the saved window
+           ;; configuration anyway.
+           (outer-win
             (let ((found nil))
               (dolist (win (window-list) found)
                 (when (and (not found) (not (memq win session-windows)))
                   (setq found win)))))
-           (preview-win (or fresh-win fallback-win cand-win)))
+           (fresh-win
+            (and (not outer-win)
+                 cand-win
+                 (ignore-errors
+                   (select-window cand-win)
+                   (split-window (selected-window) nil 'right t))))
+           ;; Fallbacks, in order: split of the candidate window, then —
+           ;; as a last resort — the candidate window itself.  Never run
+           ;; previews in the input/candidate/backend window when
+           ;; avoidable: opening a file there replaces its buffer and
+           ;; kills rendering and focus restoration for the rest of the
+           ;; session.
+           (preview-win (or outer-win fresh-win cand-win)))
       (when fresh-win
         (set-window-dedicated-p fresh-win t))
       (setq blink-search-exhub-preview-window preview-win)
