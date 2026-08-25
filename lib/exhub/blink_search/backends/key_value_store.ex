@@ -144,18 +144,35 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStore do
   defp safe_table_name(_), do: @default_table
 
   defp ensure_schema(conn, table) do
-    execute(conn, "CREATE TABLE IF NOT EXISTS #{table} (key TEXT PRIMARY KEY, value TEXT NOT NULL)", [])
+    execute(
+      conn,
+      "CREATE TABLE IF NOT EXISTS #{table} (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+      []
+    )
   end
 
   defp query_keys(conn, table, prefix) do
-    case query_rows(conn, "SELECT key FROM #{table} WHERE key LIKE ? || '%' LIMIT 20", [prefix]) do
+    # Substring match (mirrors the legacy Python backend's `LIKE '%prefix%'`)
+    # so keys with the term mid-string are still found.
+    #
+    # CAST(key AS TEXT): legacy tables declare `"key" string`, which SQLite
+    # treats as NUMERIC affinity — numeric-looking keys (e.g. 2210506045) are
+    # stored as INTEGER and would otherwise come back as Elixir integers,
+    # crashing downstream elisp rendering.
+    case query_rows(
+           conn,
+           "SELECT CAST(key AS TEXT) FROM #{table} WHERE key LIKE '%' || ? || '%' LIMIT 20",
+           [prefix]
+         ) do
       {:ok, rows} -> {:ok, Enum.map(rows, &List.first/1)}
       error -> error
     end
   end
 
   defp lookup_key(conn, table, key) do
-    case query_rows(conn, "SELECT value FROM #{table} WHERE key = ?", [key]) do
+    # CAST(value AS TEXT): see query_keys/3 — numeric-affinity columns may
+    # hold INTEGER values that must reach elisp as strings.
+    case query_rows(conn, "SELECT CAST(value AS TEXT) FROM #{table} WHERE key = ?", [key]) do
       {:ok, [[value]]} -> {:ok, value}
       _ -> :error
     end

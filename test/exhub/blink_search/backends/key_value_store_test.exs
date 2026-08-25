@@ -21,7 +21,12 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
   end
 
   defp create_table(conn, table) do
-    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "CREATE TABLE IF NOT EXISTS #{table} (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    {:ok, stmt} =
+      Exqlite.Sqlite3.prepare(
+        conn,
+        "CREATE TABLE IF NOT EXISTS #{table} (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+      )
+
     :ok = Exqlite.Sqlite3.bind(stmt, [])
     _ = Exqlite.Sqlite3.step(conn, stmt)
     :ok = Exqlite.Sqlite3.release(conn, stmt)
@@ -90,7 +95,7 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
       assert KeyValueStore.search_match("foo", state) == []
     end
 
-    test "returns matching keys by prefix" do
+    test "returns matching keys by substring" do
       state = default_state()
       conn = open_db(state.db_path)
       create_table(conn, state.table)
@@ -106,6 +111,61 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
       assert "apple" in results
       assert "apricot" in results
       refute "beta" in results
+    end
+
+    test "finds keys where term appears mid-string (legacy Python behavior)" do
+      state = default_state()
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "compass-rabbitmq", "1")
+      insert_key(conn, state.table, "compass-redis-pass", "2")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      results = KeyValueStore.search_match("rabbit", state)
+
+      assert "compass-rabbitmq" in results
+      refute "compass-redis-pass" in results
+    end
+
+    test "returns string keys for numeric-affinity legacy tables (snails.db schema)" do
+      # The real ~/.emacs.d/priv/snails.db table is
+      # `CREATE TABLE kvstore ("key" string PRIMARY KEY UNIQUE, value string)`.
+      # "string" is not a SQLite TEXT type — it yields NUMERIC affinity, so
+      # numeric-looking keys are stored as INTEGER and Exqlite returns them
+      # as Elixir integers, which crashed candidate_text/1 during rendering.
+      state = default_state()
+      conn = open_db(state.db_path)
+
+      # Drop first: guards against any earlier implicit schema creation.
+      {:ok, drop_stmt} = Exqlite.Sqlite3.prepare(conn, "DROP TABLE IF EXISTS #{state.table}")
+      :ok = Exqlite.Sqlite3.bind(drop_stmt, [])
+      _ = Exqlite.Sqlite3.step(conn, drop_stmt)
+      :ok = Exqlite.Sqlite3.release(conn, drop_stmt)
+
+      # Exact legacy DDL from ~/.emacs.d/priv/snails.db.
+      {:ok, stmt} =
+        Exqlite.Sqlite3.prepare(
+          conn,
+          ~s{CREATE TABLE #{state.table} ("key" string PRIMARY KEY UNIQUE, value string)}
+        )
+
+      :ok = Exqlite.Sqlite3.bind(stmt, [])
+      _ = Exqlite.Sqlite3.step(conn, stmt)
+      :ok = Exqlite.Sqlite3.release(conn, stmt)
+
+      insert_key(conn, state.table, 2_210_506_045, "some-secret")
+      insert_key(conn, state.table, "compass-admin", "other")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      results = KeyValueStore.search_match("", state)
+
+      # Integer key must surface as a binary, not crash rendering.
+      assert "2210506045" in results
+      assert is_binary("2210506045")
+      assert "compass-admin" in results
+
+      # Get action on the numeric key must not raise either.
+      assert :ok = KeyValueStore.do_action("2210506045", state)
     end
 
     test "returns command candidates when prefix matches set regex" do

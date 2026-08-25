@@ -153,6 +153,10 @@ defmodule Exhub.BlinkSearch.Backend do
   def candidate_text(%{text: text}), do: text
   def candidate_text(%{"text" => text}), do: text
 
+  # Numeric candidates can leak from SQLite columns with NUMERIC affinity
+  # (e.g. the legacy `"key" string` KV table stores "2210506045" as INTEGER).
+  def candidate_text(n) when is_number(n), do: to_string(n)
+
   @doc "Extract match positions from a candidate (nil for plain strings)."
   @spec candidate_matches(candidate()) :: [[integer()]] | nil
   def candidate_matches(text) when is_binary(text), do: nil
