@@ -16,7 +16,6 @@ defmodule Exhub.Router do
   - `POST /google/v1/*path` - Proxies to Google Generative Language API
   - `POST /cohere/v1/*path` - Proxies to Cohere API
   - `POST /samba/v1/*path` - Proxies to SambaNova API
-  - `POST /infini/v1/*path` - Proxies to Infini AI API
   - `GET|POST /openai/v1/*path` - Proxies to OpenAI-compatible endpoints with model routing
   - `POST /anthropic/v1/*path` - Proxies to Anthropic API with model routing
   - `GET|POST /burncloud/v1/*path` - Proxies to BurnCloud API with Bearer token auth
@@ -100,8 +99,7 @@ defmodule Exhub.Router do
     {"/groq/v1", "https://api.groq.com/openai/v1"},
     {"/google/v1", "https://generativelanguage.googleapis.com/"},
     {"/cohere/v1", "https://api.cohere.ai/compatibility/v1"},
-    {"/samba/v1", "https://api.sambanova.ai/v1"},
-    {"/infini/v1", "https://cloud.infini-ai.com/maas/v1"}
+    {"/samba/v1", "https://api.sambanova.ai/v1"}
   ]
 
   for {route_path, upstream} <- @proxy_routes do
@@ -118,7 +116,11 @@ defmodule Exhub.Router do
 
       duration = System.monotonic_time(:millisecond) - start
       Logger.info("[Proxy] Forwarded in #{duration}ms")
-      PerformanceTracker.record_llm_proxy(unquote(provider), duration, provider: unquote(provider))
+
+      PerformanceTracker.record_llm_proxy(unquote(provider), duration,
+        provider: unquote(provider)
+      )
+
       conn
     end
   end

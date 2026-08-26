@@ -7,7 +7,7 @@ defmodule Exhub.ProxyPlug do
   require Logger
 
   # Models that require reasoning_content to be preserved across turns.
-  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"]
+  @kimi_reasoning_models ["kimi-k2.5", "kimi-k2.6", "mimo-v2.5-pro", "mimo-v2.5"]
 
   @doc """
   Returns whether proxy should be used for the given provider.
@@ -228,7 +228,6 @@ defmodule Exhub.ProxyPlug do
         model ->
           normalized_model =
             model
-            |> Exhub.Router.Config.normalize_model_name()
             |> Exhub.Router.Config.resolve_model_alias()
 
           body_params = Map.put(body_params, "model", normalized_model)
@@ -270,7 +269,7 @@ defmodule Exhub.ProxyPlug do
         Jason.encode!(Map.put(body_params, "messages", transformed_messages))
 
       %{"model" => model}
-      when model in ["kimi-k2.5", "kimi-k2.6", "inf-kimi-k2.5", "mimo-v2.5-pro", "mimo-v2.5"] ->
+      when model in ["kimi-k2.5", "kimi-k2.6", "mimo-v2.5-pro", "mimo-v2.5"] ->
         body_params
         |> Map.put("temperature", 1)
         |> Exhub.Router.Config.transform_request_body(model)
@@ -327,7 +326,6 @@ defmodule Exhub.ProxyPlug do
       String.contains?(path, "google") -> "google"
       String.contains?(path, "cohere") -> "cohere"
       String.contains?(path, "samba") -> "samba"
-      String.contains?(path, "infini") -> "infini"
       String.contains?(path, "baidu-anthropic") -> "anthropic"
       true -> "unknown"
     end

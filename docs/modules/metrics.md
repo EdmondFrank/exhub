@@ -241,7 +241,6 @@ All LLM proxy routes record `:llm_proxy` metrics after forwarding the upstream r
 | `/google/v1/*path`          | `google`          | `google`                         |
 | `/cohere/v1/*path`          | `cohere`          | `cohere`                         |
 | `/samba/v1/*path`           | `samba`           | `samba`                          |
-| `/infini/v1/*path`          | `infini`          | `infini`                         |
 
 ### MCP Hub Tool Calls
 

@@ -61,7 +61,6 @@ defmodule Exhub.Router.Config do
   @giteeai_models LLMModels.giteeai_models()
   @minimax_models LLMModels.minimax_models()
   @mimo_models LLMModels.mimo_models()
-  @infini_models LLMModels.infini_models()
   @openrouter_models LLMModels.openrouter_models()
   @kiro_models LLMModels.kiro_models()
   @nvidia_models LLMModels.nvidia_models()
@@ -92,7 +91,6 @@ defmodule Exhub.Router.Config do
     :mimo,
     :openrouter,
     :burncloud,
-    :infini,
     :kiro,
     :nvidia,
     :runinfra,
@@ -122,7 +120,6 @@ defmodule Exhub.Router.Config do
       :mimo -> @provider_urls.mimo
       :openrouter -> @provider_urls.openrouter
       :burncloud -> get_burncloud_target()
-      :infini -> @provider_urls.infini
       :kiro -> @provider_urls.kiro
       :nvidia -> @provider_urls.nvidia
       :runinfra -> @provider_urls.runinfra
@@ -156,7 +153,6 @@ defmodule Exhub.Router.Config do
       :mimo -> Application.get_env(:exhub, :mimo_api_key, "")
       :openrouter -> Application.get_env(:exhub, :openrouter_api_key, "")
       :burncloud -> Application.get_env(:exhub, :burncloud_gemini_api_key, "")
-      :infini -> Application.get_env(:exhub, :infini_api_key, "")
       :kiro -> Application.get_env(:exhub, :kiro_api_key, "")
       :nvidia -> Application.get_env(:exhub, :nvidia_api_key, "")
       :runinfra -> Application.get_env(:exhub, :runinfra_api_key, "")
@@ -338,13 +334,18 @@ defmodule Exhub.Router.Config do
   end
 
   defp provider_matches?(:bai, model), do: model in @bai_models
-  defp provider_matches?(:giteeai, model), do: model in @giteeai_models and model not in @minimax_models
+
+  defp provider_matches?(:giteeai, model),
+    do: model in @giteeai_models and model not in @minimax_models
+
   defp provider_matches?(:kimi, model), do: model == "kimi-for-coding"
   defp provider_matches?(:minimaxi, model), do: model in @minimax_models
   defp provider_matches?(:mimo, model), do: model in @mimo_models
   defp provider_matches?(:openrouter, model), do: model in @openrouter_models
-  defp provider_matches?(:burncloud, model), do: model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"]
-  defp provider_matches?(:infini, model), do: model in @infini_models
+
+  defp provider_matches?(:burncloud, model),
+    do: model in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"]
+
   defp provider_matches?(:kiro, model), do: model in @kiro_models
   defp provider_matches?(:nvidia, model), do: model in @nvidia_models
   defp provider_matches?(:runinfra, model), do: model in @runinfra_models
@@ -413,23 +414,6 @@ defmodule Exhub.Router.Config do
   def provider_urls, do: @provider_urls
 
   @doc """
-  Normalizes a model name by stripping provider prefixes.
-  For Infini models (inf-*), returns the actual model name used by the API.
-
-  ## Examples
-
-      iex> Exhub.Router.Config.normalize_model_name("inf-deepseek-v3.2")
-      "deepseek-v3.2"
-
-      iex> Exhub.Router.Config.normalize_model_name("deepseek-v3")
-      "deepseek-v3"
-  """
-  @spec normalize_model_name(model()) :: model()
-  def normalize_model_name(model) when is_binary(model) do
-    LLMModels.normalize_model_name(model)
-  end
-
-  @doc """
   Resolves a model name to its upstream API alias, if one exists.
 
   For Gitee AI models whose upstream endpoint uses a different model
@@ -445,11 +429,7 @@ defmodule Exhub.Router.Config do
   """
   @spec resolve_model_alias(model()) :: model()
   def resolve_model_alias(model) when is_binary(model) do
-    if model in @bai_models do
-      model
-    else
-      Map.get(@giteeai_model_aliases, model, model)
-    end
+    Map.get(@giteeai_model_aliases, model, model)
   end
 
   @doc """
@@ -470,7 +450,7 @@ defmodule Exhub.Router.Config do
 
   @doc """
   Transforms request body for model-specific requirements.
-  For kimi-k2.5/kimi-k2.6/inf-kimi-k2.5/mimo-v2.5-pro/mimo-v2.5, injects a placeholder `reasoning_content`
+  For kimi-k2.5/kimi-k2.6/mimo-v2.5-pro/mimo-v2.5, injects a placeholder `reasoning_content`
   into assistant messages that have tool_calls but are missing the field.
   This prevents the Moonshot API error:
   "thinking is enabled but reasoning_content is missing in assistant tool call message"
@@ -553,7 +533,6 @@ defmodule Exhub.Router.Config do
     )
 
     Application.put_env(:exhub, :bailiancloud_api_key, fetch_secret.("bailiancloud_api_key"))
-    Application.put_env(:exhub, :infini_api_key, fetch_secret.("infini_api_key"))
     Application.put_env(:exhub, :minimax_api_key, fetch_secret.("minimax_api_key"))
     Application.put_env(:exhub, :mimo_api_key, fetch_secret.("mimo_api_key"))
     Application.put_env(:exhub, :kiro_api_key, fetch_secret.("kiro_api_key"))

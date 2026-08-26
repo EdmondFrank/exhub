@@ -37,7 +37,6 @@ defmodule Exhub.LLMModels do
     mimo: "https://token-plan-sgp.xiaomimimo.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     local: "http://localhost:8765/v1",
-    infini: "https://cloud.infini-ai.com/maas/v1",
     kiro: "http://localhost:8000/v1",
     nvidia: "https://integrate.api.nvidia.com/v1",
     baidu_anthropic: "http://211.23.3.236:27545/v1",
@@ -121,16 +120,6 @@ defmodule Exhub.LLMModels do
   # MiMo AI models (backup — currently routed via Gitee AI, see @giteeai_models)
   @mimo_models ["mimo-v2.5-pro", "mimo-v2.5"]
 
-  # Infini AI models (with inf- prefix for distinction)
-  @infini_models [
-    "inf-glm-5.1",
-    "inf-glm-5.2",
-    "inf-kimi-k2.5",
-    "inf-kimi-k2.7-code",
-    "inf-minimax-m2.7",
-    "inf-deepseek-v3.2"
-  ]
-
   # OpenRouter models
   @openrouter_models [
     "tngtech/deepseek-r1t2-chimera:free",
@@ -172,19 +161,6 @@ defmodule Exhub.LLMModels do
   @bai_models ["deepseek-v4-flash"]
 
   # ============================================================================
-  # Model Normalization Mappings
-  # ============================================================================
-
-  @infini_model_mapping %{
-    "inf-glm-5.1" => "glm-5.1",
-    "inf-glm-5.2" => "glm-5.2",
-    "inf-kimi-k2.5" => "kimi-k2.5",
-    "inf-kimi-k2.7-code" => "kimi-k2.7-code",
-    "inf-minimax-m2.7" => "minimax-m2.7",
-    "inf-deepseek-v3.2" => "deepseek-v3.2"
-  }
-
-  # ============================================================================
   # Models Requiring reasoning_content Injection
   # ============================================================================
 
@@ -192,8 +168,6 @@ defmodule Exhub.LLMModels do
     "kimi-k2.5",
     "kimi-k2.6",
     "kimi-k2.7-code",
-    "inf-kimi-k2.5",
-    "inf-kimi-k2.7-code",
     "mimo-v2.5-pro",
     "mimo-v2.5"
   ]
@@ -233,12 +207,6 @@ defmodule Exhub.LLMModels do
   def mimo_models, do: @mimo_models
 
   @doc """
-  Returns the list of Infini models.
-  """
-  @spec infini_models() :: [String.t()]
-  def infini_models, do: @infini_models
-
-  @doc """
   Returns the list of OpenRouter models.
   """
   @spec openrouter_models() :: [String.t()]
@@ -273,12 +241,6 @@ defmodule Exhub.LLMModels do
   """
   @spec bai_models() :: [String.t()]
   def bai_models, do: @bai_models
-
-  @doc """
-  Returns the Infini model mapping (prefixed → actual).
-  """
-  @spec infini_model_mapping() :: %{String.t() => String.t()}
-  def infini_model_mapping, do: @infini_model_mapping
 
   @doc """
   Returns the list of models requiring reasoning_content injection.
@@ -319,26 +281,6 @@ defmodule Exhub.LLMModels do
   end
 
   @doc """
-  Normalizes a model name by stripping provider prefixes.
-  For Infini models (inf-*), returns the actual model name used by the API.
-
-  ## Examples
-
-      iex> Exhub.LLMModels.normalize_model_name("inf-deepseek-v3.2")
-      "deepseek-v3.2"
-
-      iex> Exhub.LLMModels.normalize_model_name("deepseek-v3")
-      "deepseek-v3"
-  """
-  @spec normalize_model_name(String.t()) :: String.t()
-  def normalize_model_name(model) when is_binary(model) do
-    case Map.get(@infini_model_mapping, model) do
-      nil -> model
-      actual_name -> actual_name
-    end
-  end
-
-  @doc """
   Returns the provider atom for a given model name.
 
   ## Examples
@@ -369,9 +311,6 @@ defmodule Exhub.LLMModels do
 
       model in @openrouter_models ->
         :openrouter
-
-      model in @infini_models ->
-        :infini
 
       model in @kiro_models ->
         :kiro
@@ -419,7 +358,6 @@ defmodule Exhub.LLMModels do
     @giteeai_models ++
       @minimax_models ++
       @mimo_models ++
-      @infini_models ++
       @openrouter_models ++
       @kiro_models ++
       @nvidia_models ++
