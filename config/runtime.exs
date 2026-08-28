@@ -54,6 +54,11 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       orcarouter_api_key: fetch_secret.("orcarouter_api_key"),
       bai_api_key: bai_api_key,
       llms: llms_config,
+      # Optional dedicated model for the exhub-translate module (an `llms`
+      # key, e.g. "codestral/codestral-latest"). Falls back to the default
+      # LLM when unset. See config/config.exs -> :translate_llm.
+      translate_llm:
+        System.get_env("EXHUB_TRANSLATE_LLM") || Application.get_env(:exhub, :translate_llm),
       proxy: "http://127.0.0.1:7890",
       default_timeout: 300_000,
       mcp_idle_timeout: 300_000,

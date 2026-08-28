@@ -1,5 +1,22 @@
 # Recent Enhancements
 
+## exhub-translate — Custom Translation Model
+
+- **New Feature**: the `exhub-translate` module can now use a dedicated LLM model for translations instead of always using the default model.
+- **Config Keys**:
+  - `:exhub, :translate_llm` — LLM name (a key from the `llms` config map, e.g. `"codestral/codestral-latest"`); default `nil` (use the default model). Documented in `config/config.exs`, overridable in `config/runtime.exs`.
+  - `EXHUB_TRANSLATE_LLM` — environment variable read by `runtime.exs`.
+- **Per-call override**: `Exhub.Llm.Translate.execute/3` accepts `opts[:llm]`, which takes precedence over the app env (used by future callers; the Emacs `"exhub-translate"` path still uses the configured value).
+- **Fallback**: unset, blank, or unknown model names fall back to the default LLM model — existing behavior is unchanged.
+- **New Module API**: `Exhub.Llm.Translate.resolve_llm_name/1` (resolution precedence: `opts[:llm]` → app env → `nil`).
+- **Modified Files**:
+  - `lib/llm/translate.ex` — custom model chain selection
+  - `config/config.exs`, `config/runtime.exs` — `:translate_llm` setting
+  - `test/exhub/llm/translate_test.exs` — NEW: resolution/fallback tests (4)
+  - `docs/modules/translate.md` — Custom Translation Model section
+
+---
+
 ## Blink Search — Elixir Port of blink-search (Python/EPC → OTP)
 
 - **New Feature**: blink-search-exhub, an Elixir-powered port of the blink-search Emacs package. The Python/EPC subprocess backend is replaced by an Exhub GenServer coordinating concurrent backend searches over the existing WebSocket connection.

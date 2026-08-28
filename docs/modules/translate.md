@@ -9,6 +9,25 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 (require 'exhub-translate)
 ```
 
+## Custom Translation Model
+
+By default, translations use the default LLM model configured for Exhub. A
+dedicated model can be assigned to the `exhub-translate` module:
+
+- **Config file** (`config.exs` / `runtime.exs` / env-specific config):
+  ```elixir
+  config :exhub, translate_llm: "codestral/codestral-latest"
+  ```
+- **Environment variable** (`EXHUB_TRANSLATE_LLM`), read at runtime, e.g.:
+  ```sh
+  EXHUB_TRANSLATE_LLM=openai/deepseek-v4-flash
+  ```
+
+The value must be a model name from the Exhub `llms` config map (see
+`Exhub.LLMModels.build_llms_config/1`). When no custom model is set — or the
+configured name is not a valid LLM name — the default LLM model is used, so
+existing behavior is unchanged.
+
 ## Usage
 
 ### Insert Translations

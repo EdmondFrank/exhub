@@ -12,25 +12,30 @@ config :exhub,
   giteeai_request_api_key: "",
   giteeai_pool_threshold: 20_000
 
+# Dedicated LLM for the exhub-translate module. Set to a name from the `llms`
+# config map (e.g. "codestral/codestral-latest"); nil (default) → the default
+# LLM model. Per-call override via opts[:llm] takes precedence.
+# Override in runtime.exs or via the EXHUB_TRANSLATE_LLM env var.
+config :exhub, :translate_llm, "openai/hy-mt2-30b-a3b"
+
 # Obsidian vault path for the Brain MCP server.
 # Override in runtime.exs or environment-specific config.
 config :exhub, :obsidian_vault_path, "~/GTD/PKB"
 
 # Brain vault search ranking defaults. Tunable per-call via brain_search_vault
 # `fusion`/`weights`/`min_score` params, which are merged over these defaults.
-config :exhub, :brain_ranking,
-  %{
-    "fusion" => "weighted_sum",
-    "weights" => %{
-      "bm25" => 0.4,
-      "title_match" => 0.25,
-      "tag_match" => 0.15,
-      "freshness" => 0.1,
-      "link_authority" => 0.1,
-      "semantic" => 0.3
-    },
-    "min_score" => 0.0
-  }
+config :exhub, :brain_ranking, %{
+  "fusion" => "weighted_sum",
+  "weights" => %{
+    "bm25" => 0.4,
+    "title_match" => 0.25,
+    "tag_match" => 0.15,
+    "freshness" => 0.1,
+    "link_authority" => 0.1,
+    "semantic" => 0.3
+  },
+  "min_score" => 0.0
+}
 
 # Brain vault search policies. A policy bundles retrieval + ranking
 # hyper-parameters; the default ("auto") picks a policy from query heuristics.
@@ -39,12 +44,11 @@ config :exhub, :brain_ranking,
 #     search (requires a configured embedding provider under :brain_rag)
 #   - "policies": custom/overridden policies, deep-merged over built-ins of the
 #     same name (built-ins: balanced, keyword, semantic, recency, filename)
-config :exhub, :brain_search,
-  %{
-    "default_policy" => "auto",
-    "semantic_autodetect" => true,
-    "policies" => %{}
-  }
+config :exhub, :brain_search, %{
+  "default_policy" => "auto",
+  "semantic_autodetect" => true,
+  "policies" => %{}
+}
 
 # Brain RAG (semantic/vector search) configuration.
 # Provider is "openai" (default) or "gitee_ai" (moark endpoint).
@@ -54,17 +58,16 @@ config :exhub, :brain_search,
 # Model: Qwen3-Embedding-4B (1024-dim) — recommended for this vault because
 # ~48% of notes contain Chinese and Qwen3-Embedding is natively bilingual
 # (中英双语) with a 32k token context window. Free to use on moark.
-config :exhub, :brain_rag,
-  %{
-    "provider" => "gitee_ai",
-    "embedding_model" => "Qwen3-Embedding-4B",
-    "api_base" => "https://api.moark.com/v1",
-    "dim" => 1024,
-    # index_path defaults to ~/.config/exhub/brain_index.db if unset
-    "batch_size" => 16,
-    "max_chars" => 2000,
-    "min_chars" => 32
-  }
+config :exhub, :brain_rag, %{
+  "provider" => "gitee_ai",
+  "embedding_model" => "Qwen3-Embedding-4B",
+  "api_base" => "https://api.moark.com/v1",
+  "dim" => 1024,
+  # index_path defaults to ~/.config/exhub/brain_index.db if unset
+  "batch_size" => 16,
+  "max_chars" => 2000,
+  "min_chars" => 32
+}
 
 config :exhub, :proxy_providers, ["openrouter"]
 
