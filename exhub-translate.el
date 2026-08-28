@@ -113,7 +113,7 @@
 
 
 (defun exhub-translate-posframe (tolang)
-  (interactive "sTo: ")
+  (interactive (list (read-string "To: " nil nil "ZH")))
   (let ((word (if (use-region-p)
                   (buffer-substring-no-properties (region-beginning) (region-end))
                 (thing-at-point 'symbol))))
@@ -125,20 +125,32 @@
       (exhub-translate-retrieve-translation
        word exhub-translate-default-style (exhub-translate-generate-uuid) tolang "posframe"))))
 
-(defun exhub-translate-show-translation-posframe (text)
-  "Hide the translation posframe."
-  (let ((placeholder (exhub-translate-generate-uuid)))
-    ;; Query translation.
-    (when (posframe-workable-p)
-      (let* ((translation-posframe-buffer-name "*Translation Results*")
-             (translation-posframe-buffer (get-buffer-create translation-posframe-buffer-name))
-             (translation-posframe-content text))
-        (posframe-show
-         translation-posframe-buffer
-         :string translation-posframe-content
-         :position (point))
-        (run-at-time "5 sec" nil #'exhub-translate-hide-translation-posframe translation-posframe-buffer)))))
+(defvar exhub-translate-posframe-buffer nil
+  "Buffer used by the translation posframe, or nil if none is showing.")
 
+(defun exhub-translate-show-translation-posframe (text)
+  "Show the translation TEXT in a posframe that stays until a key is pressed."
+  (when (posframe-workable-p)
+    (let* ((translation-posframe-buffer-name "*Translation Results*")
+           (translation-posframe-buffer (get-buffer-create translation-posframe-buffer-name)))
+      ;; Replace any existing translation posframe.
+      (when (and exhub-translate-posframe-buffer
+                 (not (eq exhub-translate-posframe-buffer translation-posframe-buffer)))
+        (exhub-translate-hide-translation-posframe exhub-translate-posframe-buffer))
+      (setq exhub-translate-posframe-buffer translation-posframe-buffer)
+      (posframe-show
+       translation-posframe-buffer
+       :string text
+       :position (point))
+      ;; Do not auto-hide; dismiss when the user presses any key.
+      (add-hook 'pre-command-hook #'exhub-translate-hide-translation-posframe-on-key))))
+
+(defun exhub-translate-hide-translation-posframe-on-key ()
+  "Hide the translation posframe the next time any key is pressed."
+  (remove-hook 'pre-command-hook #'exhub-translate-hide-translation-posframe-on-key)
+  (when exhub-translate-posframe-buffer
+    (exhub-translate-hide-translation-posframe exhub-translate-posframe-buffer)
+    (setq exhub-translate-posframe-buffer nil)))
 
 (defun exhub-translate-hide-translation-posframe (translation-posframe-buffer)
   "Hide the translation posframe."
