@@ -180,6 +180,23 @@
       (kill-region (beginning-of-thing 'symbol) (end-of-thing 'symbol)))
     (exhub-translate-query-translation region "origin" "zh-tw")))
 
+(defun exhub-translate-fix-grammar ()
+  "Fix grammar and spelling errors in the selected region (or symbol at point).
+
+The original text is removed and replaced with the corrected version. The
+correction keeps the original meaning, tone, and style (minimal changes)."
+  (interactive)
+  (let ((region (or (if (use-region-p)
+                        (buffer-substring-no-properties (region-beginning) (region-end))
+                      (thing-at-point 'symbol))
+                    "")))
+    (if (string-equal region "")
+        (message "Nothing input, cancel grammar fix.")
+      (if (use-region-p)
+          (kill-region (region-beginning) (region-end))
+        (kill-region (beginning-of-thing 'symbol) (end-of-thing 'symbol)))
+      (exhub-translate-query-translation-with-action region "origin" "EN" "fix-grammar"))))
+
 ;;;;;;;;;;;;;;;;;;;;; Helper functions ;;;;;;;;;;;;;;;;;;;;;
 (defun exhub-translate-replace-symbol (style)
   (let ((word (if (use-region-p)
@@ -326,6 +343,9 @@
   (md5 (number-to-string (float-time))))
 
 (defun exhub-translate-query-translation (word style lang)
+  (exhub-translate-query-translation-with-action word style lang "replace"))
+
+(defun exhub-translate-query-translation-with-action (word style lang action)
   (if (string-equal word "")
       (message "Nothing input, cancel translate.")
     (let ((placeholder (exhub-translate-generate-uuid)))
@@ -339,7 +359,7 @@
       (puthash placeholder (point) exhub-translate-placeholder-hash)
 
       ;; Query translation.
-      (exhub-translate-retrieve-translation word style placeholder lang "replace")
+      (exhub-translate-retrieve-translation word style placeholder lang action)
       )))
 
 (defun exhub-translate-retrieve-translation (word style placeholder lang action)

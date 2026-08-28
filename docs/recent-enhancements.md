@@ -1,5 +1,22 @@
 # Recent Enhancements
 
+## exhub-translate — Fix Grammar
+
+- **New Feature**: `exhub-translate-fix-grammar` command fixes grammar and spelling errors in the selected region (or symbol at point), replacing the original text with the corrected version (minimal-change correction). Modeled after the "Fix Grammar & Spelling" mode of the Ai-rewrite browser extension.
+- **Behavior**: minimal corrections only — the original meaning, tone, style, and language are preserved; the model is instructed to return only the corrected text.
+- **Implementation**:
+  - `Exhub.Llm.Translate.fix_grammar/2` — new API on the backend; reuses the same model selection as translations (custom `:exhub, :translate_llm` model or default).
+  - `Exhub.ResponseHandlers.ExhubTranslate` — new `"fix-grammar"` action dispatching to `Translate.fix_grammar/1` and inserting the result via the existing buffer-update callback (style forced to `"origin"`).
+  - `exhub-translate.el` — new `exhub-translate-fix-grammar` command; `exhub-translate-query-translation` refactored to delegate to a new `exhub-translate-query-translation-with-action` helper.
+- **Modified Files**:
+  - `lib/llm/translate.ex` — `fix_grammar/2` + `fix_grammar_prompt/1`
+  - `lib/exhub/response_handlers/exhub_translate.ex` — `"fix-grammar"` action
+  - `exhub-translate.el` — new command + query helper refactor
+  - `test/exhub/llm/translate_test.exs` — grammar prompt tests
+  - `docs/modules/translate.md` — Fix Grammar section
+
+---
+
 ## exhub-translate — Custom Translation Model
 
 - **New Feature**: the `exhub-translate` module can now use a dedicated LLM model for translations instead of always using the default model.

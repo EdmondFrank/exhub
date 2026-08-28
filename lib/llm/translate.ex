@@ -33,6 +33,43 @@ defmodule Exhub.Llm.Translate do
     Chain.execute(llm_chain, initial_messages)
   end
 
+  @system_prompt """
+  You are a helpful AI assistant that corrects grammar, spelling, and punctuation errors. Respond with ONLY the final corrected text result. No explanations, no markdown formatting, no bullet points, no preambles, no quotes around the result. Just the direct text output. CRITICAL: Preserve the original language of the input text - if the input is in a specific language, respond in that same language.
+  """
+
+  @doc """
+  Fixes grammar, spelling, and punctuation errors in `content` while keeping
+  the original meaning, tone, and style (minimal-change correction).
+
+  Uses the same model selection as `execute/3` — the optional custom
+  `:exhub, :translate_llm` model, falling back to the default LLM model.
+  """
+  def fix_grammar(content, opts \\ []) do
+    llm_chain = build_llm_chain(opts)
+
+    initial_messages = [
+      Message.new_system!(@system_prompt),
+      Message.new_user!(fix_grammar_prompt(content))
+    ]
+
+    Chain.execute(llm_chain, initial_messages)
+  end
+
+  @doc false
+  # Builds the user prompt for a grammar-correcting request. Mirrors the
+  # "Fix Grammar & Spelling" mode of the Ai-rewrite extension: minimal
+  # corrections, unchanged meaning/tone/style, corrected text only.
+  def fix_grammar_prompt(content) do
+    """
+    Fix only the grammar, spelling, and punctuation errors in this text. Keep the original meaning, tone, and style exactly the same. Make minimal changes - only correct actual errors without changing the author's voice or intent.
+
+    Input text:
+    "#{content}"
+
+    Output:
+    """
+  end
+
   @doc false
   # Resolves the custom LLM name for a translation request: opts[:llm] wins
   # over the `:exhub, :translate_llm` app env. Returns nil when no custom

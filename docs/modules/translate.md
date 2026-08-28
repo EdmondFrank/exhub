@@ -46,6 +46,10 @@ existing behavior is unchanged.
 - `exhub-translate-replace-with-camel`: Replace with camel case style.
 - `exhub-translate-replace-zh`: Translate and replace the selected region to Chinese.
 
+### Fix Grammar
+
+- `exhub-translate-fix-grammar`: Fix grammar and spelling errors in the selected region (or symbol at point). Removes the original text and replaces it with the corrected version — minimal changes only, preserving the original meaning, tone, style, and language (inspired by the "Fix Grammar & Spelling" mode of the Ai-rewrite extension). Uses the same `:exhub, :translate_llm` model selection as translations.
+
 ### Posframe Translation
 
 - `exhub-translate-posframe`: Show translation in a posframe.
