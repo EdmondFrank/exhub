@@ -129,34 +129,70 @@
   "Buffer used by the translation posframe, or nil if none is showing.")
 
 (defun exhub-translate-show-translation-posframe (text)
-  "Show the translation TEXT in a posframe that stays until a key is pressed."
-  (when (posframe-workable-p)
-    (let* ((translation-posframe-buffer-name "*Translation Results*")
-           (translation-posframe-buffer (get-buffer-create translation-posframe-buffer-name)))
-      ;; Replace any existing translation posframe.
-      (when (and exhub-translate-posframe-buffer
-                 (not (eq exhub-translate-posframe-buffer translation-posframe-buffer)))
-        (exhub-translate-hide-translation-posframe exhub-translate-posframe-buffer))
-      (setq exhub-translate-posframe-buffer translation-posframe-buffer)
-      (posframe-show
-       translation-posframe-buffer
-       :string text
-       :position (point))
-      ;; Do not auto-hide; dismiss when the user presses any key.
-      (add-hook 'pre-command-hook #'exhub-translate-hide-translation-posframe-on-key))))
+  "Show the translation TEXT, keeping it until a key is pressed.
+
+Uses a posframe in GUI Emacs; in TUI mode (terminals), where
+posframe cannot work, falls back to displaying TEXT in a dedicated
+buffer via `exhub-translate-show-translation-buffer'."
+  (if (posframe-workable-p)
+      (let* ((translation-posframe-buffer-name "*Translation Results*")
+             (translation-posframe-buffer (get-buffer-create translation-posframe-buffer-name)))
+        ;; Replace any existing translation posframe.
+        (when (and exhub-translate-posframe-buffer
+                   (not (eq exhub-translate-posframe-buffer translation-posframe-buffer)))
+          (exhub-translate-hide-translation-posframe exhub-translate-posframe-buffer))
+        (setq exhub-translate-posframe-buffer translation-posframe-buffer)
+        (posframe-show
+         translation-posframe-buffer
+         :string text
+         :position (point))
+        ;; Do not auto-hide; dismiss when the user presses any key.
+        (add-hook 'pre-command-hook #'exhub-translate-hide-translation-posframe-on-key))
+    (exhub-translate-show-translation-buffer text)))
+
+(defun exhub-translate-show-translation-buffer (text)
+  "Display the translation TEXT in a dedicated buffer (TUI fallback).
+
+Used when posframe is unavailable (terminal Emacs). The buffer is
+shown in a reusable window and dismissed on the next key press,
+matching `exhub-translate-show-translation-posframe' behavior."
+  (let ((translation-posframe-buffer (get-buffer-create "*Translation Results*")))
+    ;; Replace any existing translation display.
+    (when (and exhub-translate-posframe-buffer
+               (not (eq exhub-translate-posframe-buffer translation-posframe-buffer)))
+      (exhub-translate-hide-translation-posframe exhub-translate-posframe-buffer))
+    (setq exhub-translate-posframe-buffer translation-posframe-buffer)
+    (with-current-buffer translation-posframe-buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert text)
+        (goto-char (point-min))
+        (read-only-mode 1)))
+    (display-buffer translation-posframe-buffer
+                    '((display-buffer-reuse-window
+                       display-buffer-pop-up-window)))
+    ;; Dismiss when the user presses any key.
+    (add-hook 'pre-command-hook #'exhub-translate-hide-translation-posframe-on-key)))
 
 (defun exhub-translate-hide-translation-posframe-on-key ()
-  "Hide the translation posframe the next time any key is pressed."
+  "Hide the translation display the next time any key is pressed."
   (remove-hook 'pre-command-hook #'exhub-translate-hide-translation-posframe-on-key)
   (when exhub-translate-posframe-buffer
     (exhub-translate-hide-translation-posframe exhub-translate-posframe-buffer)
     (setq exhub-translate-posframe-buffer nil)))
 
 (defun exhub-translate-hide-translation-posframe (translation-posframe-buffer)
-  "Hide the translation posframe."
+  "Hide the translation display (posframe or TUI fallback buffer).
+
+In TUI mode, close the window(s) showing the buffer and kill it."
   (when (and translation-posframe-buffer
              (buffer-live-p translation-posframe-buffer))
-    (posframe-delete translation-posframe-buffer)))
+    (if (posframe-workable-p)
+        (posframe-delete translation-posframe-buffer)
+      ;; TUI: close any window showing the buffer, then kill it.
+      (dolist (window (get-buffer-window-list translation-posframe-buffer nil t))
+        (delete-window window))
+      (kill-buffer translation-posframe-buffer))))
 
 (defun exhub-translate-replace-with-line ()
   (interactive)
