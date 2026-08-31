@@ -136,6 +136,28 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   @doc """
+  Normalizes a tool name before dispatching to an upstream server.
+
+  Namespaced references of the form `\#{server}__tool` — the naming scheme used
+  when tools are advertised to AI clients (e.g. `gitee__create_enterprise_issue`,
+  see `Exhub.Sagents.McpAdapter`) — are reduced to the bare upstream tool name
+  (`create_enterprise_issue`) when the prefix matches the target server. This
+  avoids a useless "tool not found" round-trip to the upstream server.
+  """
+  @spec normalize_tool_name(String.t(), String.t()) :: String.t()
+  def normalize_tool_name(server_name, tool_name)
+      when is_binary(server_name) and is_binary(tool_name) do
+    prefix = server_name <> "__"
+
+    case tool_name do
+      <<^prefix::binary, bare::binary>> when bare != "" -> bare
+      _ -> tool_name
+    end
+  end
+
+  def normalize_tool_name(_server_name, tool_name), do: tool_name
+
+  @doc """
   Adds a new upstream server configuration.
   """
   @spec add_server(map()) :: {:ok, ServerConfig.t()} | {:error, term()}
@@ -528,6 +550,8 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @impl true
   def handle_call({:call_tool, server_name, tool_name, arguments}, from, state) do
+    tool_name = normalize_tool_name(server_name, tool_name)
+
     Logger.info("[MCP Hub] Calling tool on #{server_name}: #{tool_name}")
 
     # Check if this is a built-in server first (direct execution, no HTTP)

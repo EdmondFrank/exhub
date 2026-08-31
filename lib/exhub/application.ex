@@ -11,6 +11,12 @@ defmodule Exhub.Application do
 
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
+      # Finch HTTP pool used by the Anubis MCP client transports. anubis_mcp
+      # 1.14+ no longer ships an OTP application module (its own app was
+      # removed upstream), so the host application must start the named Finch
+      # instance it hard-codes (`Anubis.Finch`) — otherwise every upstream
+      # HTTP request fails with "unknown registry: Anubis.Finch".
+      {Finch, name: Anubis.Finch, pools: %{default: [size: 15]}},
       # Sagents — agent orchestration framework (must start after Registry)
       Sagents.Supervisor,
       # Agent Hub — manages sagents agent lifecycle

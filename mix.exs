@@ -36,7 +36,7 @@ defmodule Exhub.MixProject do
       {:httpoison, "~> 2.0"},
       {:floki, "~> 0.37.0"},
       {:reverse_proxy_plug, "~> 3.0"},
-      {:anubis_mcp, "~> 1.0.0"},
+      {:anubis_mcp, "~> 1.14.0"},
       {:swarm_ex, git: "https://github.com/edmondfrank/swarm_ex", branch: "master"},
       {:instructor,
        git: "https://github.com/thmsmlr/instructor_ex",
