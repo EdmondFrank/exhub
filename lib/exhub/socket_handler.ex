@@ -59,10 +59,18 @@ defmodule Exhub.SocketHandler do
         {:reply, {:text, "nil"}, state}
 
       :not_response ->
-        case response_handler().call(message) do
-          response when is_binary(response) -> {:reply, {:text, response}, state}
-          nil -> {:reply, {:text, "nil"}, state}
-        end
+        # Run the response handler off the Cowboy websocket process so a slow
+        # handler (e.g. a long LLM translation/chat) can't block pings, incoming
+        # frames, or results broadcast via Exhub.send_message. The reply is
+        # delivered back through websocket_info when the task finishes.
+        caller = self()
+
+        Task.start(fn ->
+          response = response_handler().call(message)
+          send(caller, {:websocket_response, response})
+        end)
+
+        {:ok, state}
     end
   end
 
@@ -72,6 +80,14 @@ defmodule Exhub.SocketHandler do
 
   def websocket_info({:send_to_emacs, message}, state) do
     {:reply, {:text, message}, state}
+  end
+
+  def websocket_info({:websocket_response, response}, state) when is_binary(response) do
+    {:reply, {:text, response}, state}
+  end
+
+  def websocket_info({:websocket_response, _response}, state) do
+    {:reply, {:text, "nil"}, state}
   end
 
   def terminate(reason, _req, _state) do
