@@ -423,7 +423,7 @@ Search for relevant tools across all connected servers (both upstream and built-
       "name": "desktop-commander__read_file",
       "description": "[desktop-commander] Read file contents",
       "server": "desktop-commander",
-      "inputSchema": { ... }
+      "params": "path: string (required)"
     }
   ],
   "count": 1
@@ -468,7 +468,7 @@ Execute a tool on a specific upstream MCP server through the hub. Use this to ca
 }
 ```
 
-**Note**: If the initial tool call fails and the `tool_name` contains a `__` prefix (e.g., `desktop__read_file`), the tool will automatically retry with the prefix stripped.
+**Note**: Namespaced tool names of the form `{server}__{tool}` (e.g. `desktop__read_file`) are accepted and normalized to the bare tool name **before** dispatch — `ClientManager.normalize_tool_name/2` strips the `{server}__` prefix when it matches the target server, avoiding a useless "tool not found" round-trip to the upstream server.
 
 ---
 

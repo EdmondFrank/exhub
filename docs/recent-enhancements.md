@@ -1,5 +1,31 @@
 # Recent Enhancements
 
+## MCP Hub — Compact Params Summary in Tool Retrieval
+
+- **New Feature**: `retrieve_tools` results now include a single compact `params` summary line (e.g. `"query: string (required), limit: integer"`) instead of the full `inputSchema` blob, keeping tool discovery responses small for AI clients.
+- **Behavior**: params are sorted by name, each rendered as `name: type` with a `(required)` marker when present in the schema's `required` list; array-of-types schemas use the first type. Tools with no documented parameters omit the `params` key entirely.
+- **Implementation**: `Exhub.MCP.Tools.Hub.RetrieveTools.compact_params/1` (public helper, returns `nil` for empty/absent `properties`) + `param_type/1`; the HTTP search endpoint (`GET /mcp-hub/tools/search`) is unchanged and still returns the raw `input_schema`.
+- **Modified Files**:
+  - `lib/exhub/mcp/tools/hub/retrieve_tools.ex` — compact `params` in formatted results
+  - `test/exhub/mcp/tools/hub/retrieve_tools_test.exs` — NEW: `compact_params/1` tests (4)
+  - `docs/modules/mcp-hub.md` — updated `retrieve_tools` response example
+
+---
+
+## MCP Hub — anubis_mcp 1.14 Upgrade & Tool Name Normalization
+
+- **Upgrade**: `anubis_mcp` bumped from `~> 1.0.0` to `~> 1.14.0` (with `peri` 0.9.0, `castore` 1.0.21, `plug_crypto` 2.2.0).
+- **Finch pool**: anubis_mcp 1.14+ no longer ships an OTP application module (its app was removed upstream), so the host application now starts the named Finch instance it hard-codes (`Anubis.Finch`, default pool size 15) in the supervision tree — otherwise every upstream HTTP request failed with `unknown registry: Anubis.Finch`.
+- **Tool name normalization**: `Exhub.MCP.Hub.ClientManager.normalize_tool_name/2` strips a `{server}__` prefix from namespaced tool refs (the naming scheme tools are advertised under to AI clients, e.g. `gitee__create_enterprise_issue`) when the prefix matches the target server, before dispatching to the upstream server — avoids a useless "tool not found" round-trip.
+- **Modified Files**:
+  - `mix.exs` / `mix.lock` — anubis_mcp 1.14.0
+  - `lib/exhub/application.ex` — `Anubis.Finch` child in the supervision tree
+  - `lib/exhub/mcp/hub/client_manager.ex` — `normalize_tool_name/2` applied in `call_tool` dispatch
+  - `test/exhub/mcp/hub/client_manager_test.exs` — NEW: normalization tests (6)
+  - `docs/modules/agent-hub.md`, `docs/modules/mcp-hub.md` — dependency version + call_tools note
+
+---
+
 ## exhub-translate — Fix Grammar
 
 - **New Feature**: `exhub-translate-fix-grammar` command fixes grammar and spelling errors in the selected region (or symbol at point), replacing the original text with the corrected version (minimal-change correction). Modeled after the "Fix Grammar & Spelling" mode of the Ai-rewrite browser extension.

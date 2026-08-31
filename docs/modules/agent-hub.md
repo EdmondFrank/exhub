@@ -136,4 +136,4 @@ Agents can selectively use exhub's MCP tools:
 
 - `sagents ~> 0.7.0` — Agent orchestration framework
 - `langchain ~> 0.8.0` — LLM integration (upgraded from 0.4.1)
-- `anubis_mcp ~> 1.0.0` — MCP server framework
+- `anubis_mcp ~> 1.14.0` — MCP server framework
