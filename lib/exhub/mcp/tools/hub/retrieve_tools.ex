@@ -59,15 +59,57 @@ defmodule Exhub.MCP.Tools.Hub.RetrieveTools do
 
     formatted =
       Enum.map(results, fn result ->
-        %{
+        base = %{
           name: result["full_name"],
-          description: result["description"],
           server: result["server"],
-          inputSchema: result["input_schema"]
+          description: result["description"]
         }
+
+        case compact_params(result["input_schema"]) do
+          nil -> base
+          params -> Map.put(base, :params, params)
+        end
       end)
 
     resp = Response.tool() |> Response.structured(%{tools: formatted, count: length(formatted)})
     {:reply, resp, frame}
   end
+
+  @doc """
+  Reduces a full input schema to a single compact param summary line,
+  e.g. `"query: string (required), limit: integer"`.
+
+  Returns `nil` for tools that take no (or no documented) parameters.
+  """
+  def compact_params(schema) when is_map(schema) do
+    properties = Map.get(schema, "properties", %{})
+    required = schema |> Map.get("required", []) |> List.wrap() |> MapSet.new()
+
+    if properties != %{} do
+      properties
+      |> Enum.sort_by(fn {name, _} -> name end)
+      |> Enum.map(fn {name, spec} ->
+        base = "#{name}: #{param_type(spec)}"
+
+        if MapSet.member?(required, name) do
+          base <> " (required)"
+        else
+          base
+        end
+      end)
+      |> Enum.join(", ")
+    end
+  end
+
+  def compact_params(_), do: nil
+
+  defp param_type(spec) when is_map(spec) do
+    case spec do
+      %{"type" => type} when is_binary(type) -> type
+      %{"type" => [type | _]} when is_binary(type) -> type
+      _ -> "any"
+    end
+  end
+
+  defp param_type(_), do: "any"
 end
