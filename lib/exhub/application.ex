@@ -145,6 +145,9 @@ defmodule Exhub.Application do
       {Exhub.Metrics.PerformanceStore, name: Exhub.Metrics.PerformanceStore},
       # Blink Search — coordinator for Emacs blink-search-exhub UI
       {Exhub.BlinkSearch.Server, []},
+      # Exhub FIM — async code-completion coordinator for Emacs exhub-fim
+      # (also lazily started; supervised child covers future boots)
+      {Exhub.Fim.Server, []},
       cowboy_spec()
     ]
 

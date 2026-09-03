@@ -29,6 +29,30 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 - `exhub-fim-configure-provider`: Configure a exhub-fim provider interactively.
 
+## Asynchronous Elixir Backend (FIM Providers)
+
+The `codestral` and `openai-fim-compatible` providers do **not** send HTTP
+requests from Emacs anymore. Instead they are routed through the ExHub
+WebSocket (like `blink-search-exhub`): Emacs sends a `["func", ["exhub-fim",
+"complete", …]]` command, `Exhub.Fim.Server` runs the completion requests
+concurrently on the Elixir side, and results are pushed back to Emacs as elisp
+payloads evaluated over the WebSocket.
+
+- Requires the ExHub WebSocket connection (`exhub.el`); Emacs is never blocked
+  on the LLM request.
+- Chat-based providers (`openai`, `claude`, `gemini`,
+  `openai-compatible`) keep the original in-Emacs request path unchanged.
+- Provider configuration (`:model`, `:end-point`) still comes from the Emacs
+  `exhub-fim-*-options`; the API key is resolved on the Elixir side, in order:
+  1. an explicit `:api-key` option (used by `exhub-fim-configure-provider`),
+  2. the `:exhub, :llms` entry (`codestral/codestral-latest` for Codestral),
+  3. `Application.get_env(:exhub, :codestral_api_key)` / `:deepseek_api_key`,
+  4. the `CODESTRAL_API_KEY` / `DEEPSEEK_API_KEY` environment variable.
+- Timeout for FIM requests defaults to 60s on the Elixir side (the old 3s
+  Emacs streaming timeout does not apply to this path).
+- Cancellation: dismissing a suggestion (or cursor move) sends
+  `["func", ["exhub-fim", "cancel", request-id]]`, killing in-flight tasks.
+
 ## Using a Custom Gemini Proxy
 
 If you are running the Elixir proxy server locally (default port 9069), set the Gemini provider to use the proxy endpoint:

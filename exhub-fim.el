@@ -30,6 +30,7 @@
 (declare-function evil-insert-state-p "evil-states")
 (declare-function consult--read "consult")
 (declare-function consult--insertion-preview "consult")
+(declare-function exhub-fim--exhub-cancel-requests "exhub-fim")
 
 (defcustom exhub-fim-auto-suggestion-debounce-delay 0.4
   "Debounce delay in seconds for auto-suggestions."
@@ -378,6 +379,7 @@ symbol, return its value.  Else return itself."
 
 (defun exhub-fim--cancel-requests ()
   "Cancel all current exhub-fim requests for this buffer."
+  (exhub-fim--exhub-cancel-requests)
   (when exhub-fim--current-requests
     (dolist (proc exhub-fim--current-requests)
       (when (process-live-p proc)
@@ -911,22 +913,113 @@ arrive."
         exhub-fim--current-requests)))))
 
 (defun exhub-fim--codestral-complete (context callback)
-  "Complete code with codestral.
-CONTEXT and CALLBACK will be passed to the base function."
-  (exhub-fim--openai-fim-complete-base
-   (plist-put (copy-tree exhub-fim-codestral-options) :name "Codestral")
-   #'exhub-fim--openai-get-text-fn
-   context
-   callback))
+  "Complete code with codestral via the ExHub Elixir backend.
+CONTEXT and CALLBACK follow the exhub-fim complete-fn contract.  The HTTP
+request runs asynchronously on the ExHub server instead of blocking Emacs."
+  (exhub-fim--exhub-complete
+   'codestral context callback
+   (list :model (plist-get exhub-fim-codestral-options :model)
+         :endpoint (plist-get exhub-fim-codestral-options :end-point))))
 
 (defun exhub-fim--openai-fim-compatible-complete (context callback)
-  "Complete code with openai fim API.
-CONTEXT and CALLBACK will be passed to the base function."
-  (exhub-fim--openai-fim-complete-base
-   (copy-tree exhub-fim-openai-fim-compatible-options)
-   #'exhub-fim--openai-fim-get-text-fn
-   context
-   callback))
+  "Complete code with the OpenAI-FIM-compatible provider via ExHub.
+CONTEXT and CALLBACK follow the exhub-fim complete-fn contract.  The HTTP
+request runs asynchronously on the ExHub server instead of blocking Emacs."
+  (exhub-fim--exhub-complete
+   'openai-fim-compatible context callback
+   (list :model (plist-get exhub-fim-openai-fim-compatible-options :model)
+         :endpoint (plist-get exhub-fim-openai-fim-compatible-options :end-point))))
+
+;; ===========================================================================
+;; ExHub asynchronous backend (FIM providers routed through Elixir)
+;;
+;; The codestral and openai-fim-compatible providers no longer fire `plz`
+;; HTTP requests from Emacs.  Instead a command is sent over the ExHub
+;; WebSocket; `Exhub.Fim.Server` runs the requests concurrently and pushes
+;; results back, which arrive here as elisp forms evaluated by `exhub-eval`:
+;;
+;;   (exhub-fim-async-items REQUEST-ID (item1 item2 ...))
+;;   (exhub-fim-async-done REQUEST-ID)
+;;   (exhub-fim-async-error REQUEST-ID "message")
+;; ===========================================================================
+
+(defvar exhub-fim--exhub-request-seq 0
+  "Monotonic counter for ExHub async completion request ids.")
+
+(defvar exhub-fim--exhub-requests nil
+  "Alist of in-flight ExHub completions.
+Each entry is (REQUEST-ID BUFFER CALLBACK ITEMS CONTEXT).  REQUEST-ID is an
+integer, BUFFER is the buffer the completion was requested from, CALLBACK is
+the completion callback, ITEMS accumulate results, and CONTEXT is the request
+context used for after-cursor filtering.")
+
+(defun exhub-fim--exhub-next-request-id ()
+  "Return the next monotonic request id for ExHub completions."
+  (cl-incf exhub-fim--exhub-request-seq))
+
+(defun exhub-fim--exhub-send-complete (request-id provider context opts)
+  "Send a FIM completion request to the ExHub backend.
+REQUEST-ID, PROVIDER, CONTEXT and OPTS are sent over the WebSocket; the Elixir
+`Exhub.Fim.Server` executes the HTTP request asynchronously."
+  (exhub-call
+   "exhub-fim" "complete" request-id provider
+   (list :before-cursor (plist-get context :before-cursor)
+         :after-cursor (plist-get context :after-cursor)
+         :language-and-tab (plist-get context :language-and-tab)
+         :is-incomplete-before (plist-get context :is-incomplete-before)
+         :is-incomplete-after (plist-get context :is-incomplete-after))
+   opts))
+
+(defun exhub-fim--exhub-complete (provider context callback &optional options)
+  "Request FIM completion from PROVIDER via the ExHub Elixir backend.
+CONTEXT and CALLBACK follow the exhub-fim complete-fn contract.  OPTIONS is a
+plist of provider overrides (:model, :endpoint, :api-key, :n).  When the ExHub
+WebSocket is not connected, CALLBACK is invoked with nil."
+  (if (exhub-open-connection)
+      (let* ((request-id (exhub-fim--exhub-next-request-id))
+             (buffer (current-buffer))
+             (opts (append (list :n (or (plist-get options :n) exhub-fim-n-completions))
+                           options)))
+        (push (list request-id buffer callback nil context) exhub-fim--exhub-requests)
+        (exhub-fim--exhub-send-complete request-id provider context opts))
+    (exhub-fim--log "[ExHub FIM] WebSocket not connected; skipped async completion" t)
+    (funcall callback nil)))
+
+(defun exhub-fim-async-items (request-id items)
+  "Deliver completion ITEMS for REQUEST-ID reported by the ExHub backend.
+Appends to the request's accumulated items, applies the standard context
+filtering, and invokes the registered callback in its original buffer so the
+overlay updates progressively as each concurrent request completes."
+  (when-let* ((entry (assq request-id exhub-fim--exhub-requests))
+              (buffer (nth 1 entry))
+              (callback (nth 2 entry))
+              (context (nth 4 entry)))
+    (setf (nth 3 entry) (append (nth 3 entry) items))
+    (let* ((prepared (exhub-fim--remove-spaces
+                      (exhub-fim--filter-context-sequence-in-items
+                       (nth 3 entry) context)))
+           (prepared (-distinct prepared)))
+      (with-current-buffer buffer
+        (funcall callback prepared)))))
+
+(defun exhub-fim-async-done (request-id)
+  "Release the in-flight registration for REQUEST-ID."
+  (setq exhub-fim--exhub-requests
+        (cl-remove request-id exhub-fim--exhub-requests :key #'car)))
+
+(defun exhub-fim-async-error (request-id message)
+  "Log an error MESSAGE for REQUEST-ID reported by the ExHub backend."
+  (exhub-fim--log (format "ExHub FIM error (request %s): %s" request-id message))
+  (exhub-fim-async-done request-id))
+
+(defun exhub-fim--exhub-cancel-requests ()
+  "Cancel in-flight ExHub completions initiated from the current buffer."
+  (let ((keep nil))
+    (dolist (entry exhub-fim--exhub-requests)
+      (if (eq (nth 1 entry) (current-buffer))
+          (exhub-call "exhub-fim" "cancel" (car entry))
+        (push entry keep)))
+    (setq exhub-fim--exhub-requests (nreverse keep))))
 
 (defun exhub-fim--openai-fim-get-text-fn (json)
   "Function to get the completion from a JSON object for openai-fim compatible."
