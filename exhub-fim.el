@@ -938,7 +938,7 @@ request runs asynchronously on the ExHub server instead of blocking Emacs."
 ;; WebSocket; `Exhub.Fim.Server` runs the requests concurrently and pushes
 ;; results back, which arrive here as elisp forms evaluated by `exhub-eval`:
 ;;
-;;   (exhub-fim-async-items REQUEST-ID (item1 item2 ...))
+;;   (exhub-fim-async-items REQUEST-ID '(item1 item2 ...))   ; list quoted for eval
 ;;   (exhub-fim-async-done REQUEST-ID)
 ;;   (exhub-fim-async-error REQUEST-ID "message")
 ;; ===========================================================================

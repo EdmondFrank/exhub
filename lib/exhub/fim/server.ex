@@ -13,7 +13,7 @@ defmodule Exhub.Fim.Server do
   2. `Exhub.Fim.Server` spawns one `Task` per completion (`opts["n"]`, default 3)
   3. Each task calls `Exhub.Fim.Client.complete/3` and reports back
   4. Every successful text is forwarded immediately as
-     `(exhub-fim-async-items REQUEST_ID ("item"))` via `Exhub.send_message/1`
+     `(exhub-fim-async-items REQUEST_ID '("item"))` via `Exhub.send_message/1`
   5. When all tasks finish, `(exhub-fim-async-done REQUEST_ID)` is sent so
      Emacs can release the request registry entry
 
@@ -158,15 +158,23 @@ defmodule Exhub.Fim.Server do
 
   # Test seam: an explicit "_client" opt wins over the app env so tests can stub
   # the HTTP layer without racing other test modules on global state.
+  #
+  # Careful: `nil` is an atom, so a missing "_client" key must not match the
+  # module clause (that caused "function nil.complete/3 is undefined" in prod).
   defp client_module(opts) do
     case Map.get(opts || %{}, "_client") do
-      module when is_atom(module) -> module
-      _ -> Application.get_env(:exhub, :fim_client_module, Client)
+      nil -> default_client_module()
+      module when is_atom(module) and not is_nil(module) -> module
+      _ -> default_client_module()
     end
   end
 
+  defp default_client_module do
+    Application.get_env(:exhub, :fim_client_module) || Client
+  end
+
   defp deliver_result(entry, request_id, {:ok, text}) when is_binary(text) and text != "" do
-    send_to_emacs("(exhub-fim-async-items #{request_id} (#{Backend.elisp_quote(text)}))")
+    send_to_emacs("(exhub-fim-async-items #{request_id} '(#{Backend.elisp_quote(text)}))")
     entry
   end
 
@@ -174,7 +182,11 @@ defmodule Exhub.Fim.Server do
 
   defp deliver_result(entry, request_id, {:error, reason}) do
     Logger.warning("Exhub.Fim request #{request_id} failed: #{inspect(reason)}")
-    send_to_emacs("(exhub-fim-async-error #{request_id} #{Backend.elisp_quote(to_string(reason))})")
+
+    send_to_emacs(
+      "(exhub-fim-async-error #{request_id} #{Backend.elisp_quote(to_string(reason))})"
+    )
+
     entry
   end
 

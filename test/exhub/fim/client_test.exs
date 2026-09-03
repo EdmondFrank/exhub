@@ -23,7 +23,7 @@ defmodule Exhub.Fim.ClientTest do
 
   describe "build_prompt/1" do
     test "concatenates language-and-tab and before-cursor" do
-      context = %{"language-and-tab" => "# language: elixir\n", "before-cursor" => "def foo do"}
+      context = %{"language-and-tab" => "# language: elixir", "before-cursor" => "def foo do"}
       assert Client.build_prompt(context) == "# language: elixir\ndef foo do"
     end
 
@@ -70,6 +70,22 @@ defmodule Exhub.Fim.ClientTest do
     test "substring choices text may contain escaped quotes" do
       body = ~s(data: {"choices":[{"text":"say \\"hi\\""}]}\n)
       assert Client.parse_sse(body) == ~s(say "hi")
+    end
+
+    test "extracts choices[0].delta.content from Codestral chat chunks" do
+      # Codestral's /fim/completions streams chat.completion.chunk objects, so
+      # reading only choices[0].text silently produced "" (no suggestions).
+      body = """
+      data: {"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+      data: {"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"\\n   "}}]}
+
+      data: {"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"if n < 2"}}]}
+
+      data: [DONE]
+      """
+
+      assert Client.parse_sse(body) == "\n   if n < 2"
     end
   end
 
@@ -137,6 +153,31 @@ defmodule Exhub.Fim.ClientTest do
       })
 
       assert Client.provider_config("codestral", %{"api_key" => "explicit"}).api_key == "explicit"
+    end
+  end
+
+  describe "egress proxy" do
+    test "local_endpoint?/1 skips the proxy for machine-local endpoints" do
+      assert Client.local_endpoint?("http://localhost:11434/api/generate")
+      assert Client.local_endpoint?("http://127.0.0.1:8080/v1/completions")
+      refute Client.local_endpoint?("https://codestral.mistral.ai/v1/fim/completions")
+    end
+
+    test "complete/3 sends remote requests through the configured proxy" do
+      previous = Application.get_env(:exhub, :proxy)
+      # Unroutable proxy: proves the :proxy option reaches hackney instead of
+      # dialing codestral direct (a direct dial fails differently on this
+      # network, so any non-econnrefused error means the option was dropped).
+      Application.put_env(:exhub, :proxy, "http://127.0.0.1:1")
+      on_exit(fn -> restore_app_env(:proxy, previous) end)
+
+      # `mix test --no-start` never boots :httpoison, which owns the hackney pool.
+      {:ok, _} = Application.ensure_all_started(:httpoison)
+
+      assert {:error, reason} =
+               Client.complete("codestral", %{"before-cursor" => "x"}, %{"api_key" => "k"})
+
+      assert reason =~ "econnrefused"
     end
   end
 

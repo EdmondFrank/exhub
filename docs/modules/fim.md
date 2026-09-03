@@ -50,6 +50,13 @@ payloads evaluated over the WebSocket.
   4. the `CODESTRAL_API_KEY` / `DEEPSEEK_API_KEY` environment variable.
 - Timeout for FIM requests defaults to 60s on the Elixir side (the old 3s
   Emacs streaming timeout does not apply to this path).
+- Remote endpoints are dialled through the shared ExHub egress proxy
+  (`:exhub, :proxy`, the same setting the router's proxy routes use) when one is
+  configured — `codestral.mistral.ai` is unreachable without it on some
+  networks. Machine-local endpoints (Ollama, llama.cpp) always stay direct.
+- Streamed answers come back in two chunk shapes and both are decoded:
+  `choices[0].delta.content` (Codestral streams `chat.completion.chunk` objects)
+  and `choices[0].text` (DeepSeek-style FIM endpoints).
 - Cancellation: dismissing a suggestion (or cursor move) sends
   `["func", ["exhub-fim", "cancel", request-id]]`, killing in-flight tasks.
 

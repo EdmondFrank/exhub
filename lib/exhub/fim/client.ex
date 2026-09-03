@@ -9,7 +9,12 @@ defmodule Exhub.Fim.Client do
   decodes the streamed SSE response into the completion text.
 
   The response format mirrors what the original Emacs client consumed:
-  `data: {…}` lines whose JSON carries `choices[0].text`.
+  `data: {…}` lines whose JSON carries `choices[0].text` (DeepSeek-style) or
+  `choices[0].delta.content` (Codestral's chat-shaped chunks).
+
+  Remote endpoints are reached through the shared ExHub egress proxy
+  (`:exhub, :proxy`, the same setting the router's proxy routes use) when one is
+  configured. Local endpoints (Ollama, llama.cpp, …) are always dialed direct.
   """
 
   alias Exhub.TLSCompat
@@ -74,9 +79,10 @@ defmodule Exhub.Fim.Client do
   @doc """
   Decodes a streamed SSE body into the concatenated completion text.
 
-  Each `data: {…}` line contributes `choices[0].text`; `data: [DONE]`,
+  Each `data: {…}` line contributes its completion text — `choices[0].text` or
+  `choices[0].delta.content` (see `completion_text/1`); `data: [DONE]`,
   comments, and malformed lines are skipped (mirrors
-  `exhub-fim--stream-decode` with `exhub-fim--openai-fim-get-text-fn`).
+  `exhub-fim--stream-decode` with the Emacs `*-get-text-fn` helpers).
   """
   def parse_sse(body) when is_binary(body) do
     body
@@ -106,57 +112,103 @@ defmodule Exhub.Fim.Client do
   end
 
   defp do_request(config, context) do
-    body = %{
-      "model" => config.model,
-      "prompt" => build_prompt(context),
-      "suffix" => build_suffix(context),
-      "stream" => true
-    }
+    body =
+      Jason.encode!(%{
+        "model" => config.model,
+        "prompt" => build_prompt(context),
+        "suffix" => build_suffix(context),
+        "stream" => true
+      })
 
     headers = [
       {"Content-Type", "application/json"},
       {"Authorization", "Bearer #{config.api_key}"}
     ]
 
+    # `recv_timeout` bounds each socket read, matching the previous
+    # `Req.post(receive_timeout:)` behaviour on a streamed body.
     options =
-      [
-        json: body,
-        headers: headers,
-        receive_timeout: config.timeout_ms,
-        decode_body: false
-      ] ++ TLSCompat.req_opts()
+      [recv_timeout: config.timeout_ms]
+      |> put_proxy_option(config.endpoint)
+      |> Enum.concat(TLSCompat.httpoison_opts(config.endpoint))
 
-    case Req.post(config.endpoint, options) do
-      {:ok, %Req.Response{status: status, body: resp_body}} when status in 200..299 ->
+    case HTTPoison.post(config.endpoint, body, headers, options) do
+      {:ok, %HTTPoison.Response{status_code: status, body: resp_body}}
+      when status in 200..299 ->
         {:ok, parse_sse(resp_body)}
 
-      {:ok, %Req.Response{status: status, body: resp_body}} ->
+      {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
         {:error, "HTTP #{status}: #{truncate_body(resp_body)}"}
 
-      {:error, reason} ->
+      {:error, %HTTPoison.Error{reason: reason}} ->
         {:error, inspect(reason)}
     end
   end
 
   defp accumulate_sse_line("data: " <> payload, acc) do
     case String.trim(payload) do
-      "" -> acc
-      "[DONE]" -> acc
+      "" ->
+        acc
+
+      "[DONE]" ->
+        acc
+
       json ->
         case Jason.decode(json) do
-          {:ok, decoded} ->
-            case get_in(decoded, ["choices", Access.at(0), "text"]) do
-              text when is_binary(text) -> acc <> text
-              _ -> acc
-            end
-
-          _ ->
-            acc
+          {:ok, decoded} -> acc <> completion_text(decoded)
+          _ -> acc
         end
     end
   end
 
   defp accumulate_sse_line(_line, acc), do: acc
+
+  # Providers stream two chunk shapes:
+  #
+  #   * `choices[0].delta.content` — Codestral's `/fim/completions` answers with
+  #     `chat.completion.chunk` objects (old Emacs `exhub-fim--openai-get-text-fn`)
+  #   * `choices[0].text` — DeepSeek-style FIM endpoints
+  #     (old Emacs `exhub-fim--openai-fim-get-text-fn`)
+  defp completion_text(decoded) do
+    choice = decoded |> get_in(["choices", Access.at(0)]) || %{}
+
+    case choice["text"] || get_in(choice, ["delta", "content"]) do
+      text when is_binary(text) -> text
+      _ -> ""
+    end
+  end
+
+  @doc """
+  True when ENDPOINT is served from this machine (or is unparseable), so the
+  egress proxy must be skipped.
+  """
+  def local_endpoint?(endpoint) when is_binary(endpoint) do
+    case URI.parse(endpoint).host do
+      host when is_binary(host) ->
+        host in ["localhost", "127.0.0.1", "0.0.0.0", "::1"] or
+          String.ends_with?(host, ".localhost")
+
+      _ ->
+        true
+    end
+  end
+
+  def local_endpoint?(_endpoint), do: true
+
+  # Honour the shared ExHub egress proxy (`:exhub, :proxy`) for remote FIM
+  # endpoints. hackney's `:proxy` option takes the raw URL string — the same
+  # shape the router's proxy routes pass via `ProxyPlug.proxy_for_provider/1`.
+  # The option is only added when a proxy applies, so machine-local endpoints
+  # always stay direct.
+  defp put_proxy_option(options, endpoint) do
+    proxy_url = Application.get_env(:exhub, :proxy, "")
+
+    if is_binary(proxy_url) and proxy_url != "" and not local_endpoint?(endpoint) do
+      Keyword.put(options, :proxy, proxy_url)
+    else
+      options
+    end
+  end
 
   defp resolve_api_key(nil, defaults) do
     llms = Application.get_env(:exhub, :llms, %{})
@@ -166,7 +218,7 @@ defmodule Exhub.Fim.Client do
       [
         llm_key && llm_key[:api_key],
         defaults[:app_env_key] && Application.get_env(:exhub, defaults[:app_env_key]),
-        System.get_env(defaults[:api_key_env])
+        defaults[:api_key_env] && System.get_env(defaults[:api_key_env])
       ],
       fn
         nil -> nil
