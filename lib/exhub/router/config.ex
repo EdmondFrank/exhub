@@ -67,6 +67,7 @@ defmodule Exhub.Router.Config do
   @runinfra_models LLMModels.runinfra_models()
   @orcarouter_models LLMModels.orcarouter_models()
   @bai_models LLMModels.bai_models()
+  @amd_models LLMModels.amd_models()
 
   # Models that require reasoning_content to be present in assistant tool-call
   # messages when thinking is enabled (Moonshot AI / Xiaomi MiMo requirement).
@@ -85,6 +86,7 @@ defmodule Exhub.Router.Config do
   # JSON fall back to this list.
   @default_provider_order [
     :bai,
+    :amd,
     :giteeai,
     :kimi,
     :minimaxi,
@@ -114,6 +116,7 @@ defmodule Exhub.Router.Config do
   def get_model_target(model) when is_binary(model) do
     case provider_for_model(model) do
       :bai -> @provider_urls.bai
+      :amd -> @provider_urls.amd
       :giteeai -> @provider_urls.giteeai
       :kimi -> @provider_urls.kimi
       :minimaxi -> @provider_urls.minimaxi
@@ -147,6 +150,7 @@ defmodule Exhub.Router.Config do
   def get_model_api_key(model) when is_binary(model) do
     case provider_for_model(model) do
       :bai -> Application.get_env(:exhub, :bai_api_key, "")
+      :amd -> Application.get_env(:exhub, :amd_api_key, "")
       :giteeai -> Application.get_env(:exhub, :giteeai_api_key, "")
       :kimi -> Application.get_env(:exhub, :kimi_api_key, "")
       :minimaxi -> Application.get_env(:exhub, :minimax_api_key, "")
@@ -334,6 +338,8 @@ defmodule Exhub.Router.Config do
   end
 
   defp provider_matches?(:bai, model), do: model in @bai_models
+
+  defp provider_matches?(:amd, model), do: model in @amd_models
 
   defp provider_matches?(:giteeai, model),
     do: model in @giteeai_models and model not in @minimax_models
@@ -542,6 +548,7 @@ defmodule Exhub.Router.Config do
     Application.put_env(:exhub, :runinfra_api_key, fetch_secret.("runinfra_api_key"))
     Application.put_env(:exhub, :orcarouter_api_key, fetch_secret.("orcarouter_api_key"))
     Application.put_env(:exhub, :bai_api_key, fetch_secret.("bai_api_key"))
+    Application.put_env(:exhub, :amd_api_key, fetch_secret.("amd_api_key"))
 
     Application.put_env(
       :exhub,

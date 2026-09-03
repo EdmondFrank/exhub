@@ -177,7 +177,10 @@ defmodule Exhub.BlinkSearch.Server do
       backend_states: backend_states,
       search_ticker: 0,
       start_buffer_name: "",
-      history_path: default_history_path()
+      history_path: default_history_path(),
+      search_tasks: [],
+      pending_search: nil,
+      search_debounce_timer: nil
     }
 
     {:ok, state}
@@ -195,32 +198,32 @@ defmodule Exhub.BlinkSearch.Server do
         backend_list
       end
 
+    # Kill in-flight backend tasks from previous searches. Their results would
+    # be discarded as stale anyway, but the underlying external scans (fd/rg)
+    # would otherwise keep running to completion. Each keystroke previously
+    # left a full scan alive, which caused the tccd high-CPU spawn storm.
+    kill_search_tasks(Map.get(state, :search_tasks, []))
+
     # Update render state
     render = %{state.render | row_number: row_number, search_backend_list: backend_list}
-    state = %{state | render: render, search_ticker: ticker}
 
-    # Dispatch search to each backend in parallel
-    parent = self()
+    state =
+      state
+      |> Map.put(:render, render)
+      |> Map.put(:search_ticker, ticker)
+      |> Map.put(:search_tasks, [])
+      |> Map.put(:pending_search, %{
+        keyword: keyword,
+        backend_list: backend_list,
+        ticker: ticker
+      })
 
-    Enum.each(backend_list, fn backend_name ->
-      module = Map.get(@backend_modules, backend_name)
-      backend_state = Map.get(state.backend_states, backend_name, %{})
+    # Coalesce keystroke bursts: cancel the pending timer and re-arm, so only
+    # the latest pending search is actually dispatched.
+    if ref = Map.get(state, :search_debounce_timer), do: Process.cancel_timer(ref)
 
-      if module do
-        Task.start(fn ->
-          try do
-            candidates = module.search_match(keyword, backend_state)
-            send(parent, {:search_result, backend_name, candidates, keyword, ticker})
-          rescue
-            e ->
-              Logger.warning("Backend #{backend_name} search failed: #{inspect(e)}")
-              send(parent, {:search_result, backend_name, [], keyword, ticker})
-          end
-        end)
-      end
-    end)
-
-    {:noreply, state}
+    timer = Process.send_after(self(), :run_search, search_debounce_ms())
+    {:noreply, Map.put(state, :search_debounce_timer, timer)}
   end
 
   @impl true
@@ -410,6 +413,16 @@ defmodule Exhub.BlinkSearch.Server do
 
   @impl true
   def handle_cast(:clean, state) do
+    kill_search_tasks(Map.get(state, :search_tasks, []))
+
+    if ref = Map.get(state, :search_debounce_timer), do: Process.cancel_timer(ref)
+
+    state =
+      state
+      |> Map.put(:search_tasks, [])
+      |> Map.put(:pending_search, nil)
+      |> Map.put(:search_debounce_timer, nil)
+
     backend_states =
       Enum.reduce(@backend_modules, state.backend_states, fn {name, module}, acc ->
         backend_state = Map.get(acc, name, %{})
@@ -422,6 +435,24 @@ defmodule Exhub.BlinkSearch.Server do
   @impl true
   def handle_call(:get_state, _from, state) do
     {:reply, state, state}
+  end
+
+  @impl true
+  def handle_info(:run_search, state) do
+    state = Map.put(state, :search_debounce_timer, nil)
+
+    case Map.get(state, :pending_search) do
+      nil ->
+        {:noreply, state}
+
+      pending ->
+        state =
+          state
+          |> Map.put(:pending_search, nil)
+          |> dispatch_search(pending)
+
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -447,6 +478,49 @@ defmodule Exhub.BlinkSearch.Server do
   # ===========================================================================
   # Private helpers
   # ===========================================================================
+
+  # Dispatch the pending search to each backend in parallel. New-field state
+  # access uses Map.get/Map.put (not `%{state | ...}`) so a hot-reloaded server
+  # keeps working with its pre-reload state that lacks the new keys.
+  defp dispatch_search(state, %{keyword: keyword, backend_list: backend_list, ticker: ticker}) do
+    parent = self()
+
+    task_pids =
+      for backend_name <- backend_list,
+          module = Map.get(@backend_modules, backend_name) do
+        backend_state = Map.get(state.backend_states, backend_name, %{})
+
+        {:ok, pid} =
+          Task.start(fn ->
+            try do
+              candidates = module.search_match(keyword, backend_state)
+              send(parent, {:search_result, backend_name, candidates, keyword, ticker})
+            rescue
+              e ->
+                Logger.warning("Backend #{backend_name} search failed: #{inspect(e)}")
+                send(parent, {:search_result, backend_name, [], keyword, ticker})
+            end
+          end)
+
+        pid
+      end
+
+    Map.put(state, :search_tasks, task_pids)
+  end
+
+  @doc false
+  # Terminate in-flight backend tasks. `Task.start/1` tasks are unlinked from
+  # this server and trap shutdowns, so :kill is silent here; the linked
+  # Exile process inside each task then reaps the external command (fd/rg).
+  @spec kill_search_tasks([pid()]) :: :ok
+  def kill_search_tasks(pids) do
+    Enum.each(pids, &Process.exit(&1, :kill))
+    :ok
+  end
+
+  defp search_debounce_ms do
+    Application.get_env(:exhub, :blink_search_debounce_ms, 60)
+  end
 
   # Backend state enriched for action dispatch: exposes the current search
   # keyword as `:match_text` (mirrors Python backends storing the prefix).

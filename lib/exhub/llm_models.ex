@@ -42,7 +42,8 @@ defmodule Exhub.LLMModels do
     baidu_anthropic: "http://211.23.3.236:27545/v1",
     runinfra: "https://api.runinfra.ai/v1",
     orcarouter: "https://api.orcarouter.ai/v1",
-    bai: "https://api.b.ai/v1"
+    bai: "https://api.b.ai/v1",
+    amd: "https://developer.amd.com.cn/radeon/api/v1"
   }
 
   @default_upstream "https://api.moark.com/v1"
@@ -160,6 +161,14 @@ defmodule Exhub.LLMModels do
   # B.AI models (temporary: only DeepSeek-V4-Flash)
   @bai_models ["deepseek-v4-flash"]
 
+  # AMD Radeon Cloud models (OpenAI-compatible endpoint)
+  @amd_models [
+    "DeepSeek-V4-Flash-Vision-Exp",
+    "DeepSeek-V4-Flash",
+    "Qwen3.8-Flash-Next",
+    "MiniCPM5-1B"
+  ]
+
   # ============================================================================
   # Models Requiring reasoning_content Injection
   # ============================================================================
@@ -243,6 +252,12 @@ defmodule Exhub.LLMModels do
   def bai_models, do: @bai_models
 
   @doc """
+  Returns the list of AMD Radeon Cloud models.
+  """
+  @spec amd_models() :: [String.t()]
+  def amd_models, do: @amd_models
+
+  @doc """
   Returns the list of models requiring reasoning_content injection.
   """
   @spec kimi_reasoning_models() :: [String.t()]
@@ -296,6 +311,9 @@ defmodule Exhub.LLMModels do
     cond do
       model in @bai_models ->
         :bai
+
+      model in @amd_models ->
+        :amd
 
       model in @giteeai_models and model not in @minimax_models ->
         :giteeai
@@ -363,7 +381,8 @@ defmodule Exhub.LLMModels do
       @nvidia_models ++
       @runinfra_models ++
       @orcarouter_models ++
-      @bai_models
+      @bai_models ++
+      @amd_models
   end
 
   # ============================================================================

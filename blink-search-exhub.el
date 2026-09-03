@@ -61,6 +61,7 @@
 (defvar blink-search-exhub-elisp-symbol-size 0)
 (defvar blink-search-exhub-preview-window nil)
 (defvar blink-search-exhub-focus-timer nil)
+(defvar blink-search-exhub-search-debounce-timer nil)
 
 ;; ===========================================================================
 ;; Customization
@@ -90,6 +91,13 @@ Nil means search the current directory only."
 
 (defcustom blink-search-exhub-elisp-symbol-update-idle 5
   "Idle seconds between elisp symbol synchronization to ExHub."
+  :type 'number
+  :group 'blink-search-exhub)
+
+(defcustom blink-search-exhub-search-debounce-delay 0.15
+  "Seconds to wait after the last input change before dispatching a search.
+Debouncing prevents spawning an `fd'/`rg' scan per keystroke; every spawn
+makes sandboxd run a TCC attribution query, which drove tccd's CPU up."
   :type 'number
   :group 'blink-search-exhub)
 
@@ -410,8 +418,19 @@ With prefix ARG, search current symbol."
 ;; ===========================================================================
 
 (defun blink-search-exhub-monitor-input (_begin _end _length)
-  "Monitor input changes and dispatch search to ExHub."
+  "Monitor input changes; debounce-dispatch search to ExHub."
   (when (string-equal (buffer-name) blink-search-exhub-input-buffer)
+    (when blink-search-exhub-search-debounce-timer
+      (cancel-timer blink-search-exhub-search-debounce-timer))
+    (setq blink-search-exhub-search-debounce-timer
+          (run-with-timer blink-search-exhub-search-debounce-delay
+                          nil
+                          #'blink-search-exhub-dispatch-search))))
+
+(defun blink-search-exhub-dispatch-search ()
+  "Dispatch the current input buffer content to ExHub for searching."
+  (setq blink-search-exhub-search-debounce-timer nil)
+  (when (buffer-live-p (get-buffer blink-search-exhub-input-buffer))
     (let* ((input (string-trim
                    (with-current-buffer blink-search-exhub-input-buffer
                      (buffer-substring-no-properties (point-min) (point-max))))))
@@ -588,6 +607,11 @@ navigation inside the layout still works."
   "Quit blink-search and restore window configuration."
   (interactive)
   (blink-search-exhub-call-flat "clean")
+
+  ;; Cancel pending debounced search
+  (when blink-search-exhub-search-debounce-timer
+    (cancel-timer blink-search-exhub-search-debounce-timer)
+    (setq blink-search-exhub-search-debounce-timer nil))
 
   ;; Stop idle synchronization timer
   (when blink-search-exhub-idle-timer

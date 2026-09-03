@@ -243,6 +243,56 @@ defmodule Exhub.Router.ConfigTest do
     end
   end
 
+  describe "amd models" do
+    setup do
+      original = Application.get_env(:exhub, :amd_api_key)
+      Application.put_env(:exhub, :amd_api_key, "amd-test-key")
+
+      on_exit(fn ->
+        if original == nil,
+          do: Application.delete_env(:exhub, :amd_api_key),
+          else: Application.put_env(:exhub, :amd_api_key, original)
+      end)
+
+      :ok
+    end
+
+    @amd_models [
+      "DeepSeek-V4-Flash-Vision-Exp",
+      "DeepSeek-V4-Flash",
+      "Qwen3.8-Flash-Next",
+      "MiniCPM5-1B"
+    ]
+
+    test "routes to the amd endpoint" do
+      for model <- @amd_models do
+        assert Config.get_model_target(model) == "https://developer.amd.com.cn/radeon/api/v1"
+      end
+    end
+
+    test "resolves the amd api key" do
+      for model <- @amd_models do
+        assert Config.get_model_api_key(model) == "amd-test-key"
+      end
+    end
+
+    test "does not use the configured proxy for amd models" do
+      for model <- @amd_models do
+        refute Config.use_proxy_for_model?(model)
+      end
+    end
+
+    test "sends plain Bearer authorization for amd models" do
+      for model <- @amd_models do
+        headers = Config.get_auth_headers(model, :openai)
+
+        assert {"authorization", "Bearer amd-test-key"} in headers
+        refute Enum.any?(headers, fn {n, _} -> n == "X-Client-Request-Id" end)
+        refute Enum.any?(headers, fn {n, _} -> n == "X-Failover-Enabled" end)
+      end
+    end
+  end
+
   describe "get_pooled_auth_headers/3" do
     setup do
       original = %{

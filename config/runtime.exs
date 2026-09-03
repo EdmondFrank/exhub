@@ -17,6 +17,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
     giteeai_request_api_key = fetch_secret.("giteeai_request_api_key")
     openai_api_key = fetch_secret.("openai_api_key")
     bai_api_key = fetch_secret.("bai_api_key")
+    amd_api_key = fetch_secret.("amd_api_key")
     gitee_cookie = fetch_secret.("gitee_cookie")
 
     # Build llms config from Exhub.LLMModels (single source of truth)
@@ -53,6 +54,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       runinfra_api_key: fetch_secret.("runinfra_api_key"),
       orcarouter_api_key: fetch_secret.("orcarouter_api_key"),
       bai_api_key: bai_api_key,
+      amd_api_key: amd_api_key,
       llms: llms_config,
       # Optional dedicated model for the exhub-translate module (an `llms`
       # key, e.g. "codestral/codestral-latest"). Falls back to the default
