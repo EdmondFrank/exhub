@@ -11,16 +11,21 @@
 ;; Exhub-fim supports multiple LLM providers (OpenAI, Claude, Gemini,
 ;; Codestral, Ollama, Llama.cpp, and OpenAI-compatible providers)
 ;;
-;; You can use it with overlay-based ghost text via
-;; `exhub-fim-show-suggestion' or selecting the candidates via
-;; `exhub-fim-complete-with-minibuffer'.  You can toggle automatic
-;; suggestion popup with `exhub-fim-auto-suggestion-mode'.
+;; You can use it with a dropdown menu of candidates at point (like
+;; lsp-bridge's completion menu) via `exhub-fim-complete', with
+;; overlay-based ghost text via `exhub-fim-show-suggestion', or by
+;; selecting the candidates in the minibuffer via
+;; `exhub-fim-complete-with-minibuffer'.  The UI used by
+;; `exhub-fim-show-suggestion' and by automatic suggestions is
+;; controlled by `exhub-fim-menu-display-function'.  You can toggle
+;; automatic suggestion popup with `exhub-fim-auto-suggestion-mode'.
 
 ;;; Code:
 
 (require 'plz)
 (require 'dash)
 (require 'cl-lib)
+(require 'exhub-fim-menu)
 
 (defgroup exhub-fim nil
   "Exhub-fim group."
@@ -147,6 +152,26 @@ returned items may exceed this value.  Additionally, the LLM cannot
 guarantee the exact number of completion items specified, as this
 parameter serves only as a prompt guideline.  The default is `3`."
   :type 'integer)
+
+(defcustom exhub-fim-menu-display-function 'dropdown
+  "How completion candidates are presented.
+`dropdown' shows a candidate menu at point (an idea borrowed from
+lsp-bridge) and previews the selected candidate as ghost text; it is
+used automatically only when more than one candidate comes back.
+`overlay' shows one candidate at a time as ghost text, cycle through
+them with `exhub-fim-next-suggestion'.  `minibuffer' reads the
+candidates in the minibuffer, with `consult--read' when available."
+  :type '(choice (const :tag "Dropdown menu at point" dropdown)
+                 (const :tag "Inline ghost text" overlay)
+                 (const :tag "Minibuffer" minibuffer))
+  :group 'exhub-fim-menu)
+
+(defcustom exhub-fim-menu-preview t
+  "Whether the dropdown previews the selected candidate as ghost text.
+When nil the dropdown alone lists the candidates and the buffer is not
+touched until one is accepted."
+  :type 'boolean
+  :group 'exhub-fim-menu)
 
 (defvar exhub-fim-default-prompt-prefix-first
   "You are the backend of an AI-powered code completion engine. Your task is to
@@ -388,14 +413,18 @@ symbol, return its value.  Else return itself."
     (setq exhub-fim--current-requests nil)))
 
 (defun exhub-fim--cleanup-suggestion (&optional no-cancel)
-  "Remove the current suggestion overlay.
+  "Remove the current suggestion overlay and dropdown menu.
 Also cancel any pending requests unless NO-CANCEL is t."
   (unless no-cancel
     (exhub-fim--cancel-requests))
+  (when (exhub-fim-menu-visible-p)
+    (exhub-fim-menu-hide))
   (when exhub-fim--current-overlay
     (delete-overlay exhub-fim--current-overlay)
-    (setq exhub-fim--current-overlay nil)
-    (exhub-fim-active-mode -1))
+    (setq exhub-fim--current-overlay nil))
+  ;; The dropdown shows the menu without ever creating an overlay when
+  ;; `exhub-fim-menu-preview' is nil, so deactivate the mode here too.
+  (exhub-fim-active-mode -1)
   (remove-hook 'post-command-hook #'exhub-fim--on-cursor-moved t)
   (setq exhub-fim--last-point nil))
 
@@ -409,67 +438,140 @@ Also cancel any pending requests unless NO-CANCEL is t."
   (when (exhub-fim--cursor-moved-p)
     (exhub-fim--cleanup-suggestion)))
 
+(defun exhub-fim--show-ghost (suggestion &optional index total)
+  "Display SUGGESTION as ghost text after the cursor.
+When TOTAL is greater than one, an (INDEX/TOTAL) counter is appended to
+the ghost text."
+  (when exhub-fim--current-overlay
+    (delete-overlay exhub-fim--current-overlay)
+    (setq exhub-fim--current-overlay nil))
+  (let ((ov-point (if (eolp) (point) (1+ (point))))
+        (counter (if (and index total (> total 1))
+                     (format " (%d/%d)" (1+ index) total)
+                   "")))
+    ;; HACK: Adapted from copilot.el.  We add a 'cursor text property to the
+    ;; first character of the suggestion to simulate the visual effect of
+    ;; placing the overlay after the cursor.  Also, ensure the overlay
+    ;; appears after the cursor: if point is not at end-of-line, offset its
+    ;; position by 1.
+    (put-text-property 0 1 'cursor t suggestion)
+    (let ((ov (make-overlay ov-point ov-point)))
+      (overlay-put ov 'after-string
+                   (propertize (format "%s%s" suggestion counter)
+                               'face 'exhub-fim-suggestion-face))
+      (overlay-put ov 'exhub-fim t)
+      (setq exhub-fim--current-overlay ov))))
+
 (defun exhub-fim--display-suggestion (suggestions &optional index)
   "Display suggestion from SUGGESTIONS at INDEX using an overlay at point."
   ;; we only cancel requests when cursor is moved. Because the
   ;; completion items may be accumulated during multiple concurrent
   ;; curl requests.
   (exhub-fim--cleanup-suggestion t)
-  (add-hook 'post-command-hook #'exhub-fim--on-cursor-moved nil t)
   (when-let* ((suggestions suggestions)
               (cursor-not-moved (not (exhub-fim--cursor-moved-p)))
               (index (or index 0))
-              (total (length suggestions))
-              (suggestion (nth index suggestions))
-              ;; Ensure the overlay appears after the cursor If
-              ;; point is not at end-of-line, offset the overlay
-              ;; position by 1
-              (ov-point (if (eolp) (point) (1+ (point))))
-              (ov (make-overlay ov-point ov-point)))
+              (suggestion (nth index suggestions)))
+    (add-hook 'post-command-hook #'exhub-fim--on-cursor-moved nil t)
     (setq exhub-fim--current-suggestions suggestions
           exhub-fim--current-suggestion-index index
           exhub-fim--last-point (point))
-    ;; HACK: Adapted from copilot.el We add a 'cursor text property to the
-    ;; first character of the suggestion to simulate the visual effect of
-    ;; placing the overlay after the cursor
-    (put-text-property 0 1 'cursor t suggestion)
-    (overlay-put ov 'after-string
-                 (propertize
-                  (format "%s%s"
-                          suggestion
-                          (if (= total exhub-fim-n-completions 1) ""
-                            (format " (%d/%d)" (1+ index) total)))
-                  'face 'exhub-fim-suggestion-face))
-    (overlay-put ov 'exhub-fim t)
-    (setq exhub-fim--current-overlay ov)
+    (exhub-fim--show-ghost suggestion index (length suggestions))
     (exhub-fim-active-mode 1)))
 
-;;;###autoload
-(defun exhub-fim-next-suggestion ()
-  "Cycle to next suggestion."
-  (interactive)
-  (if (and exhub-fim--current-suggestions
-           exhub-fim--current-overlay)
-      (let ((next-index (mod (1+ exhub-fim--current-suggestion-index)
-                             (length exhub-fim--current-suggestions))))
-        (exhub-fim--display-suggestion exhub-fim--current-suggestions next-index))
-    (exhub-fim-show-suggestion)))
+(defun exhub-fim--normalize-items (items)
+  "Return completion ITEMS ready for display.
+Adds a single line entry for each multi-line candidate when
+`exhub-fim-add-single-line-entry' is non-nil, then drops duplicates and
+candidates that hold nothing but whitespace."
+  (when exhub-fim-add-single-line-entry
+    (setq items (exhub-fim--add-single-line-entry items)))
+  (seq-remove (lambda (item) (string-empty-p (string-trim item)))
+              (-distinct items)))
 
-;;;###autoload
-(defun exhub-fim-previous-suggestion ()
-  "Cycle to previous suggestion."
-  (interactive)
-  (if (and exhub-fim--current-suggestions
-           exhub-fim--current-overlay)
-      (let ((prev-index (mod (1- exhub-fim--current-suggestion-index)
-                             (length exhub-fim--current-suggestions))))
-        (exhub-fim--display-suggestion exhub-fim--current-suggestions prev-index))
-    (exhub-fim-show-suggestion)))
+(defun exhub-fim--other-completion-ui-p ()
+  "Return non-nil when another completion user interface is in use.
+Showing the dropdown next to the completion menu of lsp-bridge, or while
+the minibuffer is reading, only hides one of them."
+  (or (bound-and-true-p acm-mode)
+      (active-minibuffer-window)))
 
-;;;###autoload
-(defun exhub-fim-show-suggestion ()
-  "Show code suggestion using overlay at point."
-  (interactive)
+(defun exhub-fim--current-suggestion ()
+  "Return the candidate to insert.
+That is the one selected in the dropdown when it is visible, else the
+one previewed as ghost text."
+  (cond
+   ((exhub-fim-menu-visible-p) (exhub-fim-menu-current-candidate))
+   ((and exhub-fim--current-suggestions exhub-fim--current-overlay)
+    (nth exhub-fim--current-suggestion-index exhub-fim--current-suggestions))))
+
+(defun exhub-fim--show-menu (items &optional index)
+  "Display completion ITEMS in the dropdown menu, selecting INDEX.
+Fall back to `exhub-fim--display-suggestion' when the menu cannot be
+displayed, e.g. on a text terminal."
+  ;; Requests stream their answers in several rounds, so keep the candidate
+  ;; the user already moved to unless one was asked for explicitly.
+  (let* ((updating (and (exhub-fim-menu-visible-p)
+                        (eq exhub-fim-menu--source-buffer (current-buffer))))
+         (index (or index
+                    (and updating exhub-fim-menu-index)
+                    0)))
+    ;; When refreshing the menu of a streamed response, skip the cleanup
+    ;; that would hide and re-show the frame on every round: the ghost
+    ;; overlay is replaced by the preview itself and the hook and minor
+    ;; mode are already in place.
+    (unless updating
+      (exhub-fim--cleanup-suggestion t))
+    (setq exhub-fim--current-suggestions items
+          exhub-fim--current-suggestion-index index
+          exhub-fim--last-point (point))
+    (add-hook 'post-command-hook #'exhub-fim--on-cursor-moved nil t)
+    (exhub-fim-active-mode 1)
+    ;; The menu previews the selection through
+    ;; `exhub-fim-menu-selection-hook'.
+    (unless (exhub-fim-menu-show items index)
+      (exhub-fim--display-suggestion items index))))
+
+(defun exhub-fim--update-menu-preview ()
+  "Preview the candidate selected in the dropdown as ghost text.
+Runs from `exhub-fim-menu-selection-hook', in the buffer owning the
+menu."
+  (when (and exhub-fim-menu-preview exhub-fim-menu-candidates)
+    (let ((candidate (exhub-fim-menu-current-candidate)))
+      ;; Keep the overlay based commands in sync with the menu selection.
+      (setq exhub-fim--current-suggestions exhub-fim-menu-candidates
+            exhub-fim--current-suggestion-index exhub-fim-menu-index)
+      (when candidate
+        (exhub-fim--show-ghost candidate exhub-fim-menu-index
+                               (length exhub-fim-menu-candidates))
+        ;; Step the menu past the lines the preview added below point.
+        (exhub-fim-menu-move (1- (length (split-string candidate "\n"))))))))
+
+(defun exhub-fim--present-suggestions (items &optional display)
+  "Display completion ITEMS, overriding the UI with DISPLAY.
+DISPLAY is `dropdown', `overlay' or `minibuffer'.  When nil,
+`exhub-fim-menu-display-function' decides."
+  (let ((items (exhub-fim--normalize-items items)))
+    (cond
+     ((null items)
+      (exhub-fim--cleanup-suggestion))
+     ((eq display 'minibuffer)
+      (exhub-fim--complete-in-minibuffer items))
+     ((eq display 'overlay)
+      (exhub-fim--display-suggestion items 0))
+     ((eq display 'dropdown)
+      (exhub-fim--show-menu items))
+     ((and (eq exhub-fim-menu-display-function 'dropdown)
+           (> (length items) 1)
+           (not (exhub-fim--other-completion-ui-p)))
+      (exhub-fim--show-menu items))
+     (t
+      (exhub-fim--display-suggestion items 0)))))
+
+(defun exhub-fim--request (present-function)
+  "Request completions at point and hand them to PRESENT-FUNCTION.
+PRESENT-FUNCTION is called with the candidate list in the buffer the
+request was sent from, and only while the cursor has not moved."
   (exhub-fim--cleanup-suggestion)
   (setq exhub-fim--last-point (point))
   (let ((current-buffer (current-buffer))
@@ -482,10 +584,58 @@ Also cancel any pending requests unless NO-CANCEL is t."
     (funcall complete-fn
              context
              (lambda (items)
-               (setq items (-distinct items))
-               (with-current-buffer current-buffer
-                 (when (and items (not (exhub-fim--cursor-moved-p)))
-                   (exhub-fim--display-suggestion items 0)))))))
+               (when items
+                 (with-current-buffer current-buffer
+                   (unless (exhub-fim--cursor-moved-p)
+                     (funcall present-function items))))))))
+
+;;;###autoload
+(defun exhub-fim-next-suggestion ()
+  "Cycle to next suggestion.
+Moves the dropdown selection when the menu is displayed."
+  (interactive)
+  (cond
+   ((exhub-fim-menu-visible-p)
+    (exhub-fim-menu-select-next))
+   ((and exhub-fim--current-suggestions exhub-fim--current-overlay)
+    (exhub-fim--display-suggestion
+     exhub-fim--current-suggestions
+     (mod (1+ exhub-fim--current-suggestion-index)
+          (length exhub-fim--current-suggestions))))
+   (t (exhub-fim-show-suggestion))))
+
+;;;###autoload
+(defun exhub-fim-previous-suggestion ()
+  "Cycle to previous suggestion.
+Moves the dropdown selection when the menu is displayed."
+  (interactive)
+  (cond
+   ((exhub-fim-menu-visible-p)
+    (exhub-fim-menu-select-previous))
+   ((and exhub-fim--current-suggestions exhub-fim--current-overlay)
+    (exhub-fim--display-suggestion
+     exhub-fim--current-suggestions
+     (mod (1- exhub-fim--current-suggestion-index)
+          (length exhub-fim--current-suggestions))))
+   (t (exhub-fim-show-suggestion))))
+
+;;;###autoload
+(defun exhub-fim-show-suggestion ()
+  "Show a code suggestion at point.
+Candidates are presented according to `exhub-fim-menu-display-function'."
+  (interactive)
+  (exhub-fim--request #'exhub-fim--present-suggestions))
+
+;;;###autoload
+(defun exhub-fim-complete ()
+  "Request completions and pick one from a dropdown menu at point.
+Falls back to the minibuffer when a child frame cannot be displayed, and
+to inline ghost text when another completion popup is already up."
+  (interactive)
+  (exhub-fim--request
+   (if (and (exhub-fim-menu-can-display-p) (not (exhub-fim--other-completion-ui-p)))
+       (lambda (items) (exhub-fim--present-suggestions items 'dropdown))
+     (lambda (items) (exhub-fim--present-suggestions items 'minibuffer)))))
 
 (defun exhub-fim--log (message &optional message-p)
   "Log exhub-fim messages into `exhub-fim-buffer-name'.
@@ -710,20 +860,20 @@ used to accumulate text output from a process.  After execution,
 
 ;;;###autoload
 (defun exhub-fim-accept-suggestion ()
-  "Accept the current overlay suggestion."
+  "Accept the current suggestion.
+The candidate selected in the dropdown wins over the ghost text when the
+menu is visible."
   (interactive)
-  (when (and exhub-fim--current-suggestions
-             exhub-fim--current-overlay)
-    (let ((suggestion (nth exhub-fim--current-suggestion-index
-                           exhub-fim--current-suggestions)))
-      (exhub-fim--cleanup-suggestion)
-      (insert suggestion))))
+  (when-let* ((suggestion (exhub-fim--current-suggestion)))
+    (exhub-fim--cleanup-suggestion)
+    (insert suggestion)))
 
 ;;;###autoload
 (defun exhub-fim-dismiss-suggestion ()
-  "Dismiss the current overlay suggestion."
+  "Dismiss the current suggestion and its dropdown menu."
   (interactive)
-  (exhub-fim--cleanup-suggestion))
+  (exhub-fim--cleanup-suggestion)
+  (message "Exhub-fim: suggestion dismissed"))
 
 ;;;###autoload
 (defun exhub-fim-accept-suggestion-line (&optional n)
@@ -731,51 +881,43 @@ used to accumulate text output from a process.  After execution,
 When called interactively with a numeric prefix argument, accept that
 many lines.  Without a prefix argument, accept only the first line."
   (interactive "p")
-  (when (and exhub-fim--current-suggestions
-             exhub-fim--current-overlay)
-    (let* ((suggestion (nth exhub-fim--current-suggestion-index
-                            exhub-fim--current-suggestions))
-           (lines (split-string suggestion "\n"))
-           (n (or n 1))
-           (selected-lines (seq-take lines n)))
-      (exhub-fim--cleanup-suggestion)
-      (insert (string-join selected-lines "\n")))))
+  (when-let* ((suggestion (exhub-fim--current-suggestion))
+              (lines (split-string suggestion "\n"))
+              (selected-lines (seq-take lines (or n 1))))
+    (exhub-fim--cleanup-suggestion)
+    (insert (string-join selected-lines "\n"))))
+
+(defun exhub-fim--read-with-completing-read (items)
+  "Read one of the completion ITEMS with `completing-read'."
+  (completing-read "Complete: " items nil t))
+
+(defun exhub-fim--read-with-consult (items)
+  "Read one of the completion ITEMS with `consult--read'."
+  (consult--read items
+                 :prompt "Complete: "
+                 :require-match t
+                 :state (consult--insertion-preview (point) (point))))
+
+(defun exhub-fim--complete-in-minibuffer (items)
+  "Read one of the completion ITEMS in the minibuffer and insert it.
+ITEMS are expected to be normalized, see `exhub-fim--normalize-items'."
+  (exhub-fim--cleanup-suggestion t)
+  ;; Close the current minibuffer session, if any.
+  (when (active-minibuffer-window)
+    (abort-recursive-edit))
+  (when-let* ((reader (if (require 'consult nil t)
+                          #'exhub-fim--read-with-consult
+                        #'exhub-fim--read-with-completing-read))
+              (selected (funcall reader items)))
+    (unless (string-empty-p selected)
+      (insert selected))))
 
 ;;;###autoload
 (defun exhub-fim-complete-with-minibuffer ()
   "Complete using minibuffer interface."
   (interactive)
-  (let ((current-buffer (current-buffer))
-        (available-p-fn (intern (format "exhub-fim--%s-available-p" exhub-fim-provider)))
-        (complete-fn (intern (format "exhub-fim--%s-complete" exhub-fim-provider)))
-        (context (exhub-fim--get-context))
-        (completing-read (lambda (items) (completing-read "Complete: " items nil t)))
-        (consult--read (lambda (items)
-                         (consult--read
-                          items
-                          :prompt "Complete: "
-                          :require-match t
-                          :state (consult--insertion-preview (point) (point))))))
-    (unless (funcall available-p-fn)
-      (exhub-fim--log (format "Exhub-fim provider %s is not available" exhub-fim-provider))
-      (error "Exhub-fim provider %s is not available" exhub-fim-provider))
-    (funcall complete-fn
-             context
-             (lambda (items)
-               (with-current-buffer current-buffer
-                 (setq items (if exhub-fim-add-single-line-entry
-                                 (exhub-fim--add-single-line-entry items)
-                               items)
-                       items (-distinct items))
-                 ;; close current minibuffer session, if any
-                 (when (active-minibuffer-window)
-                   (abort-recursive-edit))
-                 (when-let* ((items)
-                             (selected (funcall
-                                        (if (require 'consult nil t) consult--read completing-read)
-                                        items)))
-                   (unless (string-empty-p selected)
-                     (insert selected))))))))
+  (exhub-fim--request (lambda (items)
+                        (exhub-fim--present-suggestions items 'minibuffer))))
 
 (defun exhub-fim--get-api-key (api-key)
   "Get the api-key from API-KEY.
@@ -1308,6 +1450,13 @@ When enabled, Exhub-fim will automatically show suggestions while you type."
   "Activated when there is an active suggestion in exhub-fim."
   :init-value nil
   :keymap exhub-fim-active-mode-map)
+
+;; The dropdown reports what it selects and when it is accepted or
+;; dismissed; this buffer keeps the ghost preview and the insertion in sync
+;; with it.
+(add-hook 'exhub-fim-menu-selection-hook #'exhub-fim--update-menu-preview)
+(add-hook 'exhub-fim-menu-accept-hook #'exhub-fim-accept-suggestion)
+(add-hook 'exhub-fim-menu-cancel-hook #'exhub-fim--cleanup-suggestion)
 
 ;;;###autoload
 (defun exhub-fim-configure-provider ()

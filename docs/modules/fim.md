@@ -13,13 +13,36 @@ Add the following to your Emacs configuration file (e.g., `~/.emacs.d/init.el`):
 
 ### Code Completion
 
-- `exhub-fim-show-suggestion`: Show code suggestion using overlay at point.
+- `exhub-fim-show-suggestion`: Show code suggestion at point, presented with
+  `exhub-fim-menu-display-function`.
+- `exhub-fim-complete`: Request completions and pick one from the dropdown menu
+  at point (minibuffer on a text terminal).
 - `exhub-fim-next-suggestion`: Cycle to next suggestion.
 - `exhub-fim-previous-suggestion`: Cycle to previous suggestion.
-- `exhub-fim-accept-suggestion`: Accept the current overlay suggestion.
-- `exhub-fim-dismiss-suggestion`: Dismiss the current overlay suggestion.
+- `exhub-fim-accept-suggestion`: Accept the current suggestion.
+- `exhub-fim-dismiss-suggestion`: Dismiss the current suggestion.
 - `exhub-fim-accept-suggestion-line`: Accept N lines of the current suggestion.
 - `exhub-fim-complete-with-minibuffer`: Complete using minibuffer interface.
+
+### Dropdown Menu
+
+`exhub-fim-menu-display-function` (default `dropdown`) controls how candidates
+are presented: a candidate menu popped up at point in a child frame, inline
+ghost text, or the minibuffer. With a menu, the selected candidate is previewed
+as ghost text (`exhub-fim-menu-preview`). While the menu is visible:
+
+| Key | Action |
+|-----|--------|
+| `M-n` / `M-p`, `<down>` / `<up>` | Next / previous candidate (wraps) |
+| `M->` / `M-<` | Last / first candidate |
+| `C-v` / `M-v` | Next / previous page |
+| `TAB` / `M-RET`, or mouse click | Accept the candidate |
+| `C-g` / `M-l` | Dismiss |
+
+Options: `exhub-fim-menu-max-items` (rows per page, default 10) and
+`exhub-fim-menu-max-width` (candidate truncation, default 60). The menu hides
+itself when the cursor moves, the window scrolls, or the buffer is killed, and
+defers to the lsp-bridge completion menu when it is open.
 
 ### Automatic Suggestion
 
