@@ -19,6 +19,11 @@
 ;; `exhub-fim-show-suggestion' and by automatic suggestions is
 ;; controlled by `exhub-fim-menu-display-function'.  You can toggle
 ;; automatic suggestion popup with `exhub-fim-auto-suggestion-mode'.
+;;
+;; Completions are also offered from every open buffer file, the way
+;; lsp-bridge's search-words backend completes across open buffers; the
+;; matching words are merged into the candidate list beside the answers
+;; the LLM returned.  See `exhub-fim-enable-word-candidates'.
 
 ;;; Code:
 
@@ -454,7 +459,10 @@ the ghost text."
     ;; placing the overlay after the cursor.  Also, ensure the overlay
     ;; appears after the cursor: if point is not at end-of-line, offset its
     ;; position by 1.
-    (put-text-property 0 1 'cursor t suggestion)
+    ;; Work on a copy, so the `cursor' property below cannot end up on the
+    ;; candidate string itself, which the menu and the suggestion list share.
+    (put-text-property 0 1 'cursor t
+                       (setq suggestion (substring-no-properties suggestion)))
     (let ((ov (make-overlay ov-point ov-point)))
       (overlay-put ov 'after-string
                    (propertize (format "%s%s" suggestion counter)
@@ -568,26 +576,350 @@ DISPLAY is `dropdown', `overlay' or `minibuffer'.  When nil,
      (t
       (exhub-fim--display-suggestion items 0)))))
 
+;; ===========================================================================
+;; Cross-buffer word candidates
+;;
+;; An Emacs port of lsp-bridge's search-words backend
+;; (core/search_file_words.py with acm/acm-backend-search-file-words.el): the
+;; words of every open buffer file are collected into an index, the ones that
+;; match the symbol at point are looked up when a completion is requested, and
+;; they are merged into the candidate list beside the items the LLM returned.
+;;
+;; lsp-bridge pushes buffer diffs to a Python thread and searches the index
+;; there; here the idle timer is the thread.  A completion request therefore
+;; only reads what is already collected, and a cold index is filled inline
+;; within the same budget so the very first completion still has candidates.
+;; `kill-buffer-hook' drops the entries of buried buffers' files.
+;; ===========================================================================
+
+(defcustom exhub-fim-enable-word-candidates t
+  "Whether to complete words from all open buffers.
+Like lsp-bridge's `lsp-bridge-enable-search-words': the words collected
+from the files of every open buffer are matched against the symbol at
+point and appended to the candidates the LLM returned, so identifiers
+used in another open file are offered even when the model is slow,
+unavailable, or answers with nothing."
+  :type 'boolean
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-max-number 10
+  "Maximum number of cross-buffer word candidates to add to a completion.
+See `exhub-fim-enable-word-candidates'."
+  :type 'integer
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-min-prefix-length 1
+  "Minimum length of the symbol at point before word candidates are searched.
+Set to 0 to search from the first character."
+  :type 'integer
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-min-word-length 4
+  "Minimum length of an indexed word.
+Words of this length or less, and words holding no letter, are never
+collected, as in lsp-bridge's word filter."
+  :type 'integer
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-max-buffers 20
+  "Maximum number of open buffers to collect words from.
+Buffers are taken in most-recently-used order, so the buffers just
+worked in are the ones that contribute."
+  :type 'integer
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-max-buffer-chars 100000
+  "Skip buffers bigger than this many characters when collecting words.
+Collecting is a regexp scan over the whole buffer, so very large files
+are left out rather than paid for."
+  :type 'integer
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-scope 'all-buffers
+  "Which open buffers contribute words.
+`all-buffers' collects every file-visiting buffer, as lsp-bridge does.
+`same-mode' restricts the collection to buffers in the current
+`major-mode', which keeps candidates to the language being edited."
+  :type '(choice (const :tag "All file-visiting buffers" all-buffers)
+                 (const :tag "Buffers in the same major mode" same-mode))
+  :group 'exhub-fim)
+
+(defcustom exhub-fim-word-candidates-prohibit-file-extensions
+  '("png" "jpg" "jpeg" "gif" "pdf")
+  "File extensions to leave out of the word index.
+Buffers visiting files with these extensions never contribute words, as
+with `lsp-bridge-search-words-prohibit-file-extensions'."
+  :type '(repeat string)
+  :group 'exhub-fim)
+
+(defvar exhub-fim--word-index (make-hash-table)
+  "Hash of BUFFER to (TICK . WORDS) for cross-buffer completion.
+WORDS is a hash table whose keys are the words collected from BUFFER, and
+TICK the `buffer-chars-modified-tick' they were collected at.")
+
+(defvar exhub-fim--word-index-timer nil
+  "Idle timer that collects the words of open buffers.")
+
+(defvar exhub-fim--word-index-refresh-delay 0.3
+  "Seconds of idleness between two passes of the word index timer.
+Keeping collection on an idle timer is what lsp-bridge gets from doing it
+in a Python thread instead of on the typing path.")
+
+(defvar exhub-fim--word-index-time-budget 0.1
+  "Seconds one word collection pass may take, on the timer and on a request.")
+
+(defvar exhub-fim--word-tail-segment-min-length 3
+  "Length the last `-'/`_' separated segment of a prefix must reach to be
+searched on its own.  lsp-bridge retries any segment, which turns a prefix
+ending in one letter into candidates that merely start with that letter.")
+
+(defun exhub-fim--word-index-stop ()
+  "Remove the word index hooks and idle timer."
+  (remove-hook 'kill-buffer-hook #'exhub-fim--word-index-forget)
+  (when exhub-fim--word-index-timer
+    (cancel-timer exhub-fim--word-index-timer)
+    (setq exhub-fim--word-index-timer nil)))
+
+(defun exhub-fim--word-index-ensure-hooks ()
+  "Install the hook and idle timer that keep the word index current.
+Idempotent, so it can be called whenever a completion needs the index."
+  (add-hook 'kill-buffer-hook #'exhub-fim--word-index-forget)
+  (unless exhub-fim--word-index-timer
+    (setq exhub-fim--word-index-timer
+          (run-with-idle-timer exhub-fim--word-index-refresh-delay t
+                               #'exhub-fim--word-index-refresh))))
+
+(defun exhub-fim--word-index-forget ()
+  "Drop the killed buffer from the word index.
+Runs from `kill-buffer-hook', with the killed buffer current."
+  (remhash (current-buffer) exhub-fim--word-index))
+
+(defun exhub-fim--word-good-p (word)
+  "Return non-nil when WORD is worth completing.
+Words must be longer than `exhub-fim-word-candidates-min-word-length' and
+hold a letter, so numbers and separator runs are never indexed."
+  (and (> (length word) (1- exhub-fim-word-candidates-min-word-length))
+       (string-match-p "[A-Za-z]" word)))
+
+(defun exhub-fim--word-collect (buffer)
+  "Collect the indexable words of BUFFER as a hash table."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (let ((words (make-hash-table :test 'equal)))
+        (while (re-search-forward "[A-Za-z0-9_-]+" nil t)
+          (let ((word (match-string-no-properties 0)))
+            (when (exhub-fim--word-good-p word)
+              (puthash word t words))))
+        words))))
+
+(defun exhub-fim--word-indexed-p (buffer)
+  "Return non-nil when BUFFER contributes words to the index.
+As in lsp-bridge, only file-visiting buffers count, and remote files and
+`exhub-fim-word-candidates-prohibit-file-extensions' are left out."
+  (when-let* ((file (and (buffer-live-p buffer) (buffer-file-name buffer)))
+              ((not (file-remote-p file)))
+              (extension (downcase (or (file-name-extension file) "")))
+              ((not (member extension
+                            exhub-fim-word-candidates-prohibit-file-extensions))))
+    (<= (buffer-size buffer) exhub-fim-word-candidates-max-buffer-chars)))
+
+(defun exhub-fim--word-index-fresh-p (buffer)
+  "Return non-nil when the words indexed for BUFFER match its content."
+  (when-let* ((entry (gethash buffer exhub-fim--word-index)))
+    (eql (car entry) (buffer-chars-modified-tick buffer))))
+
+(defun exhub-fim--word-index-entry (buffer &optional deadline)
+  "Return the (TICK . WORDS) entry of BUFFER.
+Words are collected when BUFFER has no entry or its entry is stale, but
+only while DEADLINE, a `float-time' value, has not passed.  With no
+DEADLINE the caller only wants what is already collected, so a stale entry
+is returned rather than collected."
+  (when (exhub-fim--word-indexed-p buffer)
+    (let ((tick (buffer-chars-modified-tick buffer))
+          (entry (gethash buffer exhub-fim--word-index)))
+      (cond
+       ((and entry (eql (car entry) tick)) entry)
+       ((and deadline (< (float-time) deadline))
+        (let ((fresh (cons tick (exhub-fim--word-collect buffer))))
+          (puthash buffer fresh exhub-fim--word-index)
+          fresh))
+       (entry)
+       (t nil)))))
+
+(defun exhub-fim--word-index-refresh ()
+  "Collect the words of the buffers missing from the index or stale.
+Runs from `exhub-fim--word-index-timer' for at most
+`exhub-fim--word-index-time-budget' seconds per pass, and stops the timer
+once every indexable buffer is current, so an idle Emacs ends up doing
+nothing until the next completion re-arms it."
+  (if (not exhub-fim-enable-word-candidates)
+      (exhub-fim--word-index-stop)
+    (let ((pending nil))
+      (dolist (buffer (buffer-list))
+        (when (and (not (exhub-fim--word-index-fresh-p buffer))
+                   (exhub-fim--word-indexed-p buffer))
+          (push buffer pending)))
+      (if (null pending)
+          (exhub-fim--word-index-stop)
+        (let ((deadline (+ (float-time) exhub-fim--word-index-time-budget)))
+          (dolist (buffer pending)
+            (when (< (float-time) deadline)
+              (exhub-fim--word-index-entry buffer deadline))))))))
+
+(defun exhub-fim--word-buffer-list ()
+  "Return the buffers that contribute words, most recently used first.
+Buffers are taken in most-recently-used order and capped by
+`exhub-fim-word-candidates-max-buffers'; `same-mode' scope leaves out the
+buffers whose `major-mode' differs from this one."
+  (let ((buffers nil)
+        (mode (and (eq exhub-fim-word-candidates-scope 'same-mode) major-mode)))
+    (dolist (buffer (buffer-list) (nreverse buffers))
+      (when (and (< (length buffers) exhub-fim-word-candidates-max-buffers)
+                 (exhub-fim--word-indexed-p buffer))
+        (unless (and mode (not (eq mode (buffer-local-value 'major-mode buffer))))
+          (push buffer buffers))))))
+
+(defun exhub-fim--word-prefix ()
+  "Return the symbol being typed at point, up to point.
+`thing-at-point' hands back the whole symbol, which would complete on what
+follows the cursor as well; only the part before it is a prefix, as in
+lsp-bridge's search-words backend."
+  (when-let* ((bounds (bounds-of-thing-at-point 'symbol)))
+    (buffer-substring-no-properties (car bounds)
+                                    (min (point) (cdr bounds)))))
+
+(defun exhub-fim--word-collect-matching (probe buffers start &optional deadline)
+  "Return the distinct words in BUFFERS starting with PROBE, ignoring case.
+Scanning gives up once `exhub-fim--word-index-time-budget' seconds have
+passed since START, so a request never blocks for long.  DEADLINE, when
+given, lets a buffer that was never indexed be collected inline; see
+`exhub-fim--word-index-entry'."
+  (let ((seen (make-hash-table :test 'equal))
+        (found nil))
+    (catch 'budget
+      (dolist (buffer buffers found)
+        (when (>= (- (float-time) start) exhub-fim--word-index-time-budget)
+          (throw 'budget found))
+        (when-let* ((entry (exhub-fim--word-index-entry buffer deadline)))
+          (maphash (lambda (word _)
+                     (when (and (string-prefix-p probe word t)
+                                (not (gethash word seen)))
+                       (puthash word t seen)
+                       (push word found)))
+                   (cdr entry)))))))
+
+(defun exhub-fim--word-match (prefix buffers start &optional deadline)
+  "Return the whole words completing PREFIX from BUFFERS, shortest first.
+The matching follows lsp-bridge's search backend: a case-insensitive
+prefix match, an all-caps prefix completing to upcased words, and a retry
+on the last `-'/`_' separated segment of PREFIX when nothing matched the
+whole prefix.  START and DEADLINE are the `float-time' the search began at
+and how long it may take, see `exhub-fim--word-collect-matching'."
+  (let ((matched (exhub-fim--word-collect-matching prefix buffers start deadline))
+        (probe prefix)
+        (head ""))
+    ;; Retry on the tail segment of a dash or underscore separated name, the
+    ;; way lsp-bridge completes `exhub-fim-comp' from `exhub-fim-complete'.
+    (when (and (null matched)
+               (string-match "[A-Za-z0-9]+\\'" prefix)
+               (>= (length (match-string 0 prefix))
+                   exhub-fim--word-tail-segment-min-length)
+               (not (equal (match-string 0 prefix) prefix)))
+      (setq probe (match-string 0 prefix)
+            head (substring prefix 0 (- (length prefix) (length probe)))
+            matched (exhub-fim--word-collect-matching probe buffers start deadline)))
+    (setq matched (sort matched (lambda (a b) (< (length a) (length b)))))
+    (let ((upcase-match (and (string-match-p "[A-Z]" probe)
+                             (equal probe (upcase probe)))))
+      (seq-map (lambda (word)
+                 (concat head (if upcase-match
+                                  (upcase word)
+                                (concat probe (substring word (length probe))))))
+               (seq-take matched exhub-fim-word-candidates-max-number)))))
+
+(defun exhub-fim--word-item (candidate prefix)
+  "Make a completion item out of CANDIDATE for the typed PREFIX.
+The text of the item is what still has to be inserted after point, so
+ghost text, accepting and line-accept all work unchanged; CANDIDATE
+itself travels as a text property for the dropdown to label the item with
+the whole word."
+  (when (string-prefix-p prefix candidate)
+    (let ((rest (substring candidate (length prefix))))
+      (unless (string-empty-p rest)
+        (propertize rest
+                    'exhub-fim-word candidate
+                    'exhub-fim-annotation "Word")))))
+
+(defun exhub-fim--word-candidates ()
+  "Return word candidates for the symbol at point as completion items.
+The items are the tails of the matched words, ready to insert at point,
+and nil when `exhub-fim-enable-word-candidates' is nil, the prefix is too
+short, or nothing in the open buffers matches.
+
+The index is normally filled by the idle timer, so the buffers opened
+since the last completion are not searched until the next one; an empty
+index is the exception, collected inline within the time budget so the
+first completion of a session is not empty."
+  (when (and exhub-fim-enable-word-candidates
+             (not (minibufferp)))
+    (exhub-fim--word-index-ensure-hooks)
+    (let ((prefix (exhub-fim--word-prefix)))
+      (when (and prefix
+                 (>= (length prefix) exhub-fim-word-candidates-min-prefix-length))
+        (let* ((start (float-time))
+               (deadline (when (= 0 (hash-table-count exhub-fim--word-index))
+                           (+ start exhub-fim--word-index-time-budget))))
+          (delq nil
+                (seq-map (lambda (candidate)
+                           (exhub-fim--word-item candidate prefix))
+                         (exhub-fim--word-match
+                          prefix (exhub-fim--word-buffer-list) start deadline))))))))
+
+(defun exhub-fim--merge-word-candidates (items words)
+  "Append the word candidates WORDS to the completion ITEMS.
+The LLM answers stay in front, being the better guess on average, and a
+word already covered by an item is dropped."
+  (if (null words)
+      items
+    (let ((seen (make-hash-table :test 'equal))
+          (extra nil))
+      (dolist (item items)
+        (puthash (substring-no-properties item) t seen))
+      (dolist (word words (append items (nreverse extra)))
+        (let ((text (substring-no-properties word)))
+          (unless (gethash text seen)
+            (puthash text t seen)
+            (push word extra)))))))
+
 (defun exhub-fim--request (present-function)
   "Request completions at point and hand them to PRESENT-FUNCTION.
 PRESENT-FUNCTION is called with the candidate list in the buffer the
-request was sent from, and only while the cursor has not moved."
+request was sent from, and only while the cursor has not moved.
+
+The word candidates of the other open buffers are collected here, before
+the request goes out, so they match the prefix actually typed, and are
+merged into the answers whenever they arrive."
   (exhub-fim--cleanup-suggestion)
   (setq exhub-fim--last-point (point))
   (let ((current-buffer (current-buffer))
         (available-p-fn (intern (format "exhub-fim--%s-available-p" exhub-fim-provider)))
         (complete-fn (intern (format "exhub-fim--%s-complete" exhub-fim-provider)))
-        (context (exhub-fim--get-context)))
+        (context (exhub-fim--get-context))
+        (word-items (exhub-fim--word-candidates)))
     (unless (funcall available-p-fn)
       (exhub-fim--log (format "Exhub-fim provider %s is not available" exhub-fim-provider))
       (error "Exhub-fim provider %s is not available" exhub-fim-provider))
     (funcall complete-fn
              context
              (lambda (items)
-               (when items
-                 (with-current-buffer current-buffer
-                   (unless (exhub-fim--cursor-moved-p)
-                     (funcall present-function items))))))))
+               ;; Merging here is what lets the word candidates show up even
+               ;; when the provider timed out or answered with nothing.
+               (let ((items (exhub-fim--merge-word-candidates items word-items)))
+                 (when items
+                   (with-current-buffer current-buffer
+                     (unless (exhub-fim--cursor-moved-p)
+                       (funcall present-function items)))))))))
 
 ;;;###autoload
 (defun exhub-fim-next-suggestion ()
@@ -670,12 +1002,17 @@ Also print the MESSAGE when MESSAGE-P is t."
     ""))
 
 (defun exhub-fim--add-single-line-entry (data)
-  "Add single line entry into the DATA."
+  "Add single line entry into the DATA.
+Only multi line items get the extra entry: duplicating a single line item
+would drop its text properties, which is how a word candidate keeps its
+`exhub-fim-word' label, and the duplicate is dropped by the caller anyway."
   (cl-loop
    for item in data
    when (stringp item)
-   append (list (car (split-string item "\n"))
-                item)))
+   append (if (string-match-p "\n" item)
+              (list (car (split-string item "\n"))
+                    item)
+            (list item))))
 
 (defun exhub-fim--remove-spaces (items)
   "Remove trailing and leading spaces in each item in ITEMS."
@@ -866,7 +1203,8 @@ menu is visible."
   (interactive)
   (when-let* ((suggestion (exhub-fim--current-suggestion)))
     (exhub-fim--cleanup-suggestion)
-    (insert suggestion)))
+    ;; Strip the properties a word candidate carries for the menu label.
+    (insert (substring-no-properties suggestion))))
 
 ;;;###autoload
 (defun exhub-fim-dismiss-suggestion ()
@@ -910,7 +1248,8 @@ ITEMS are expected to be normalized, see `exhub-fim--normalize-items'."
                         #'exhub-fim--read-with-completing-read))
               (selected (funcall reader items)))
     (unless (string-empty-p selected)
-      (insert selected))))
+      ;; Strip the properties a word candidate carries for the menu label.
+      (insert (substring-no-properties selected)))))
 
 ;;;###autoload
 (defun exhub-fim-complete-with-minibuffer ()

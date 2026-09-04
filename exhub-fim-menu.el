@@ -341,8 +341,12 @@ the ghost preview of a multi-line candidate."
   "Return the one line label displayed for completion CANDIDATE.
 Candidates that start with a newline are labelled with their first
 non-empty line, prefixed by an enter symbol, so the menu never shows a
-blank row."
-  (let* ((lines (split-string candidate "\n"))
+blank row.  A cross-buffer word candidate is labelled with the whole word
+rather than the tail inserted after point, as lsp-bridge's menu labels its
+search-word candidates."
+  (let* ((candidate (or (get-text-property 0 'exhub-fim-word candidate)
+                        candidate))
+         (lines (split-string candidate "\n"))
          (label (or (car lines) ""))
          (blank (exhub-fim-menu--blank-line-p label))
          (multi (> (length lines) 1)))
@@ -356,9 +360,13 @@ blank row."
     (truncate-string-to-width label exhub-fim-menu-max-width nil nil "…")))
 
 (defun exhub-fim-menu--annotation (candidate)
-  "Return the annotation displayed for completion CANDIDATE."
-  (let ((lines (length (split-string candidate "\n" t))))
-    (if (> lines 1) (format "%d lines" lines) "")))
+  "Return the annotation displayed for completion CANDIDATE.
+A cross-buffer word candidate is annotated with where it came from, the way
+lsp-bridge's menu reads \"Search Word\"; other candidates show their line
+count."
+  (or (get-text-property 0 'exhub-fim-annotation candidate)
+      (let ((lines (length (split-string candidate "\n" t))))
+        (if (> lines 1) (format "%d lines" lines) ""))))
 
 (defun exhub-fim-menu--build-items ()
   "Return the visible window of candidates as display items.

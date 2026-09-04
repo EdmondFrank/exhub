@@ -1,6 +1,7 @@
 # exhub-fim
 
-The `exhub-fim` package provides LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models.
+The `exhub-fim` package provides LLM-powered code completion with dual modes: specialized prompts and various enhancements for chat-based LLMs on code completion tasks, and fill-in-the-middle (FIM) completion for compatible models. Completions are also collected from the words
+of every open buffer file, see [Cross-buffer Word Candidates](#cross-buffer-word-candidates).
 
 ## Setup
 
@@ -47,6 +48,50 @@ defers to the lsp-bridge completion menu when it is open.
 ### Automatic Suggestion
 
 - `exhub-fim-auto-suggestion-mode`: Toggle automatic code suggestions.
+
+### Cross-buffer Word Candidates
+
+Alongside the answers the LLM returns, `exhub-fim` completes the words of every
+open buffer file, as lsp-bridge's search-words backend
+(`lsp-bridge-enable-search-words`) does. The candidates are merged into the same
+list, so they appear in the dropdown, as ghost text and in the minibuffer, and
+they still show up when the provider is slow, errors out, or answers with
+nothing.
+
+| Option | Default | Purpose |
+|--------|---------|---------|
+| `exhub-fim-enable-word-candidates` | `t` | Complete words from the open buffers |
+| `exhub-fim-word-candidates-max-number` | `10` | Candidates added per completion |
+| `exhub-fim-word-candidates-min-prefix-length` | `1` | Length the symbol at point must reach first |
+| `exhub-fim-word-candidates-min-word-length` | `4` | Words this short, and numbers, are never indexed |
+| `exhub-fim-word-candidates-scope` | `all-buffers` | `same-mode` restricts collection to buffers in the current `major-mode` |
+| `exhub-fim-word-candidates-max-buffers` | `20` | Buffers searched, taken in most-recently-used order |
+| `exhub-fim-word-candidates-max-buffer-chars` | `100000` | Bigger buffers are left out |
+| `exhub-fim-word-candidates-prohibit-file-extensions` | `("png" "jpg" "jpeg" "gif" "pdf")` | Extensions that never contribute words |
+
+A candidate carries the whole word, so the dropdown labels it with the word and
+annotates it `Word` while only the missing tail is inserted after point; that is
+also why accepting a word candidate is no different from accepting any other.
+Matching ignores case and retries on the last `-` or `_` separated segment of
+what was typed (a segment of at least three characters), so `exhub-widget` still
+completes to `widget-factory-size`.
+
+The words of a buffer are collected once and reused until the buffer changes.
+An idle timer (`exhub-fim--word-index-refresh-delay`, 0.3s) does the collecting
+for at most `exhub-fim--word-index-time-budget` seconds (0.1s) per pass and stops
+itself when everything is current, so typing never waits for a scan; a completion
+request only reads what is already collected. The exception is the first request
+of a session, which fills the empty index inline, and buffers opened since the
+last completion are searched by the next one.
+
+Every open file contributes its words, notes and logs included, which is what
+makes an identifier used only in another file complete. To keep the candidates
+to the code being written, set `exhub-fim-word-candidates-scope` to `same-mode`,
+add the extensions to leave out to
+`exhub-fim-word-candidates-prohibit-file-extensions`, or lower
+`exhub-fim-word-candidates-max-buffers`; buffers over
+`exhub-fim-word-candidates-max-buffer-chars` (log dumps, transcripts) are already
+left out.
 
 ### Provider Configuration
 
