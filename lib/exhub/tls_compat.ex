@@ -66,6 +66,32 @@ defmodule Exhub.TLSCompat do
     [connect_options: [transport_opts: [verify_fun: verify_fun()]]]
   end
 
+  @doc """
+  LangChain chat-model `req_config`, the extension point those models merge
+  into their `Req` request (`Req.merge(req_config |> Keyword.new())`).
+
+  Req reads `connect_options` with `Keyword` functions, so the nested values
+  are keyword lists, not maps.
+
+  Supported by `ChatOpenAI`, `ChatGoogleAI`, `ChatDeepSeek` and friends;
+  `ChatAnthropic`/`ChatMistralAI` structs define no such field and silently
+  drop the key — their upstreams serve compliant chains.
+  """
+  @spec langchain_req_config() :: map()
+  def langchain_req_config do
+    %{connect_options: [transport_opts: [verify_fun: verify_fun()]]}
+  end
+
+  @doc """
+  Same as `langchain_req_config/0`, resolved from a LangChain provider prefix.
+  Returns an empty map for providers whose chat struct has no `req_config`
+  field, so call sites can merge it unconditionally.
+  """
+  @spec langchain_req_config(String.t()) :: map()
+  def langchain_req_config(provider) when is_binary(provider) do
+    if provider in ~w(anthropic mistral), do: %{}, else: langchain_req_config()
+  end
+
   defp sni_opts(url) do
     case URI.parse(url) do
       %URI{host: host} when is_binary(host) and host != "" ->

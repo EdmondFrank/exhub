@@ -10,6 +10,7 @@ defmodule Exhub.Genclaw.LLMHelper do
   require Logger
 
   alias Exhub.Llm.LlmConfigServer
+  alias Exhub.TLSCompat
 
   @default_receive_timeout 180_000
 
@@ -70,6 +71,10 @@ defmodule Exhub.Genclaw.LLMHelper do
     [provider, model_name] = String.split(config[:model], "/", parts: 2)
 
     base = %{model: model_name, api_key: config[:api_key], receive_timeout: receive_timeout}
+
+    # Merged into the model's Req request; carries the TLS compat verify_fun
+    # down to Mint. Empty for chat structs that define no `req_config` field.
+    base = Map.put_new(base, :req_config, TLSCompat.langchain_req_config(provider))
 
     case provider do
       "google" ->

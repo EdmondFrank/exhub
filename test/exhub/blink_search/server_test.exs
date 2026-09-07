@@ -144,4 +144,46 @@ defmodule Exhub.BlinkSearch.ServerTest do
     assert state.pending_search == nil
     assert state.search_tasks == []
   end
+
+  # ── Backend panel navigation (M-n / M-p) ─────────────────────────────
+
+  test "select_next_backend previews the right-panel item, not the left one" do
+    Application.put_env(:exhub, :blink_search_debounce_ms, 0)
+    start_spy()
+
+    Server.update_backend("Buffer List", ["alpha-foo", "alpha-baz"])
+    Server.update_backend("Recent File", ["alpha-qux"])
+    Server.search("alpha", 20, ["Buffer List", "Recent File"])
+
+    # Wait until both backends have merged into the candidate list
+    wait_until(fn -> length(Server.get_state().render.search_candidate_items) == 3 end)
+    collect_renders(100)
+
+    # Buffer List items sort alphabetically: [alpha-baz, alpha-foo]; the left
+    # cursor also sits on "alpha-baz" after sorting, so a wrong (left-based)
+    # selection would preview "alpha-baz" instead of "alpha-foo".
+    Server.select_next_backend()
+
+    messages = collect_renders(1_000)
+
+    assert Enum.any?(messages, &String.contains?(&1, ~s|(switch-to-buffer "alpha-foo")|)),
+           "right-panel cursor move must preview the item under it, got: #{inspect(messages)}"
+  end
+
+  test "select_prev_backend at the top does not re-preview" do
+    Application.put_env(:exhub, :blink_search_debounce_ms, 0)
+    start_spy()
+
+    Server.update_backend("Buffer List", ["alpha-foo", "alpha-baz"])
+    Server.update_backend("Recent File", ["alpha-qux"])
+    Server.search("alpha", 20, ["Buffer List", "Recent File"])
+
+    wait_until(fn -> length(Server.get_state().render.search_candidate_items) == 3 end)
+    collect_renders(100)
+
+    Server.select_prev_backend()
+
+    messages = collect_renders(200)
+    refute Enum.any?(messages, &String.contains?(&1, "switch-to-buffer"))
+  end
 end

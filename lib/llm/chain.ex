@@ -8,6 +8,7 @@ defmodule Exhub.Llm.Chain do
   alias LangChain.LangChainError
   alias Exhub.Llm.LlmConfigServer
   alias Exhub.Router.TokenPool
+  alias Exhub.TLSCompat
   require Logger
 
   def create_llm_chain do
@@ -114,6 +115,12 @@ defmodule Exhub.Llm.Chain do
 
     # Merge user-provided options (max_tokens, temperature, stream, etc.)
     llm_config = Map.merge(base_config, opts)
+
+    # `req_config` is the extension point chat models merge into their Req
+    # request; it carries the TLS compat verify_fun down to Mint. Empty for the
+    # providers whose struct has no such field. `put_new` keeps a
+    # caller-supplied `req_config` in `opts` winning.
+    llm_config = Map.put_new(llm_config, :req_config, TLSCompat.langchain_req_config(provider))
 
     # Create LLM struct with merged configuration
     llm =

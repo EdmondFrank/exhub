@@ -70,4 +70,32 @@ defmodule Exhub.TLSCompatTest do
       assert is_function(fun, 3)
     end
   end
+
+  describe "langchain_req_config/0" do
+    test "is a map whose connect_options Req can merge as a keyword list" do
+      config = Exhub.TLSCompat.langchain_req_config()
+
+      assert is_map(config)
+      # LangChain does `Keyword.new(req_config)` and Req reads connect_options
+      # with Keyword functions, so the nested values must be keyword lists.
+      assert [transport_opts: transport_opts] = config.connect_options
+      assert {fun, nil} = Keyword.fetch!(transport_opts, :verify_fun)
+      assert is_function(fun, 3)
+    end
+  end
+
+  describe "langchain_req_config/1" do
+    test "returns the config for providers exposing a req_config field" do
+      for provider <- ["openai", "google", "deepseek"] do
+        assert Exhub.TLSCompat.langchain_req_config(provider) ==
+                 Exhub.TLSCompat.langchain_req_config()
+      end
+    end
+
+    test "is empty for chat structs that define no req_config field" do
+      for provider <- ["anthropic", "mistral"] do
+        assert Exhub.TLSCompat.langchain_req_config(provider) == %{}
+      end
+    end
+  end
 end

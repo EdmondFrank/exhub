@@ -10,10 +10,13 @@ defmodule Exhub.Sagents.Factory do
 
   alias Exhub.Llm.LlmConfigServer
   alias Exhub.Sagents.McpAdapter
+  alias Exhub.TLSCompat
   require Logger
 
   def create_agent(agent_id, config) do
-    Logger.info("[Sagents.Factory] create_agent: '#{agent_id}' config keys: #{inspect(Map.keys(config))}")
+    Logger.info(
+      "[Sagents.Factory] create_agent: '#{agent_id}' config keys: #{inspect(Map.keys(config))}"
+    )
 
     with {:ok, model} <- build_langchain_model(config) do
       mcp_tools = McpAdapter.build_tools(config[:mcp_tools] || [])
@@ -21,8 +24,14 @@ defmodule Exhub.Sagents.Factory do
       middleware = config[:middleware] || default_middleware()
 
       all_tools = mcp_tools ++ native_tools
-      Logger.info("[Sagents.Factory] create_agent: '#{agent_id}' mcp_tools=#{length(mcp_tools)} native_tools=#{length(native_tools)} middleware=#{length(middleware)}")
-      Logger.info("[Sagents.Factory] create_agent: '#{agent_id}' tool names: #{inspect(Enum.map(all_tools, & &1.name))}")
+
+      Logger.info(
+        "[Sagents.Factory] create_agent: '#{agent_id}' mcp_tools=#{length(mcp_tools)} native_tools=#{length(native_tools)} middleware=#{length(middleware)}"
+      )
+
+      Logger.info(
+        "[Sagents.Factory] create_agent: '#{agent_id}' tool names: #{inspect(Enum.map(all_tools, & &1.name))}"
+      )
 
       agent =
         Sagents.Agent.new!(%{
@@ -115,6 +124,10 @@ defmodule Exhub.Sagents.Factory do
         _ ->
           Map.put(base_config, :endpoint, "#{config[:api_base]}/chat/completions")
       end
+
+    # Merged into the model's Req request; carries the TLS compat verify_fun
+    # down to Mint. Empty for chat structs that define no `req_config` field.
+    llm_config = Map.put_new(llm_config, :req_config, TLSCompat.langchain_req_config(provider))
 
     case provider do
       "google" -> LangChain.ChatModels.ChatGoogleAI.new!(llm_config)

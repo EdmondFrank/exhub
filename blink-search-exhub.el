@@ -500,16 +500,40 @@ With prefix ARG, search current symbol."
                candidate-info
              (plist-get candidate-info :text)))))
 
+(defun blink-search-exhub-get-select-backend-name ()
+  "Return the backend name owning the current selection.
+The backend panel only ever shows items of the focused backend, so
+the left-selected item carries the right backend name even when the
+action candidate comes from the backend panel."
+  (plist-get (nth blink-search-exhub-candidate-select-index
+                  blink-search-exhub-candidate-items)
+             :backend))
+
+(defun blink-search-exhub-get-select-candidate ()
+  "Return the selected candidate text, honoring the backend panel.
+When the backend (right) window is visible its cursor is
+authoritative: M-n/M-p move it independently of the left candidate
+list, so take the item at `blink-search-exhub-backend-select-index'.
+Mirrors upstream `blink-search-get-select-candidate'."
+  (let ((candidate-info
+         (if (get-buffer-window blink-search-exhub-backend-buffer)
+             (nth blink-search-exhub-backend-select-index
+                  blink-search-exhub-backend-items)
+           (plist-get (nth blink-search-exhub-candidate-select-index
+                           blink-search-exhub-candidate-items)
+                      :candidate))))
+    (when candidate-info
+      (blink-search-exhub-get-candidate-text candidate-info))))
+
 (defun blink-search-exhub-do ()
   "Execute action for selected candidate."
   (interactive)
-  (let* ((item (nth blink-search-exhub-candidate-select-index
-                    blink-search-exhub-candidate-items))
-         (backend-name (plist-get item :backend))
-         (candidate-info (plist-get item :candidate))
-         (candidate (blink-search-exhub-get-candidate-text candidate-info)))
-    (blink-search-exhub-quit)
-    (blink-search-exhub-call-flat "do" backend-name candidate)))
+  (when blink-search-exhub-candidate-items
+    (let ((backend-name (blink-search-exhub-get-select-backend-name))
+          (candidate (blink-search-exhub-get-select-candidate)))
+      (blink-search-exhub-quit)
+      (when candidate
+        (blink-search-exhub-call-flat "do" backend-name candidate)))))
 
 (defun blink-search-exhub-preview ()
   "Preview selected candidate."
@@ -536,33 +560,30 @@ With prefix ARG, search current symbol."
 (defun blink-search-exhub-parent ()
   "Navigate to parent of selected candidate."
   (interactive)
-  (let* ((item (nth blink-search-exhub-candidate-select-index
-                    blink-search-exhub-candidate-items))
-         (backend-name (plist-get item :backend))
-         (candidate-info (plist-get item :candidate))
-         (candidate (blink-search-exhub-get-candidate-text candidate-info)))
-    (blink-search-exhub-quit)
-    (blink-search-exhub-call-flat "parent" backend-name candidate)))
+  (when blink-search-exhub-candidate-items
+    (let ((backend-name (blink-search-exhub-get-select-backend-name))
+          (candidate (blink-search-exhub-get-select-candidate)))
+      (blink-search-exhub-quit)
+      (when candidate
+        (blink-search-exhub-call-flat "parent" backend-name candidate)))))
 
 (defun blink-search-exhub-continue ()
   "Continue search in subdirectory of selected candidate."
   (interactive)
-  (let* ((item (nth blink-search-exhub-candidate-select-index
-                    blink-search-exhub-candidate-items))
-         (backend-name (plist-get item :backend))
-         (candidate-info (plist-get item :candidate))
-         (candidate (blink-search-exhub-get-candidate-text candidate-info)))
-    (blink-search-exhub-call-flat "continue" backend-name candidate)))
+  (when blink-search-exhub-candidate-items
+    (let ((backend-name (blink-search-exhub-get-select-backend-name))
+          (candidate (blink-search-exhub-get-select-candidate)))
+      (when candidate
+        (blink-search-exhub-call-flat "continue" backend-name candidate)))))
 
 (defun blink-search-exhub-copy ()
   "Copy selected candidate text."
   (interactive)
-  (let* ((item (nth blink-search-exhub-candidate-select-index
-                    blink-search-exhub-candidate-items))
-         (backend-name (plist-get item :backend))
-         (candidate-info (plist-get item :candidate))
-         (candidate (blink-search-exhub-get-candidate-text candidate-info)))
-    (blink-search-exhub-call-flat "copy" backend-name candidate)))
+  (when blink-search-exhub-candidate-items
+    (let ((backend-name (blink-search-exhub-get-select-backend-name))
+          (candidate (blink-search-exhub-get-select-candidate)))
+      (when candidate
+        (blink-search-exhub-call-flat "copy" backend-name candidate)))))
 
 (defun blink-search-exhub-quick-do ()
   "Execute action for candidate matching quick key."

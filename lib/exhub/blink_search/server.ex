@@ -317,6 +317,7 @@ defmodule Exhub.BlinkSearch.Server do
   def handle_cast(:select_next_backend, state) do
     render = Renderer.select_next_backend(state.render)
     send_render_to_emacs(render)
+    preview_backend_item(state, render)
     {:noreply, %{state | render: render}}
   end
 
@@ -324,6 +325,7 @@ defmodule Exhub.BlinkSearch.Server do
   def handle_cast(:select_prev_backend, state) do
     render = Renderer.select_prev_backend(state.render)
     send_render_to_emacs(render)
+    preview_backend_item(state, render)
     {:noreply, %{state | render: render}}
   end
 
@@ -528,6 +530,31 @@ defmodule Exhub.BlinkSearch.Server do
     state.backend_states
     |> Map.get(backend_name, %{})
     |> Map.put(:match_text, state.render.search_keyword)
+  end
+
+  # Mirror upstream `select_backend_item()': moving the cursor in the
+  # backend (right) panel with M-n/M-p previews the item under it.  The
+  # backend name comes from the focused (left) selection; the candidate
+  # from the right-panel cursor.  No-op when the cursor did not move.
+  defp preview_backend_item(state, render) do
+    old_cursor = {state.render.render_backend_offset, state.render.render_backend_index}
+    new_cursor = {render.render_backend_offset, render.render_backend_index}
+
+    if old_cursor != new_cursor do
+      case Renderer.selected_backend_item(render) do
+        {backend_name, candidate} ->
+          module = Map.get(@backend_modules, backend_name)
+
+          if module do
+            module.select(candidate, action_state(state, backend_name))
+          end
+
+        nil ->
+          :ok
+      end
+    end
+
+    :ok
   end
 
   defp send_render_to_emacs(render) do
