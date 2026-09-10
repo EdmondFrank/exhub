@@ -528,10 +528,15 @@
 
 ## MCP Think/Plan Server
 - **Think & Plan Tools**: New `Exhub.MCP.ThinkServer` module providing MCP-compliant reasoning scratchpad tools
-- **Zero Side Effects**: Both tools simply echo their input back — no database writes, no external calls
 - **Dual Tools**: `think` for recording reasoning thoughts and `plan` for outlining next steps
 - **HTTP Endpoint**: Exposed at `/think/mcp` for MCP protocol communication
 - **Supervisor Integration**: `Exhub.MCP.ThinkServer` registered in the application supervisor with streamable HTTP transport
+
+### Persistent Scratchpad (upgrade from echo-only)
+- **Per-session journal**: Both tools are now backed by `Exhub.MCP.Tools.Scratchpad` — each call appends its entry and returns all accumulated entries, giving the model consolidated working memory instead of echoing the single input back verbatim
+- **JSON envelope**: Responses return `%{"recorded" => count, "scratchpad" => [...], "next" => nudge}`; the counter makes runaway thinking loops visible and the nudge directs the model to act on recorded state rather than re-think it
+- **Bounded growth**: Entries are truncated to 32k characters and capped at 50 per tool (oldest dropped first); malformed arguments are normalized or replaced with a placeholder note instead of raising
+- **No new supervision children**: State lives in the Anubis session frame's assigns (`:think_notes` / `:plan_steps`) and persists for the session lifetime without extra processes
 
 ## MCP Web Tools Server
 - **Web Search & Fetch**: New `Exhub.MCP.WebToolsServer` module providing MCP-compliant web search and content fetching
