@@ -38,7 +38,7 @@ Entries are kept in the MCP session's frame assigns (`Exhub.MCP.Tools.Scratchpad
 
 Bounds (per tool, per session):
 
-- Each entry is truncated to 32,000 characters (codepoint-safe, with a `…[truncated]` suffix).
+- Each entry is truncated to 2,000 characters (codepoint-safe, with a `…[truncated]` suffix).
 - At most 50 entries are retained; the oldest are dropped first.
 - Malformed arguments never crash the tool: non-string input is normalized (numbers/booleans stringified, empty values recorded as `"empty"`) or replaced with a placeholder note.
 

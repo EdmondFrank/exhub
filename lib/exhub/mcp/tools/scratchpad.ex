@@ -22,7 +22,7 @@ defmodule Exhub.MCP.Tools.Scratchpad do
 
   alias Anubis.Server.Frame
 
-  @max_entry_length 32_000
+  @max_entry_length 2_000
   @max_entries 50
 
   @doc """
