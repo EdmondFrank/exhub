@@ -41,7 +41,8 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
-      # MCP Think Server
+      # MCP Think Server (scratchpad-backed think/plan tools)
+      {Exhub.MCP.ScratchpadStore, name: Exhub.MCP.ScratchpadStore},
       {Exhub.MCP.ThinkServer,
        transport: :streamable_http,
        request_timeout: 600_000,

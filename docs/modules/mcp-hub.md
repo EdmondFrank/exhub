@@ -730,6 +730,7 @@ HTTP POST /desktop/mcp
 | `Exhub.MCP.ConcurrentToolDispatcher` | Intercepts `tools/call` requests, executes tool handlers in Task children          |
 | `Exhub.MCP.LazyPlug`                 | Entry point for all MCP HTTP requests; delegates to dispatcher or Anubis           |
 | `Exhub.MCP.ToolTaskSupervisor`       | `Task.Supervisor` for tool execution tasks (added to application supervision tree) |
+| `Exhub.MCP.ScratchpadStore`          | Session-keyed ETS store backing the stateful `think`/`plan` tools                  |
 
 ### How It Works
 
@@ -743,7 +744,7 @@ HTTP POST /desktop/mcp
 
 ### Safety Guarantees
 
-- **No frame state dependency**: No Exhub tool handler reads `frame.assigns` or `frame.context` — they all use external GenServers (`ProcessStore`, `AgentStore`, `HabitStore`, etc.) for state management.
+- **No frame-state persistence**: Handlers must not keep state in `frame.assigns` — the dispatcher builds a fresh frame per call and discards the returned one, so frame-backed state would never survive across calls. Stateful tools instead use external stores keyed on the transport-independent `frame.context.session_id`: `Exhub.MCP.ScratchpadStore` (the `think`/`plan` journals), plus `ProcessStore`, `AgentStore`, `HabitStore`, `TodoStore`, etc.
 - **No session notification dependency**: No tool handler calls `Anubis.Server.send_*` notification functions (which require the session process).
 - **Fresh frame per call**: A new `Frame` with proper `Context` (session_id, headers, remote_ip) is constructed for each tool call, matching what the session would have prepared.
 - **Non-tools/call requests unaffected**: `initialize`, `tools/list`, notifications, and all other MCP methods still go through the session GenServer, preserving session state and protocol semantics.

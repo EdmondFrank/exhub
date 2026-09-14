@@ -24,8 +24,12 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
   ## Safety
 
-  - No Exhub tool handler uses `frame.assigns` or `frame.context` for state —
-    they all use external GenServers (ProcessStore, AgentStore, etc.).
+  - Because this path builds a fresh Frame per request and discards the frame
+    returned by the tool, handlers MUST NOT keep state in `frame.assigns` — it
+    would never persist across calls. Stateful tools use an external store keyed
+    on the transport-independent `frame.context.session_id` (see
+    `Exhub.MCP.ScratchpadStore`, used by the `think`/`plan` tools; other tools
+    use ProcessStore, AgentStore, TodoStore, etc.).
   - No tool handler calls session notification functions (`send(self(), ...)`).
   - A fresh Frame with proper Context is constructed for each tool call.
   """
@@ -86,7 +90,17 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
   # --- Concurrent tool execution ---
 
-  defp handle_concurrent(conn, server, timeout, request_id, tool_name, arguments, session_id, wants_sse, opts) do
+  defp handle_concurrent(
+         conn,
+         server,
+         timeout,
+         request_id,
+         tool_name,
+         arguments,
+         session_id,
+         wants_sse,
+         opts
+       ) do
     frame = build_frame(conn, session_id)
 
     # Get tools and apply filtering (same as ServerHelpers.handle_request_with_filtered_tools)
@@ -121,7 +135,18 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
     end
   end
 
-  defp execute_and_reply(conn, server, tool, params, frame, timeout, request_id, session_id, wants_sse, opts) do
+  defp execute_and_reply(
+         conn,
+         server,
+         tool,
+         params,
+         frame,
+         timeout,
+         request_id,
+         session_id,
+         wants_sse,
+         opts
+       ) do
     task =
       Task.Supervisor.async_nolink(Exhub.MCP.ToolTaskSupervisor, fn ->
         execute_tool(server, tool, params, frame)
@@ -140,9 +165,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
         reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
 
       {:exit, reason} ->
-        Logger.error(
-          "[ConcurrentToolDispatcher] Tool '#{tool.name}' crashed: #{inspect(reason)}"
-        )
+        Logger.error("[ConcurrentToolDispatcher] Tool '#{tool.name}' crashed: #{inspect(reason)}")
 
         error = Error.execution("Tool execution failed: #{format_exit_reason(reason)}")
         reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
@@ -209,7 +232,15 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
   # --- Reply helpers ---
 
-  defp reply_result(conn, {:reply, result, _frame}, request_id, session_id, wants_sse, server, opts) do
+  defp reply_result(
+         conn,
+         {:reply, result, _frame},
+         request_id,
+         session_id,
+         wants_sse,
+         server,
+         opts
+       ) do
     response = Message.build_response(result, request_id)
     encoded = response |> Encoding.sanitize_utf8() |> JSON.encode!()
     send_response(conn, encoded, session_id, wants_sse, server, opts)
@@ -274,8 +305,11 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
   defp validate_params(params, %Tool{} = tool) do
     case tool.validate_input.(params) do
-      {:ok, validated} -> {:ok, validated}
-      {:error, errors} -> {:error, Error.protocol(:invalid_params, %{message: Schema.format_errors(errors)})}
+      {:ok, validated} ->
+        {:ok, validated}
+
+      {:error, errors} ->
+        {:error, Error.protocol(:invalid_params, %{message: Schema.format_errors(errors)})}
     end
   end
 

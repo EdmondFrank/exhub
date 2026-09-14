@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## MCP Think/Plan — Store-Backed Scratchpad (fix: only one record returned)
+
+- **Problem**: The `think` and `plan` tools kept their journal in the MCP frame's `assigns` (`:think_notes` / `:plan_steps`). ExHub serves every `tools/call` through `Exhub.MCP.ConcurrentToolDispatcher`, which builds a fresh frame per request and discards the frame returned by the tool — so state never accumulated and every call reported `recorded: 1`. Frame-based persistence only works on the `Anubis.Server.Session` path, which `tools/call` never reaches.
+- **Solution (Option C)**: Move scratchpad state out of `frame.assigns` into an external store keyed on the transport-independent `frame.context.session_id`, populated identically in both dispatch paths. Works under the concurrent dispatcher and the session path alike, and keeps concurrency.
+- **New Module**: `Exhub.MCP.ScratchpadStore` — GenServer over a public ETS table, buckets keyed by `{session_id, key}`, atomic append (no lost updates under concurrency), 50-entry cap, and a periodic cleanup task pruning buckets idle > 2 hours (mirrors `Exhub.MCP.TodoStore`). Supervised just before `Exhub.MCP.ThinkServer`.
+- **Modified Files**:
+  - `lib/exhub/mcp/scratchpad_store.ex` — NEW: session-keyed scratchpad store
+  - `lib/exhub/mcp/tools/scratchpad.ex` — facade now delegates append/read to the store (store name overridable via app env for tests); drops the unused `@max_entries` cap (owned by the store)
+  - `lib/exhub/mcp/tools/think.ex`, `lib/exhub/mcp/tools/plan.ex` — derive `session_id` from `frame.context` (fallback `"__default__"` bucket when nil) and append via the store
+  - `lib/exhub/application.ex` — added `Exhub.MCP.ScratchpadStore` child before `ThinkServer`
+  - `lib/exhub/mcp/concurrent_tool_dispatcher.ex` — corrected the `@moduledoc` safety note that wrongly claimed no handler uses frame state
+  - `test/exhub/mcp/tools/think_test.exs` — NEW: accumulation, session isolation, nil-session fallback, and plan-vs-think independence (4 tests)
+- **Caveat**: In-memory only — journals reset on a full VM restart (matches TodoStore semantics).
+
+---
+
 ## MCP Hub — Compact Params Summary in Tool Retrieval
 
 - **New Feature**: `retrieve_tools` results now include a single compact `params` summary line (e.g. `"query: string (required), limit: integer"`) instead of the full `inputSchema` blob, keeping tool discovery responses small for AI clients.
@@ -164,7 +180,7 @@
   - `lib/exhub/mcp/concurrent_tool_dispatcher.ex` — NEW: Concurrent tool execution module
   - `lib/exhub/mcp/lazy_plug.ex` — `call/2` now tries `ConcurrentToolDispatcher.maybe_handle/2` first; non-`tools/call` requests fall through to the standard Anubis Plug
   - `lib/exhub/application.ex` — Added `Exhub.MCP.ToolTaskSupervisor` to the supervision tree
-- **Safety**: No Exhub tool handler uses `frame.assigns` or `frame.context` for state — they all use external GenServers (ProcessStore, AgentStore, etc.). A fresh `Frame` with proper `Context` (session_id, headers, remote_ip) is constructed for each tool call.
+- **Safety**: Tool handlers must not keep state in `frame.assigns` (the dispatcher builds a fresh frame per call and discards the returned one). Stateful tools use external stores keyed on the transport-independent `frame.context.session_id` — e.g. `Exhub.MCP.ScratchpadStore` for `think`/`plan`, plus ProcessStore, AgentStore, TodoStore, etc. A fresh `Frame` with proper `Context` (session_id, headers, remote_ip) is constructed for each tool call.
 - **SSE Support**: If the client requests SSE (`Accept: text/event-stream`), the response is routed through the existing SSE handler. Falls back to JSON if no SSE handler is registered.
 - **Non-`tools/call` requests** (initialize, tools/list, notifications) still go through the session GenServer, preserving session state and protocol semantics.
 
@@ -535,8 +551,8 @@
 ### Persistent Scratchpad (upgrade from echo-only)
 - **Per-session journal**: Both tools are now backed by `Exhub.MCP.Tools.Scratchpad` — each call appends its entry and returns all accumulated entries, giving the model consolidated working memory instead of echoing the single input back verbatim
 - **JSON envelope**: Responses return `%{"recorded" => count, "scratchpad" => [...], "next" => nudge}`; the counter makes runaway thinking loops visible and the nudge directs the model to act on recorded state rather than re-think it
-- **Bounded growth**: Entries are truncated to 32k characters and capped at 50 per tool (oldest dropped first); malformed arguments are normalized or replaced with a placeholder note instead of raising
-- **No new supervision children**: State lives in the Anubis session frame's assigns (`:think_notes` / `:plan_steps`) and persists for the session lifetime without extra processes
+- **Bounded growth**: Entries are truncated to 2,000 characters and capped at 50 per tool (oldest dropped first); malformed arguments are normalized or replaced with a placeholder note instead of raising
+- ~~**No new supervision children**: State lives in the Anubis session frame's assigns (`:think_notes` / `:plan_steps`)~~ — superseded by the store-backed fix below; frame assigns never persisted under the concurrent dispatcher.
 
 ## MCP Web Tools Server
 - **Web Search & Fetch**: New `Exhub.MCP.WebToolsServer` module providing MCP-compliant web search and content fetching

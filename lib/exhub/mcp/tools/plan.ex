@@ -2,10 +2,11 @@ defmodule Exhub.MCP.Tools.Plan do
   @moduledoc """
   MCP Tool for planning steps — a per-session plan journal.
 
-  Each call appends the plan to a persistent list (see
-  `Exhub.MCP.Tools.Scratchpad`) and returns the accumulated plans as a JSON
-  envelope (`recorded` / `scratchpad` / `next`), so the model can revise an
-  explicit plan over time instead of re-deriving it from context each turn.
+  Each call appends the plan to a persistent, session-keyed journal (see
+  `Exhub.MCP.ScratchpadStore`, keyed on `frame.context.session_id`) and returns
+  the accumulated plans as a JSON envelope (`recorded` / `scratchpad` / `next`),
+  so the model can revise an explicit plan over time instead of re-deriving it
+  from context each turn.
   """
 
   alias Anubis.Server.Response
@@ -40,9 +41,13 @@ defmodule Exhub.MCP.Tools.Plan do
   def execute(params, frame) do
     plan = Scratchpad.normalize(Map.get(params, :plan), @invalid_placeholder)
 
-    {entries, frame} = Scratchpad.append(frame, @assigns_key, plan)
+    entries = Scratchpad.append(session_id(frame), @assigns_key, plan)
 
     resp = Response.tool() |> Response.json(Scratchpad.envelope(entries, @nudge))
     {:reply, resp, frame}
   end
+
+  # Transport-independent bucket key (see Exhub.MCP.Tools.Think).
+  defp session_id(%{context: %{session_id: sid}}) when is_binary(sid), do: sid
+  defp session_id(_frame), do: "__default__"
 end

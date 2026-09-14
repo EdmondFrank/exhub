@@ -6,10 +6,13 @@ defmodule Exhub.MCP.Tools.Scratchpad do
   accumulates notes across calls and returns them to the model as consolidated
   working memory, instead of echoing the single thought back verbatim.
 
-  Entries are kept in the MCP session's frame `assigns` (see
-  `Anubis.Server.Frame.assign/3`). The Anubis session process persists the
-  frame returned from a component's `execute/2`, so the log survives for the
-  lifetime of the session without any extra supervision tree members.
+  Entries live in an external, session-keyed store
+  (`Exhub.MCP.ScratchpadStore`) rather than the MCP frame's `assigns`. The frame
+  is unreliable for persistence because ExHub serves `tools/call` through
+  `Exhub.MCP.ConcurrentToolDispatcher`, which builds a fresh frame per request
+  and discards the one returned by the tool. Keying on the transport-independent
+  `frame.context.session_id` makes accumulation work under both the concurrent
+  dispatcher and `Anubis.Server.Session`.
 
   ## Guarantees
 
@@ -20,35 +23,25 @@ defmodule Exhub.MCP.Tools.Scratchpad do
       argument handling.
   """
 
-  alias Anubis.Server.Frame
+  alias Exhub.MCP.ScratchpadStore
 
   @max_entry_length 2_000
-  @max_entries 50
 
   @doc """
-  Appends `entry` to the list stored under `key` in `frame.assigns`.
+  Append `entry` to the scratchpad bucket identified by `session_id` and `key`.
 
-  Returns `{entries, frame}` where `entries` is the updated, bounded list and
-  `frame` carries it back into the session.
+  Returns the updated, bounded list of entries. The append is atomic within the
+  store, so concurrent calls against the same session don't lose updates.
   """
-  @spec append(Frame.t(), atom(), String.t()) :: {[String.t()], Frame.t()}
-  def append(%Frame{} = frame, key, entry) when is_atom(key) and is_binary(entry) do
-    entries =
-      frame
-      |> Map.get(:assigns)
-      |> Map.get(key, [])
-      |> Kernel.++([truncate(entry)])
-      |> Enum.take(-@max_entries)
-
-    {entries, Frame.assign(frame, key, entries)}
+  @spec append(String.t() | nil, atom(), String.t()) :: [String.t()]
+  def append(session_id, key, entry) when is_atom(key) and is_binary(entry) do
+    ScratchpadStore.append(store_name(), session_id, key, truncate(entry))
   end
 
-  @doc """
-  Reads the current entries for `key` from a frame.
-  """
-  @spec entries(Frame.t(), atom()) :: [String.t()]
-  def entries(%Frame{assigns: assigns}, key) when is_atom(key) do
-    Map.get(assigns, key, [])
+  @doc "Read the current entries for `session_id` / `key`."
+  @spec entries(String.t() | nil, atom()) :: [String.t()]
+  def entries(session_id, key) when is_atom(key) do
+    ScratchpadStore.entries(store_name(), session_id, key)
   end
 
   @doc """
@@ -91,5 +84,11 @@ defmodule Exhub.MCP.Tools.Scratchpad do
   defp truncate(entry) do
     # Take codepoints (not bytes) so the result is always valid UTF-8.
     String.slice(entry, 0, @max_entry_length) <> @suffix
+  end
+
+  # Store process name, overridable via app env so tests can point at a locally
+  # started instance without relying on the supervision tree.
+  defp store_name do
+    Application.get_env(:exhub, __MODULE__, [])[:store] || ScratchpadStore
   end
 end

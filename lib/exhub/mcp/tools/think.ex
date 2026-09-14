@@ -3,8 +3,9 @@ defmodule Exhub.MCP.Tools.Think do
   MCP Tool for thinking about something — an external reasoning scratchpad.
 
   Each call appends the thought to a per-session scratchpad (see
-  `Exhub.MCP.Tools.Scratchpad`) and returns the accumulated notes as a JSON
-  envelope instead of echoing the single thought back:
+  `Exhub.MCP.ScratchpadStore`, keyed on `frame.context.session_id`) and returns
+  the accumulated notes as a JSON envelope instead of echoing the single thought
+  back:
 
       {"recorded": N, "scratchpad": [...], "next": "<nudge>"}
 
@@ -47,9 +48,15 @@ defmodule Exhub.MCP.Tools.Think do
   def execute(params, frame) do
     thought = Scratchpad.normalize(Map.get(params, :thought), @invalid_placeholder)
 
-    {entries, frame} = Scratchpad.append(frame, @assigns_key, thought)
+    entries = Scratchpad.append(session_id(frame), @assigns_key, thought)
 
     resp = Response.tool() |> Response.json(Scratchpad.envelope(entries, @nudge))
     {:reply, resp, frame}
   end
+
+  # Transport-independent bucket key. Populated by both Anubis.Server.Session
+  # and Exhub.MCP.ConcurrentToolDispatcher; falls back to a shared default so a
+  # missing id degrades to one scratchpad rather than crashing the tool.
+  defp session_id(%{context: %{session_id: sid}}) when is_binary(sid), do: sid
+  defp session_id(_frame), do: "__default__"
 end
