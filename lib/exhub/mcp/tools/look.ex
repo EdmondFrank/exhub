@@ -12,12 +12,13 @@ defmodule Exhub.MCP.Tools.Look do
 
   @api_url "https://api.moark.com/v1/chat/completions"
 
-  @default_model "kimi-k2.6"
+  @default_model "deepseek-v4.1-flash"
   @max_tokens 4096
 
   @supported_image_exts ~w(.png .jpg .jpeg .gif .webp .bmp)
 
   @valid_models ~w(
+    deepseek-v4.1-flash
     glm-5v-turbo
     kimi-k2.6
     kimi-k2.5
@@ -38,7 +39,8 @@ defmodule Exhub.MCP.Tools.Look do
     describe contents, answer questions about images, or analyze visual data.
 
     **Supported models:**
-    - `kimi-k2.6` (default) — Moonshot AI vision model
+    - `deepseek-v4.1-flash` (default) — DeepSeek V4.1 Flash vision model
+    - `kimi-k2.6` — Moonshot AI vision model
     - `glm-5v-turbo` — Zhipu AI efficient vision model
     - `kimi-k2.5` — Moonshot AI vision model
     - `qwen3.5-122b-a10b` — Alibaba Qwen3.5 vision model
@@ -60,7 +62,7 @@ defmodule Exhub.MCP.Tools.Look do
 
     field(:prompt, {:required, :string}, description: "What to extract or analyze from the image")
 
-    field(:model, :string, description: "Vision model to use. Default: kimi-k2.6")
+    field(:model, :string, description: "Vision model to use. Default: deepseek-v4.1-flash")
 
     field(:response_format, :string, description: "Output format: 'text' (default) or 'json'")
   end

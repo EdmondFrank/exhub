@@ -51,7 +51,7 @@ retrieve_tools with query `look image read understand`
 Returns: look:look
 Call: look:look with image: https://example.com/photo.png, prompt: "Describe what's in this image"
 
-The `look` tool supports multiple vision models (default: kimi-k2.6). Use the `model` parameter to switch models if needed.
+The `look` tool supports multiple vision models (default: deepseek-v4.1-flash). Use the `model` parameter to switch models if needed.
 
 ## Audio Transcription
 

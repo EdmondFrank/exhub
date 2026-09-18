@@ -25,14 +25,15 @@ Analyze images using AI vision models.
 |-----------|------|----------|---------|-------------|
 | `image` | string | ✓ | — | Local file path or remote URL |
 | `prompt` | string | ✓ | — | What to extract or analyze |
-| `model` | string | | `glm-5v-turbo` | Vision model to use |
+| `model` | string | | `deepseek-v4.1-flash` | Vision model to use |
 | `response_format` | string | | `text` | `text` or `json` |
 
 ### Supported Models
 
 | Model | Description |
 |-------|-------------|
-| `glm-5v-turbo` | Zhipu AI efficient vision model (default) |
+| `deepseek-v4.1-flash` | DeepSeek V4.1 Flash vision model (default) |
+| `glm-5v-turbo` | Zhipu AI efficient vision model |
 | `kimi-k2.5` | Moonshot AI vision model |
 | `qwen3.5-122b-a10b` | Alibaba Qwen3.5 vision model |
 | `qwen2.5-vl-32b-instruct` | Alibaba Qwen2.5-VL 32B |

@@ -3,7 +3,7 @@ defmodule Exhub.MCP.LookServer do
   MCP Server for image understanding via Gitee AI vision models.
 
   Exposes the `look` tool which analyzes images using vision-capable
-  models (Qwen-VL, GLM-4V, deepseek-vl, etc.).
+  models (deepseek-v4.1-flash, Qwen-VL, GLM-4V, etc.).
 
   Supports both local file paths and remote URLs as input.
 
