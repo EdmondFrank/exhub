@@ -85,6 +85,25 @@ config :exhub, Exhub.BrainIndexRefresh,
     daily: [schedule: "0 3 * * *", task: {Exhub.BrainIndexRefresh, :run_refresh, []}]
   ]
 
+# Brain vault search: Smart Decide (System One) relevance filter applied after
+# the ranked candidate pool in `brain_search_vault`.
+#   - `enabled`: master switch (per-call override via `brain_search_vault.filter`)
+#   - `candidate_limit`: ranked pool judged when filtering (>= the policy's `top_n`)
+#   - `max_concurrency`: concurrent System One requests (one note per request)
+#   - `threshold`: minimum `noul` probability to keep a note
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~2k context
+#   - `fallback`: return the ranked pool when nothing is judged relevant
+# In-code defaults in `Exhub.MCP.Brain.Search.Relevance` apply for any missing key.
+config :exhub, Exhub.MCP.Brain.Search.Relevance,
+  enabled: true,
+  candidate_limit: 20,
+  max_concurrency: 8,
+  threshold: 0.5,
+  timeout: 30_000,
+  state_char_limit: 1500,
+  query_char_limit: 800,
+  fallback: true
+
 # MCP Hub tool retrieval: Smart Decide (System One) relevance filter applied
 # after the TF-IDF candidate search in `retrieve_tools`.
 #   - `enabled`: master switch (per-call override via `retrieve_tools.filter`)

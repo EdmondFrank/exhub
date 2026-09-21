@@ -130,8 +130,10 @@ the chosen value (`noul`, `choice`, or `score`).
 `Exhub.MCP.Tools.SmartDecide.decide/3` exposes the same decision without the MCP
 frame — it returns `{:ok, %{"model" => …, "answers" => …}}` or `{:error, message}`
 and accepts `:model`, `:compact`, and `:api_key` options. The MCP Hub uses it to
-filter `retrieve_tools` candidates (see
-[`docs/modules/mcp-hub.md`](mcp-hub.md) → *Smart Decide relevance filtering*).
+filter `retrieve_tools` candidates and the Brain server to filter
+`brain_search_vault` results (see [`docs/modules/mcp-hub.md`](mcp-hub.md) →
+*Smart Decide relevance filtering* and [`docs/modules/brain.md`](brain.md) →
+*Relevance filtering*).
 
 ```elixir
 {:ok, %{"answers" => %{"relevant" => %{"noul" => 0.93}}}} =

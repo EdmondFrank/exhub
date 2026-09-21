@@ -124,6 +124,7 @@ Search for notes by content, filename, or tags.
 | `policy`         | any     | `"auto"`     | Search policy: `"auto"`, `"balanced"`, `"keyword"`, `"semantic"`, `"recency"`, `"filename"`, a custom config name, or an inline map |
 | `semantic`       | boolean | `false`      | Enable hybrid vector (RAG) semantic search                        |
 | `semantic_limit` | integer | `10`         | Max notes returned from vector search when `semantic` is enabled  |
+| `filter`         | boolean | `true`       | Smart Decide relevance filtering; `false` returns the raw ranked results |
 
 **Search types:**
 
@@ -197,6 +198,40 @@ config :exhub, :brain_search,
 // Case-sensitive search
 { "query": "TODO", "case_sensitive": true }
 ```
+
+---
+
+**Relevance filtering:**
+
+After ranking, `brain_search_vault` applies a second, sharper pass powered by
+the Smart Decide (System One) `noul` model: each candidate note is judged with
+a single yes/no question (`Note: <file>` plus a preview) and only the relevant
+notes are kept. Set `filter: false` to skip it and get the raw ranked results.
+Filtering widens the ranked pool to `candidate_limit` first, then narrows it to
+the policy's `top_n`.
+
+The pass is fault-tolerant:
+
+- a per-note failure (timeout, API error, decode error) is treated as
+  **relevant** (fail-open), preserving recall and counted as `errors`;
+- a blank query or an empty candidate list skips the pass entirely;
+- if **no** note is judged relevant the ranked pool is returned
+  (`fallback: true`), so callers still receive the best-ranked guesses.
+
+Configuration (in-code defaults in `Exhub.MCP.Brain.Search.Relevance`,
+overridable under `config :exhub, Exhub.MCP.Brain.Search.Relevance` in
+`config/config.exs`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch (`brain_search_vault.filter` overrides per call) |
+| `candidate_limit` | `20` | Ranked pool judged when filtering (always ≥ the policy's `top_n`) |
+| `max_concurrency` | `8` | Concurrent System One requests (one note per request) |
+| `threshold` | `0.5` | Minimum `noul` probability to keep a note |
+| `timeout` | `30_000` | Per-request timeout in ms |
+| `state_char_limit` | `1500` | Note text truncation, to stay within the ~2k context |
+| `query_char_limit` | `800` | Query truncation embedded in `instructions` |
+| `fallback` | `true` | Return the ranked pool when nothing is judged relevant |
 
 ---
 
@@ -324,6 +359,7 @@ Exhub.MCP.BrainServer          ← Anubis MCP server, mounted at /brain/mcp
 ├── Exhub.MCP.Tools.Brain.SearchVault  ← brain_search_vault tool
 ├── Exhub.MCP.Tools.Brain.CreateNote   ← brain_create_note tool
 ├── Exhub.MCP.Tools.Brain.MoveNote     ← brain_move_note tool
+├── Exhub.MCP.Brain.Search.Relevance   ← Smart Decide relevance filter
 └── Exhub.MCP.Brain.Helpers            ← shared vault path & file utilities
 ```
 

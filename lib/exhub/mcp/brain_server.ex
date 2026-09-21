@@ -26,7 +26,9 @@ defmodule Exhub.MCP.BrainServer do
                            hierarchical tag search (`tag:` prefix), scoped search,
                            case-sensitive mode, absolute path output, and
                            configurable search policies (`policy`) for ranking
-                           and hybrid semantic search.
+                           and hybrid semantic search. Ranked candidates are
+                           filtered for relevance by the Smart Decide model
+                           (on by default; `filter: false` disables it).
 
   ### Note Management
   - `brain_create_note`  — Create a new note in the vault.
@@ -42,6 +44,7 @@ defmodule Exhub.MCP.BrainServer do
 
   ## See Also
   - `Exhub.MCP.Brain.Helpers` — shared vault path resolution and file utilities
+  - `Exhub.MCP.Brain.Search.Relevance` — Smart Decide relevance filter over search results
   - `docs/modules/brain.md`   — full user-facing documentation
   """
 

@@ -19,6 +19,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   alias Exhub.MCP.Brain.Ranking.Ranker
   alias Exhub.MCP.Brain.Ranking.Scorers
   alias Exhub.MCP.Brain.Search.Policies
+  alias Exhub.MCP.Brain.Search.Relevance
   alias Exhub.MCP.Brain.Search.Selector
 
   require Logger
@@ -102,6 +103,11 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       default: 0.0
     )
 
+    field(:filter, :boolean,
+      description:
+        "Smart Decide relevance filtering (default: true). Set `false` for the raw ranked results"
+    )
+
     field(:semantic, :boolean,
       description:
         "Enable vector/semantic search (RAG). Requires OpenAI/Gitee AI embedding API key. Combines keyword + vector results.",
@@ -131,6 +137,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     fusion = effective_fusion(policy, params)
     weights = effective_weights(policy, params)
     min_score = effective_min_score(policy, params)
+    filter? = filter?(Map.get(params, :filter))
 
     vault = Helpers.vault_path()
     search_dir = if scope_path, do: Path.join(vault, scope_path), else: vault
@@ -173,6 +180,10 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       ranked =
         Ranker.rank(notes, rank_opts)
 
+      ranked = maybe_top_n(ranked, candidate_limit(policy.top_n, filter?))
+
+      {ranked, stats} = maybe_filter(query, ranked, filter?)
+
       ranked = maybe_top_n(ranked, policy.top_n)
       ranked = if abs_path, do: absolutize(ranked, vault), else: ranked
 
@@ -183,7 +194,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
           n = if r.matches == [] and Map.get(r, :preview), do: 1, else: length(r.matches)
           acc + n
         end)
-      output = format_results(ranked, total_matches, vault)
+      output = format_results(ranked, total_matches, vault, stats)
       resp = Response.tool() |> Response.text(output)
       {:reply, resp, frame}
     else
@@ -268,6 +279,29 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   defp maybe_top_n(results, nil), do: results
   defp maybe_top_n(results, n) when is_integer(n) and n > 0, do: Enum.take(results, n)
   defp maybe_top_n(results, _), do: results
+
+  # ── Smart Decide relevance filter ─────────────────────────────────────────
+
+  # `filter: false` skips the Smart Decide pass; absent (nil) follows config.
+  defp filter?(nil), do: Relevance.enabled?()
+  defp filter?(value), do: value == true
+
+  # When filtering, widen the ranked pool so the model has enough to choose from.
+  defp candidate_limit(top_n, true) do
+    configured = Keyword.get(Relevance.config(), :candidate_limit, 0)
+    max(top_n || 0, configured)
+  end
+
+  defp candidate_limit(top_n, false), do: top_n
+
+  defp maybe_filter(_query, ranked, false) do
+    total = length(ranked)
+    {ranked, %{candidates: total, relevant: total, errors: 0, filtered: false, fallback: false}}
+  end
+
+  defp maybe_filter(query, ranked, true) do
+    Relevance.filter(query, ranked, Relevance.config())
+  end
 
   # ── semantic / vector search ───────────────────────────────────────────────
 
@@ -592,12 +626,15 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     end)
   end
 
-  defp format_results([], _total, vault) do
+  defp format_results([], _total, vault, _stats) do
     "Vault: #{vault}\n\nNo results found."
   end
 
-  defp format_results(results, total, vault) do
-    header = "Vault: #{vault}\n\nFound #{total} match(es) in #{length(results)} file(s):\n\n"
+  defp format_results(results, total, vault, stats) do
+    header =
+      "Vault: #{vault}\n\n" <>
+        filter_summary(stats) <>
+        "Found #{total} match(es) in #{length(results)} file(s):\n\n"
 
     body =
       Enum.map_join(results, "\n", fn result ->
@@ -631,4 +668,14 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
     header <> body
   end
+
+  defp filter_summary(%{filtered: true, fallback: true}) do
+    "Smart Decide relevance filter found nothing relevant — showing ranked results.\n\n"
+  end
+
+  defp filter_summary(%{filtered: true} = stats) do
+    "Smart Decide relevance filter judged #{stats.relevant}/#{stats.candidates} note(s) relevant.\n\n"
+  end
+
+  defp filter_summary(_stats), do: ""
 end
