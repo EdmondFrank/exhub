@@ -33,12 +33,10 @@ Analyze images using AI vision models.
 | Model | Description |
 |-------|-------------|
 | `deepseek-v4.1-flash` | DeepSeek V4.1 Flash vision model (default) |
-| `glm-5v-turbo` | Zhipu AI efficient vision model |
+| `kimi-k2.6` | Moonshot AI vision model |
 | `kimi-k2.5` | Moonshot AI vision model |
 | `qwen3.5-122b-a10b` | Alibaba Qwen3.5 vision model |
-| `qwen2.5-vl-32b-instruct` | Alibaba Qwen2.5-VL 32B |
-| `glm-4.6v` | Zhipu AI GLM-4.6V vision model |
-| `qwen2-vl-72b` | Alibaba Qwen2-VL 72B |
+| `qwen3.8-omni-flash` | Alibaba Qwen3.8 native omni-modal model (1M context) |
 
 ### Supported Image Formats
 
@@ -80,7 +78,7 @@ PNG, JPG, JPEG, GIF, WebP, BMP
 {
   "image": "/path/to/chart.png",
   "prompt": "Analyze this chart and summarize the data trends",
-  "model": "qwen2.5-vl-32b-instruct"
+  "model": "qwen3.8-omni-flash"
 }
 ```
 

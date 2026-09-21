@@ -3,7 +3,8 @@ defmodule Exhub.MCP.Tools.Look do
   MCP Tool for image understanding using Gitee AI vision models.
 
   Accepts local file paths or remote URLs, sends images to vision models
-  (Qwen-VL, GLM-4V, etc.) and returns extracted/analyzed information.
+  (DeepSeek V4.1 Flash, Qwen3.8 Omni, Kimi, etc.) and returns
+  extracted/analyzed information.
   """
 
   alias Anubis.Server.Response
@@ -19,13 +20,10 @@ defmodule Exhub.MCP.Tools.Look do
 
   @valid_models ~w(
     deepseek-v4.1-flash
-    glm-5v-turbo
     kimi-k2.6
     kimi-k2.5
     qwen3.5-122b-a10b
-    qwen2.5-vl-32b-instruct
-    glm-4.6v
-    qwen2-vl-72b
+    qwen3.8-omni-flash
   )
 
   def name, do: "look"
@@ -41,12 +39,9 @@ defmodule Exhub.MCP.Tools.Look do
     **Supported models:**
     - `deepseek-v4.1-flash` (default) — DeepSeek V4.1 Flash vision model
     - `kimi-k2.6` — Moonshot AI vision model
-    - `glm-5v-turbo` — Zhipu AI efficient vision model
     - `kimi-k2.5` — Moonshot AI vision model
     - `qwen3.5-122b-a10b` — Alibaba Qwen3.5 vision model
-    - `qwen2.5-vl-32b-instruct` — Alibaba Qwen2.5-VL 32B
-    - `glm-4.6v` — Zhipu AI GLM-4.6V vision model
-    - `qwen2-vl-72b` — Alibaba Qwen2-VL 72B
+    - `qwen3.8-omni-flash` — Alibaba Qwen3.8 native omni-modal model (1M context)
 
     **Supported formats:** PNG, JPG, JPEG, GIF, WebP, BMP
 
