@@ -68,6 +68,36 @@ Returns: listen:listen
 Call: listen:listen with file: "/path/to/audio.mp3"
 
 The `listen` tool uses OpenAI-compatible speech-to-text API (default: whisper-large-v3-turbo). Use the `model` parameter to switch models, and `language` for a language hint (e.g. `zh`, `en`).
+
+## Structured Decisions (System One / Smart Decide)
+
+When you need fast, typed decisions about a piece of content (routing, policy
+checks, yes/no judgments, rubric scoring) without free-form reasoning, use the
+`smart_decide` tool.
+
+**Usage workflow:**
+1. Use retrieve_tools with query `decide choice score classify route` to discover the tool.
+2. Call `smart-decide:smart_decide` with `state` (the content to judge) and `questions`.
+
+**Question types:** `noul` (yes/no probability), `choice` (pick one option from `criteria`),
+`score` (rate along an ordered `criteria` list).
+
+**Example:**
+```json
+{
+  "state": "Help! My payouts have been failing for 3 days.",
+  "questions": {
+    "is_urgent": {"type": "noul", "instructions": "Does this convey urgency?"},
+    "department": {"type": "choice", "instructions": "Which team should handle this?",
+      "criteria": {"billing": "Payments, refunds", "technical": "Bugs, outages", "sales": "Pricing, upgrades"}},
+    "frustration": {"type": "score", "instructions": "How frustrated is the customer?",
+      "criteria": ["Calm", "Frustrated", "Very angry"]}
+  }
+}
+```
+
+Returns one structured answer per question with probabilities and confidence
+(set `compact: true` to drop that detail). Default model: `Bespoke-Nimble-9B`.
 ## MCP Tool Calls
 
 ### Pre-invocation Rule

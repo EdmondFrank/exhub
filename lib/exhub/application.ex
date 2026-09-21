@@ -84,6 +84,11 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # MCP Smart Decide Server (System One structured decisions via Gitee AI / moark.com)
+      {Exhub.MCP.SmartDecideServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       # MCP Todo Server (multi-tenant, 2-hour expiry)
       {Exhub.MCP.TodoStore, name: Exhub.MCP.TodoStore},
       {Exhub.MCP.TodoServer,

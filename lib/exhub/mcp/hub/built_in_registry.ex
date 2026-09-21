@@ -39,6 +39,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "mac-use" => Exhub.MCP.MacUseServer,
     "emacs" => Exhub.MCP.EmacsServer,
     "listen" => Exhub.MCP.ListenServer,
+    "smart-decide" => Exhub.MCP.SmartDecideServer,
     "agent-hub" => Exhub.Sagents.AgentHubServer
   }
 
