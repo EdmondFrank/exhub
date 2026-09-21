@@ -15,7 +15,7 @@ Each tenant's list is scoped by a `tenant_id` — a short, stable string chosen 
 The intended usage pattern for LLM agents:
 
 1. **Start of task** — call `set_items` to record the full plan and the user's original request.
-2. **After each step** — call `update_item_completion` to mark the finished item as `completed: true`.
+2. **After each step** — call `update_item_completion` to mark finished item(s) as `completed: true` (one item, or a batch).
 3. **Resuming work** — call `get_items` to reload the current state before continuing.
 4. **Task finished** — call `clear_items` to clean up, or let the list expire automatically after 2 hours of inactivity.
 
@@ -110,27 +110,31 @@ If no list exists for the given `tenant_id` (not yet created, or expired after 2
 
 ### `update_item_completion`
 
-Mark a single todo item as completed or not completed.
+Mark one or more todo items as completed (or reopen them). Two equivalent call forms:
 
-Call this **immediately after finishing a step** to keep the list up to date. The item is looked up by its exact `name` — the value must match what was passed to `set_items` character-for-character.
+- **single item** — `name` + `completed`
+- **batch** — a non-empty `items` array of `{ "name", "completed" }` objects, applied in a single atomic store call
 
-Requires an existing list — call `set_items` first if none exists yet. Returns the **full updated list** so you can see the current state at a glance.
+Call this **immediately after finishing each step** to keep the list up to date. Item names are looked up exactly — the value must match what was passed to `set_items` character-for-character. Names that are not in the list do not fail the call: they are reported in `not_found` while the remaining updates are still applied.
+
+Requires an existing list — call `set_items` first if none exists yet. Returns the **full updated list** so you can see the current state at a glance. Supplying both forms in one call is rejected.
 
 **Parameters:**
 
-| Parameter   | Type    | Required | Description                                                                                                  |
-|-------------|---------|----------|--------------------------------------------------------------------------------------------------------------|
+| Parameter   | Type    | Required | Description |
+|-------------|---------|----------|-------------|
 | `tenant_id` | string  | ✅       | The same stable string used when the list was created with `set_items`. Must match exactly (case-sensitive). |
-| `name`      | string  | ✅       | The exact name of the item to update, character-for-character as it was given to `set_items`.                |
-| `completed` | boolean | ✅       | `true` to mark the item done; `false` to reopen it.                                                          |
+| `name`      | string  | —        | Single-item form: the exact name of the item to update, character-for-character as it was given to `set_items`. |
+| `completed` | boolean | —        | Single-item form: `true` to mark the item done; `false` to reopen it. Required whenever `name` is given. |
+| `items`     | array   | —        | Batch form: items to update in one call, instead of `name` + `completed`. Each entry needs `name` (string) and `completed` (boolean). Rejected together with `name`. |
 
 **Response:**
 ```json
 {
   "success": true,
   "tenant_id": "session-abc",
-  "updated_item": "Design schema",
-  "completed": true,
+  "updated": ["Design schema", "Write controllers"],
+  "not_found": [],
   "items": [...],
   "count": 2
 }
@@ -204,13 +208,25 @@ Items are normalised on write — both atom-keyed and string-keyed maps are acce
   }
 }
 
-// 2. Mark an item done
+// 2. Mark an item done (single-item form)
 {
   "tool": "update_item_completion",
   "params": {
     "tenant_id": "user-42",
     "name": "Add login route",
     "completed": true
+  }
+}
+
+// 2b. …or mark several at once (batch form)
+{
+  "tool": "update_item_completion",
+  "params": {
+    "tenant_id": "user-42",
+    "items": [
+      { "name": "Add login route", "completed": true },
+      { "name": "Add tests", "completed": true }
+    ]
   }
 }
 

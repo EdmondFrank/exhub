@@ -44,9 +44,23 @@ defmodule Exhub.MCP.TodoStore do
     GenServer.call(server, {:get_todos, tenant_id})
   end
 
-  @doc "Update the `completed` flag of a single item by name."
+  @doc """
+  Update the `completed` flag of one or more items in a single atomic call.
+
+  `updates` is a list of `{name, completed}` pairs. Returns
+  `{:ok, entry, missing}` where `missing` are names not present in the list,
+  or `{:error, :not_found}` when the tenant has no list.
+  """
+  def update_items(server \\ __MODULE__, tenant_id, updates) do
+    GenServer.call(server, {:update_items, tenant_id, updates})
+  end
+
+  @doc "Update the `completed` flag of a single item by name (convenience wrapper)."
   def update_item(server \\ __MODULE__, tenant_id, item_name, completed) do
-    GenServer.call(server, {:update_item, tenant_id, item_name, completed})
+    case update_items(server, tenant_id, [{item_name, completed}]) do
+      {:ok, entry, _missing} -> {:ok, entry}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc "Remove all items for a tenant (keeps the entry with an empty list)."
@@ -59,8 +73,9 @@ defmodule Exhub.MCP.TodoStore do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def init(_opts) do
-    table = :ets.new(@table, [:set, :protected, :named_table, read_concurrency: true])
+  def init(opts) do
+    table_name = Keyword.get(opts, :table, @table)
+    table = :ets.new(table_name, [:set, :protected, :named_table, read_concurrency: true])
     schedule_cleanup()
     {:ok, %{table: table}}
   end
@@ -86,17 +101,26 @@ defmodule Exhub.MCP.TodoStore do
   end
 
   @impl true
-  def handle_call({:update_item, tenant_id, item_name, completed}, _from, state) do
+  def handle_call({:update_items, tenant_id, updates}, _from, state) do
     case :ets.lookup(state.table, tenant_id) do
       [{^tenant_id, entry}] ->
+        names = Enum.map(entry.items, & &1.name)
+        update_map = Map.new(updates)
+
+        missing =
+          updates |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.reject(&(&1 in names))
+
         updated_items =
           Enum.map(entry.items, fn item ->
-            if item.name == item_name, do: %{item | completed: completed}, else: item
+            case Map.fetch(update_map, item.name) do
+              {:ok, completed} -> %{item | completed: completed}
+              :error -> item
+            end
           end)
 
         new_entry = %{entry | items: updated_items, updated_at: DateTime.utc_now()}
         :ets.insert(state.table, {tenant_id, new_entry})
-        {:reply, {:ok, new_entry}, state}
+        {:reply, {:ok, new_entry, missing}, state}
 
       [] ->
         {:reply, {:error, :not_found}, state}

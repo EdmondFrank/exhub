@@ -17,49 +17,36 @@ defmodule Exhub.MCP.Tools.TodoSetItems do
   @impl true
   def description do
     """
-    Create or replace the todo list for a task.
+    Create or replace the todo list for a task. Call this at the START of a
+    multi-step task to record the full plan and the user's original request,
+    then work through the items and mark them done with `update_item_completion`.
 
-    Call this at the START of a multi-step task to record your full plan and
-    the user's original request. Each item represents one step or sub-task.
+    Replaces any existing list for `tenant_id`, so do not call it mid-task
+    unless you mean to rewrite the whole plan.
 
-    IMPORTANT: This call REPLACES any existing list for the given tenant_id.
-    Do not call it mid-task unless you intend to rewrite the entire plan.
-    To update a single item's status, use `update_item_completion` instead.
-
-    After calling this tool, work through the items in order and mark each
-    one complete with `update_item_completion` as you finish it.
-
-    Parameters:
-    - tenant_id: A short, stable string that identifies this task or
-      conversation (e.g. "refactor-auth", a conversation ID, or a username).
-      Use the SAME value for all todo tool calls within the same task.
-    - items: The list of steps/tasks. Each item needs a `name` (required)
-      and an optional `completed` flag (defaults to false).
-    - initial_user_prompt: The user's original request, copied verbatim.
-      This is stored for context and returned by `get_items`.
+    - tenant_id: stable task/conversation id, reused by every todo call.
+    - items: ordered steps, each with a `name` and optional `completed` (default false).
+    - initial_user_prompt: the user's original request, copied verbatim.
     """
   end
 
   schema do
     field(:tenant_id, {:required, :string},
       description:
-        "A short, stable string scoping this list to a specific task or conversation (e.g. a conversation ID, username, or task slug like \"refactor-auth\"). Must stay the same across all todo tool calls for the same task."
+        "Stable task/conversation id (e.g. a conversation ID or task slug like \"refactor-auth\"); use the same value for every todo call."
     )
 
-    embeds_many :items, description: "The ordered list of steps or sub-tasks to complete." do
-      field(:name, {:required, :string},
-        description: "A clear, concise description of the step or task."
-      )
+    embeds_many :items, description: "The ordered plan of steps or sub-tasks." do
+      field(:name, {:required, :string}, description: "A clear, concise description of the step.")
 
       field(:completed, :boolean,
-        description: "Whether this item is already done. Defaults to false.",
+        description: "Whether this step is already done. Defaults to false.",
         default: false
       )
     end
 
     field(:initial_user_prompt, :string,
-      description:
-        "The user's original request, copied verbatim. Stored for context and returned by get_items.",
+      description: "The user's original request, copied verbatim.",
       default: ""
     )
   end

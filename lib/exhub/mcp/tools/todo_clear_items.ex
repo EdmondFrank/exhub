@@ -16,27 +16,17 @@ defmodule Exhub.MCP.Tools.TodoClearItems do
   @impl true
   def description do
     """
-    Remove all todo items from a task's list.
+    Remove all items from a task's list. Call it when the task is done, or before
+    `set_items` to start a fresh plan.
 
-    Call this when a task is fully complete and you no longer need the list,
-    or when you want to start over with a fresh plan (follow up with
-    `set_items` to create a new one).
-
-    The list entry itself is kept in the store (with an empty items array),
-    so a subsequent `get_items` call will return an empty list rather than
-    a "not found" response. The list will be fully removed after 2 hours of
-    inactivity regardless.
-
-    Parameters:
-    - tenant_id: The same stable string used when the list was created with
-      `set_items`. Must match exactly (case-sensitive).
+    The entry stays as an empty list, so a later `get_items` returns an empty
+    list rather than "not found"; the entry is purged after 2 hours idle.
     """
   end
 
   schema do
     field(:tenant_id, {:required, :string},
-      description:
-        "The same stable string used when the list was created with set_items (e.g. a conversation ID, username, or task slug). Must match exactly."
+      description: "Stable task/conversation id; must match the value used with set_items."
     )
   end
 

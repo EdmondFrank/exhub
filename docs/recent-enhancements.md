@@ -486,7 +486,7 @@
 - **Four MCP Tools**:
   - `set_items` — Initialise or overwrite a tenant's todo list (accepts `items` array + `initial_user_prompt`)
   - `get_items` — Retrieve a tenant's current todo list along with the original prompt and item count
-  - `update_item_completion` — Toggle the `completed` flag of a single item by name; returns the full updated list
+  - `update_item_completion` — Set the `completed` flag of one or more items by name (single item or batch); returns the full updated list
   - `clear_items` — Remove all items from a tenant's list while keeping the tenant entry alive
 - **Multi-Tenant Isolation**: Each tenant is identified by a `tenant_id` string; lists are fully isolated
 - **No External Dependencies**: Pure in-memory implementation — no database, no API keys required

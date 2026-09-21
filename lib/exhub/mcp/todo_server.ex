@@ -1,43 +1,25 @@
 defmodule Exhub.MCP.TodoServer do
   @moduledoc """
-  MCP Server for tracking and managing todo/task lists across conversations.
+  MCP server exposing a small, multi-tenant todo list for tracking progress
+  across a multi-step task.
 
-  ## Purpose
-  Use this server to keep a persistent, up-to-date task list while working
-  through a multi-step user request. It lets you record your plan at the
-  start, tick off items as you complete them, and always know what is left
-  to do — even if the conversation is long or interrupted.
+  Workflow:
+  - `set_items`              — create/replace the plan at the start of a task.
+  - `update_item_completion` — mark one or more items done as you finish them.
+  - `get_items`              — reload the plan (e.g. when resuming).
+  - `clear_items`            — drop the list when the task is done.
 
-  ## Typical workflow
-  1. **Start of task** — call `set_items` to record the full plan and the
-     user's original request.
-  2. **After each step** — call `update_item_completion` to mark the finished
-     item as `completed: true`.
-  3. **Resuming work** — call `get_items` to reload the current state before
-     continuing.
-  4. **Task finished** — call `clear_items` to clean up, or just let the list
-     expire automatically after 2 hours of inactivity.
+  Every tool takes a `tenant_id`: a short, stable string scoping the list to one
+  task/conversation (e.g. a conversation ID or a slug like "refactor-auth"). Use
+  the same value for all calls that belong to the same task.
 
-  ## About tenant_id
-  Every tool requires a `tenant_id` that scopes the list to a specific
-  conversation or task. Use a short, stable string that stays the same for
-  the entire task — for example the conversation ID, the user's name, or a
-  brief task slug such as "refactor-auth". Keep it consistent across all
-  tool calls that belong to the same task.
-
-  ## Tools
-  - `set_items`              — Create or replace the todo list for a tenant
-  - `get_items`              — Read the current todo list for a tenant
-  - `update_item_completion` — Mark a single item as done or not done
-  - `clear_items`            — Remove all items from a tenant's list
-
-  Todo lists that have not been updated for more than 2 hours are
-  automatically purged. The server is accessible at `/todo/mcp`.
+  Lists that have not been updated for more than 2 hours are purged
+  automatically. Endpoint: `/todo/mcp`.
   """
 
   use Anubis.Server,
     name: "exhub-todo-server",
-    version: "1.0.1",
+    version: "1.1.0",
     capabilities: [:tools]
 
   component(Exhub.MCP.Tools.TodoSetItems)
