@@ -99,19 +99,63 @@ defmodule Exhub.MCP.Tools.SmartDecide do
 
       true ->
         with {:ok, questions} <- normalize_questions(questions) do
-          api_key = Application.get_env(:exhub, :giteeai_api_key, "")
+          case decide(state, questions, model: model, compact: compact) do
+            {:ok, result} ->
+              resp = Response.tool() |> Response.json(result)
+              {:reply, resp, frame}
 
-          if api_key == "" do
-            error(
-              frame,
-              "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""
-            )
-          else
-            do_decide(state, questions, model, compact, api_key, frame)
+            {:error, reason} ->
+              error(frame, reason)
           end
         else
           {:error, reason} -> error(frame, reason)
         end
+    end
+  end
+
+  @doc """
+  Runs a System One decision without the MCP tool frame.
+
+  `questions` must already be normalized (see `normalize_questions/1`) or be a
+  plain map of question-id => `{ type, instructions, criteria }`. Returns
+  `{:ok, %{"model" => model, "answers" => answers}}` or `{:error, message}`.
+
+  Options:
+
+    * `:model` — System One model id (default `#{@default_model}`)
+    * `:compact` — drop probabilities/confidence/legend (default `false`)
+    * `:api_key` — override the Gitee AI key configured at
+      `:exhub, :giteeai_api_key`
+
+  This is the programmatic entry point used by callers such as
+  `Exhub.MCP.Hub.ToolRelevance` that need a decision outside MCP.
+  """
+  @spec decide(term(), term(), keyword()) :: {:ok, map()} | {:error, String.t()}
+  def decide(state, questions, opts \\ []) do
+    state = normalize_state(state)
+    model = opts |> Keyword.get(:model, @default_model) |> to_string() |> String.trim()
+    compact = Keyword.get(opts, :compact, false) == true
+    api_key = Keyword.get(opts, :api_key) || Application.get_env(:exhub, :giteeai_api_key, "")
+
+    cond do
+      is_nil(state) ->
+        {:error, "`state` is required — provide the text or structured data to evaluate"}
+
+      state == "" ->
+        {:error, "`state` must not be empty"}
+
+      is_nil(questions) ->
+        {:error, "`questions` is required — provide a non-empty map of typed questions"}
+
+      model == "" ->
+        {:error, "`model` must not be empty"}
+
+      api_key == "" ->
+        {:error,
+         "Gitee AI API key not configured. Run: mix scr.insert dev giteeai_api_key \"your-key\""}
+
+      true ->
+        request(state, questions, model, compact, api_key)
     end
   end
 
@@ -308,7 +352,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
 
   # --- HTTP ---
 
-  defp do_decide(state, questions, model, compact, api_key, frame) do
+  defp request(state, questions, model, compact, api_key) do
     body = %{"model" => model, "state" => state, "questions" => questions}
 
     headers = [
@@ -325,28 +369,25 @@ defmodule Exhub.MCP.Tools.SmartDecide do
              Exhub.TLSCompat.httpoison_opts(@api_url)
          ) do
       {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
-        handle_success(resp_body, model, compact, frame)
+        decode_response(resp_body, model, compact)
 
       {:ok, %HTTPoison.Response{status_code: status, body: resp_body}} ->
-        error(frame, "Gitee AI System One API error (HTTP #{status}): #{resp_body}")
+        {:error, "Gitee AI System One API error (HTTP #{status}): #{resp_body}"}
 
       {:error, %HTTPoison.Error{reason: reason}} ->
-        error(frame, "HTTP request failed: #{inspect(reason)}")
+        {:error, "HTTP request failed: #{inspect(reason)}"}
     end
   end
 
-  defp handle_success(resp_body, model, compact, frame) do
+  defp decode_response(resp_body, model, compact) do
     case Jason.decode(resp_body) do
       {:ok, payload} when is_map(payload) ->
         answers = Map.get(payload, "answers", %{})
         answers = if compact, do: compact_answers(answers), else: answers
-        result = %{"model" => Map.get(payload, "model", model), "answers" => answers}
-
-        resp = Response.tool() |> Response.json(result)
-        {:reply, resp, frame}
+        {:ok, %{"model" => Map.get(payload, "model", model), "answers" => answers}}
 
       _ ->
-        error(frame, "Failed to decode System One response")
+        {:error, "Failed to decode System One response"}
     end
   end
 

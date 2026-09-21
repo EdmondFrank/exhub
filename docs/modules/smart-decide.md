@@ -125,6 +125,22 @@ the chosen value (`noul`, `choice`, or `score`).
 }
 ```
 
+## Programmatic API
+
+`Exhub.MCP.Tools.SmartDecide.decide/3` exposes the same decision without the MCP
+frame — it returns `{:ok, %{"model" => …, "answers" => …}}` or `{:error, message}`
+and accepts `:model`, `:compact`, and `:api_key` options. The MCP Hub uses it to
+filter `retrieve_tools` candidates (see
+[`docs/modules/mcp-hub.md`](mcp-hub.md) → *Smart Decide relevance filtering*).
+
+```elixir
+{:ok, %{"answers" => %{"relevant" => %{"noul" => 0.93}}}} =
+  Exhub.MCP.Tools.SmartDecide.decide(
+    "Tool: desktop__read_file\nDescription: Read a file's contents",
+    %{"relevant" => %{"type" => "noul", "instructions" => "Does this tool help read a file?"}}
+  )
+```
+
 ## Notes and limits
 
 - The schema is **flat**: each question's answer is independent and cannot see

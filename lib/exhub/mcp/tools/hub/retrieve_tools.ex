@@ -4,9 +4,17 @@ defmodule Exhub.MCP.Tools.Hub.RetrieveTools do
 
   Search for relevant tools across all connected MCP servers.
   Use natural language to describe what you want to accomplish.
+
+  Two-stage retrieval:
+
+    1. `Exhub.MCP.Hub.ToolSearch` (TF-IDF) pulls a wide candidate pool.
+    2. `Exhub.MCP.Hub.ToolRelevance` (Smart Decide / System One) judges each
+       candidate — one tool per request, concurrently — and keeps only the
+       relevant ones, so callers receive far fewer irrelevant tool definitions.
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Hub.ToolRelevance
 
   use Anubis.Server.Component, type: :tool
 
@@ -16,6 +24,8 @@ defmodule Exhub.MCP.Tools.Hub.RetrieveTools do
   def description do
     """
     Search for relevant tools across all connected MCP servers. Use natural language to describe what you want to accomplish.
+
+    Results are filtered for relevance by the Smart Decide model (on by default), so fewer irrelevant tool definitions are returned. Set `filter: false` to skip filtering and get the raw TF-IDF ranking.
     """
   end
 
@@ -29,33 +39,44 @@ defmodule Exhub.MCP.Tools.Hub.RetrieveTools do
       description: "Maximum number of tools to return (default: 5)",
       default: 5
     )
+
+    field(:filter, :boolean,
+      description:
+        "Smart Decide relevance filtering (default: true). Set `false` for the raw TF-IDF ranking",
+      default: true
+    )
   end
 
   @impl true
   def execute(params, frame) do
     query = Map.get(params, :query, "")
-    limit = Map.get(params, :limit, 10)
+    limit = Map.get(params, :limit, 5)
+    filter? = filter?(Map.get(params, :filter))
 
     require Logger
-    Logger.info("[MCP Hub] retrieve_tools called with query: #{query}")
+    Logger.info("[MCP Hub] retrieve_tools called with query: #{query} (filter: #{filter?})")
 
-    results =
-      case Exhub.MCP.Hub.Store.get_search_index() do
-        [{:index, index}] ->
-          Exhub.MCP.Hub.ToolSearch.search(index, query, limit: limit)
+    candidates =
+      search_candidates(query, candidate_limit(limit, filter?))
 
-        [] ->
-          # Fallback: rebuild index
-          case Exhub.MCP.Hub.ClientManager.list_all_tools() do
-            {:ok, tools} ->
-              index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
-              Exhub.MCP.Hub.Store.put_search_index(index)
-              Exhub.MCP.Hub.ToolSearch.search(index, query, limit: limit)
+    {results, stats} =
+      if filter? do
+        ToolRelevance.filter(query, candidates, ToolRelevance.config())
+      else
+        total = length(candidates)
 
-            {:error, _} ->
-              []
-          end
+        {candidates,
+         %{
+           candidates: total,
+           relevant: total,
+           errors: 0,
+           excluded: 0,
+           filtered: false,
+           fallback: false
+         }}
       end
+
+    results = Enum.take(results, limit)
 
     formatted =
       Enum.map(results, fn result ->
@@ -71,8 +92,48 @@ defmodule Exhub.MCP.Tools.Hub.RetrieveTools do
         end
       end)
 
-    resp = Response.tool() |> Response.structured(%{tools: formatted, count: length(formatted)})
+    resp =
+      Response.tool()
+      |> Response.structured(%{
+        tools: formatted,
+        count: length(formatted),
+        filtered: stats.filtered,
+        fallback: stats.fallback,
+        candidates: stats.candidates
+      })
+
     {:reply, resp, frame}
+  end
+
+  # `filter: false` skips the Smart Decide pass; absent (nil) follows the hub config.
+  defp filter?(nil), do: ToolRelevance.enabled?()
+  defp filter?(value), do: value == true
+
+  # When filtering, widen the candidate pool so the model has enough to choose from.
+  defp candidate_limit(limit, true) do
+    config = ToolRelevance.config()
+    max(limit, Keyword.get(config, :candidate_limit, limit))
+  end
+
+  defp candidate_limit(limit, false), do: limit
+
+  defp search_candidates(query, limit) do
+    case Exhub.MCP.Hub.Store.get_search_index() do
+      [{:index, index}] ->
+        Exhub.MCP.Hub.ToolSearch.search(index, query, limit: limit)
+
+      [] ->
+        # Fallback: rebuild index
+        case Exhub.MCP.Hub.ClientManager.list_all_tools() do
+          {:ok, tools} ->
+            index = Exhub.MCP.Hub.ToolSearch.build_index(tools)
+            Exhub.MCP.Hub.Store.put_search_index(index)
+            Exhub.MCP.Hub.ToolSearch.search(index, query, limit: limit)
+
+          {:error, _} ->
+            []
+        end
+    end
   end
 
   @doc """

@@ -85,4 +85,26 @@ config :exhub, Exhub.BrainIndexRefresh,
     daily: [schedule: "0 3 * * *", task: {Exhub.BrainIndexRefresh, :run_refresh, []}]
   ]
 
+# MCP Hub tool retrieval: Smart Decide (System One) relevance filter applied
+# after the TF-IDF candidate search in `retrieve_tools`.
+#   - `enabled`: master switch (per-call override via `retrieve_tools.filter`)
+#   - `candidate_limit`: TF-IDF pool judged when filtering (>= the tool's `limit`)
+#   - `max_concurrency`: concurrent System One requests (one tool per request)
+#   - `threshold`: minimum `noul` probability to keep a tool
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~2k context
+#   - `exclude_servers`: servers never offered as candidates (the hub's own
+#     search tools); `smart-decide` is left in so it stays discoverable
+#   - `fallback`: return the TF-IDF pool when nothing is judged relevant
+# In-code defaults in `Exhub.MCP.Hub.ToolRelevance` apply for any missing key.
+config :exhub, Exhub.MCP.Hub.ToolRelevance,
+  enabled: true,
+  candidate_limit: 30,
+  max_concurrency: 8,
+  threshold: 0.5,
+  timeout: 30_000,
+  state_char_limit: 1500,
+  query_char_limit: 800,
+  exclude_servers: ["mcp-hub"],
+  fallback: true
+
 import_config "#{config_env()}.exs"

@@ -57,7 +57,8 @@ The Hub also provides **virtual route proxying** — each upstream server can op
 | `Exhub.MCP.Hub.ProxyPlug`            | Plug for virtual route proxying to individual upstream servers                     |
 | `Exhub.MCP.Hub.BuiltInRegistry`      | Maps 14 built-in MCP servers to their modules for direct in-process tool calls     |
 | `Exhub.MCP.Hub.Store`                | GenServer owning ETS tables for search index and proxy sessions                    |
-| `Exhub.MCP.Tools.Hub.RetrieveTools`  | Anubis.Server.Component: TF-IDF tool search across all servers                     |
+| `Exhub.MCP.Hub.ToolRelevance`        | Smart Decide (System One) relevance filter applied over TF-IDF candidates          |
+| `Exhub.MCP.Tools.Hub.RetrieveTools`  | Anubis.Server.Component: two-stage tool search (TF-IDF + Smart Decide filter)      |
 | `Exhub.MCP.Tools.Hub.CallTools`      | Anubis.Server.Component: execute tools on upstream servers via the hub             |
 | `Exhub.Controllers.MCPHubController` | REST API controller for management operations                                      |
 
@@ -388,7 +389,12 @@ The Hub Server exposes two meta-tools as `Anubis.Server.Component` modules:
 
 ### `retrieve_tools` — Tool Search & Discovery
 
-Search for relevant tools across all connected servers (both upstream and built-in) using TF-IDF scoring. Instead of returning all tools (which can overwhelm clients), the search returns only the most relevant tools for a given natural language query.
+Two-stage retrieval across all connected servers (both upstream and built-in):
+
+1. **Recall — TF-IDF** (`Exhub.MCP.Hub.ToolSearch`): pulls a wide candidate pool (default 30) ranked by term overlap with the query. Meta servers (`exclude_servers`) are dropped up front.
+2. **Precision — Smart Decide** (`Exhub.MCP.Hub.ToolRelevance`): each candidate is judged by a single `noul` (yes/no) System One question — **one tool per request** so the tool text fits the model's ~2k-token context — and only the relevant tools are kept. Judgments run concurrently. If nothing passes the pass falls back to the TF-IDF pool.
+
+Instead of returning all tools (which can overwhelm clients), the search returns only the most relevant tools for a given natural language query.
 
 **Module**: `Exhub.MCP.Tools.Hub.RetrieveTools`
 
@@ -398,6 +404,7 @@ Search for relevant tools across all connected servers (both upstream and built-
 |-----------|---------|----------|---------|--------------------------------------|
 | `query`   | string  | yes      | —       | Natural language search query        |
 | `limit`   | integer | no       | 5       | Maximum number of results to return  |
+| `filter`  | boolean | no       | `true`  | Smart Decide relevance filtering; `false` returns the raw TF-IDF ranking |
 
 **Example**:
 
@@ -426,9 +433,50 @@ Search for relevant tools across all connected servers (both upstream and built-
       "params": "path: string (required)"
     }
   ],
-  "count": 1
+  "count": 1,
+  "filtered": true,
+  "fallback": false,
+  "candidates": 30
 }
 ```
+
+`candidates` is the size of the TF-IDF pool the filter judged; `filtered` reports whether the Smart Decide pass ran, and `fallback` whether the returned list is the unfiltered TF-IDF pool (nothing was judged relevant).
+
+### Smart Decide relevance filtering
+
+`Exhub.MCP.Hub.ToolRelevance` turns each TF-IDF candidate into a single `noul` question:
+
+```text
+state:        Tool: <server>__<name>
+              Server: <server>
+              Description: <description>
+instructions: Decide whether the tool described in the state could help with
+              this task: "<query>". Answer yes if the tool is relevant, related
+              or plausibly useful — partial matches and sensible intermediate
+              steps count. Answer no only if the tool is clearly unrelated.
+              When unsure, answer yes.
+```
+
+A tool is kept when the `noul` probability is `>= threshold`. The pass is fault-tolerant:
+
+- meta servers (`exclude_servers`, default `mcp-hub` and `smart-decide`) are removed from the pool before judging — asking Smart Decide whether Smart Decide is relevant is circular;
+- a per-tool failure (timeout, API error, decode error) is treated as **relevant** (fail-open, preserving recall) and counted in the filter stats;
+- a blank query or an empty candidate list skips the pass entirely;
+- if no tool is judged relevant the whole TF-IDF pool is returned with `fallback: true` (disable with `fallback: false`).
+
+Configuration (in-code defaults in `Exhub.MCP.Hub.ToolRelevance`, overridable under `config :exhub, Exhub.MCP.Hub.ToolRelevance` in `config/config.exs`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch (`retrieve_tools.filter` overrides per call) |
+| `candidate_limit` | `30` | TF-IDF pool size judged when filtering (always ≥ `limit`) |
+| `max_concurrency` | `8` | Concurrent System One requests |
+| `threshold` | `0.5` | Minimum `noul` probability to keep a tool |
+| `timeout` | `30_000` | Per-request timeout in ms |
+| `state_char_limit` | `1500` | Tool text truncation, to stay within the ~2k context |
+| `query_char_limit` | `800` | Query truncation embedded in `instructions` |
+| `exclude_servers` | `["mcp-hub"]` | Servers dropped from the candidate pool before judging |
+| `fallback` | `true` | Return the TF-IDF pool when nothing is judged relevant |
 
 ### `call_tools` — Execute Tool on Upstream Server
 

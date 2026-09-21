@@ -208,4 +208,25 @@ defmodule Exhub.MCP.Tools.SmartDecideTest do
       assert SmartDecide.compact_answers(nil) == nil
     end
   end
+
+  describe "decide/3" do
+    test "validates state, questions, and model before any request" do
+      assert {:error, message} = SmartDecide.decide(nil, %{"x" => %{}}, [])
+      assert message =~ "`state` is required"
+
+      assert {:error, message} = SmartDecide.decide("", %{"x" => %{}}, [])
+      assert message =~ "must not be empty"
+
+      assert {:error, message} = SmartDecide.decide("text", nil, [])
+      assert message =~ "`questions` is required"
+
+      assert {:error, message} = SmartDecide.decide("text", %{"x" => %{}}, model: "  ")
+      assert message =~ "`model` must not be empty"
+    end
+
+    test "reports a missing API key" do
+      assert {:error, message} = SmartDecide.decide("text", %{"x" => %{}}, api_key: "")
+      assert message =~ "API key not configured"
+    end
+  end
 end

@@ -54,7 +54,13 @@ defmodule Exhub.HotReload do
         # Purge the old "old" code slot first so we don't accumulate stale code.
         :code.soft_purge(mod)
 
-        case :code.load_file(mod) do
+        # Load by absolute path: :code.load_file/1 goes through the code
+        # server's cached directory listings, so a beam that appeared after
+        # boot (i.e. every newly added module) can return :nofile until that
+        # cache expires. load_abs/1 reads the file directly.
+        path = Path.join(ebin, Atom.to_string(mod)) |> String.to_charlist()
+
+        case :code.load_abs(path) do
           {:module, ^mod} ->
             Logger.debug("[HotReload] ✓ #{mod}")
             :ok
