@@ -10,10 +10,16 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   back to the first `probe` on the system `PATH`. Different probe builds can rank
   results differently (and run at different speeds), so pin `:probe_binary` when
   reproducible semantic results matter.
+
+  Semantic results are filtered for relevance by the Smart Decide (System One)
+  model: each code block is judged against the caller's `purpose` (falling back
+  to `query`) and only the relevant blocks are kept. See
+  `Exhub.MCP.Desktop.Search.Relevance`; disable per-call with `filter: false`.
   """
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.Search.Relevance
 
   use Anubis.Server.Component, type: :tool
 
@@ -40,6 +46,8 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     - semantic (default): AST-aware BM25 code search over `query`, returning whole code
       blocks. Supports Elasticsearch syntax (AND/OR/NOT, +required, -excluded, "phrases")
       and hints such as ext:ts, file:src/**/*.py, dir:tests, lang:typescript.
+      Results are filtered for relevance by the Smart Decide model (on by default;
+      `filter: false` skips it), guided by an optional natural-language `purpose`.
     - files: match file/directory names against `pattern`.
     - content: match file contents against `pattern`, with context lines.
     """
@@ -58,6 +66,11 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     field(:query, :string,
       description:
         "Semantic search query with Elasticsearch syntax (required for search_type \"semantic\"). Use + for important terms."
+    )
+
+    field(:purpose, :string,
+      description:
+        "Natural-language purpose of the semantic search, used by the Smart Decide relevance filter to judge each result. Falls back to `query` when omitted."
     )
 
     field(:pattern, :string,
@@ -102,6 +115,11 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     field(:context_lines, :integer,
       description: "Number of context lines around content matches (default 2)",
       default: 2
+    )
+
+    field(:filter, :boolean,
+      description:
+        "Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw probe results"
     )
   end
 
@@ -190,6 +208,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   defp run_semantic(params, path, frame) do
     query = Map.get(params, :query)
     binary = probe_binary()
+    filter? = filter?(Map.get(params, :filter))
 
     cond do
       is_nil(query) or String.trim(query) == "" ->
@@ -209,6 +228,9 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
         {:reply, resp, frame}
 
+      filter? ->
+        run_semantic_filtered(binary, path, query, params, frame)
+
       true ->
         case search_semantic(binary, path, query, params) do
           {:ok, output} ->
@@ -221,13 +243,67 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     end
   end
 
+  # ── Smart Decide relevance filter ─────────────────────────────────────────
+
+  # `filter: false` skips the Smart Decide pass; absent (nil) follows config.
+  defp filter?(nil), do: Relevance.enabled?()
+  defp filter?(value), do: value == true
+
+  # The judged task is the caller's `purpose` when it carries text, else the raw
+  # query; a blank `purpose` must not silently disable filtering.
+  defp effective_purpose(params, query) do
+    case Map.get(params, :purpose) do
+      purpose when is_binary(purpose) ->
+        if String.trim(purpose) == "", do: query, else: purpose
+
+      _ ->
+        query
+    end
+  end
+
+  defp run_semantic_filtered(binary, path, query, params, frame) do
+    case search_semantic_json(binary, path, query, params) do
+      {:ok, results} ->
+        task = effective_purpose(params, query)
+        {relevant, stats} = Relevance.filter(task, results, Relevance.config())
+        kept = narrow(relevant, positive_int(Map.get(params, :max_results)))
+        output = format_semantic_results(kept, path, query, stats)
+        {:reply, Response.tool() |> Response.text(output), frame}
+
+      # Fail open: an unparsable pool (e.g. an older probe build) falls back to
+      # the raw outline run rather than returning an empty result set.
+      {:error, :unparsable} ->
+        case search_semantic(binary, path, query, params) do
+          {:ok, output} ->
+            {:reply, Response.tool() |> Response.text(output), frame}
+
+          {:error, reason} ->
+            resp = Response.tool() |> Response.error("Semantic search failed: #{reason}")
+            {:reply, resp, frame}
+        end
+
+      {:error, reason} ->
+        resp = Response.tool() |> Response.error("Semantic search failed: #{reason}")
+        {:reply, resp, frame}
+    end
+  end
+
+  # When filtering, widen the probe pool so the model has enough to choose from;
+  # the caller's `max_results` narrows the judged set back afterwards.
+  defp request_max_results(params, true) do
+    configured = Keyword.get(Relevance.config(), :candidate_limit, 20)
+    max(positive_int(Map.get(params, :max_results)) || 0, configured)
+  end
+
+  defp request_max_results(params, false), do: positive_int(Map.get(params, :max_results))
+
   defp search_semantic(binary, path, query, params) do
     with :ok <- check_directory(path) do
       args =
         ["search"]
         |> add_flag(Map.get(params, :exact, false), "--exact")
         |> add_flag(Map.get(params, :allow_tests, false), "--allow-tests")
-        |> put_arg("--max-results", positive_int(Map.get(params, :max_results)))
+        |> put_arg("--max-results", request_max_results(params, false))
         |> put_arg(
           "--max-tokens",
           positive_int(Map.get(params, :max_tokens)) || @default_max_tokens
@@ -239,6 +315,111 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       run_probe(binary, args)
     end
   end
+
+  # Structured probe run used by the Smart Decide pass; `-o json` yields the
+  # candidate maps (file, code, lines, owner_symbol) the filter judges.
+  defp search_semantic_json(binary, path, query, params) do
+    with :ok <- check_directory(path) do
+      args =
+        ["search"]
+        |> add_flag(Map.get(params, :exact, false), "--exact")
+        |> add_flag(Map.get(params, :allow_tests, false), "--allow-tests")
+        |> put_arg("--max-results", request_max_results(params, true))
+        |> put_arg(
+          "--max-tokens",
+          positive_int(Map.get(params, :max_tokens)) || @default_max_tokens
+        )
+        |> put_arg("--language", supported_language(Map.get(params, :language)))
+        |> put_arg("--timeout", @semantic_timeout_seconds)
+        |> put_arg("-o", "json")
+        |> Kernel.++(["--", query, path])
+
+      case run_probe(binary, args) do
+        {:ok, output} -> parse_probe_results(output)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # Probe prints human-readable preamble lines before the pretty-printed JSON
+  # object, which starts with `{` on its own line; decode from there.
+  defp parse_probe_results(output) do
+    with {:ok, json} <- extract_json(output),
+         {:ok, decoded} <- Jason.decode(json) do
+      {:ok, extract_results(decoded)}
+    else
+      _ -> {:error, :unparsable}
+    end
+  end
+
+  defp extract_json(output) do
+    lines = String.split(output, "\n")
+
+    case Enum.find_index(lines, &(&1 == "{")) do
+      nil -> :error
+      index -> {:ok, lines |> Enum.drop(index) |> Enum.join("\n") |> String.trim_trailing()}
+    end
+  end
+
+  defp extract_results(decoded) when is_map(decoded) do
+    case Map.get(decoded, "results") do
+      results when is_list(results) -> Enum.filter(results, &is_map/1)
+      _ -> []
+    end
+  end
+
+  defp extract_results(_decoded), do: []
+
+  defp narrow(results, max) when is_integer(max) and max > 0, do: Enum.take(results, max)
+  defp narrow(results, _max), do: results
+
+  defp format_semantic_results([], _path, _query, _stats), do: "No results found."
+
+  defp format_semantic_results(results, path, query, stats) do
+    header = ["Pattern: #{query}", "Path: #{path}"] ++ filter_lines(stats) ++ ["---"]
+    body = Enum.map_join(results, "\n---\n", &render_result/1)
+    Enum.join(header, "\n") <> "\n" <> body
+  end
+
+  defp render_result(result) do
+    file = Map.get(result, "file", "unknown")
+    code = Map.get(result, "code", "")
+    symbol = Map.get(result, "owner_symbol")
+    lines = Map.get(result, "lines", [])
+
+    header =
+      case {symbol, lines} do
+        {s, [first, last]} when is_binary(s) and s != "" ->
+          "File: #{file} (#{s}, lines #{first}-#{last})"
+
+        {_, [first, last]} ->
+          "File: #{file} (lines #{first}-#{last})"
+
+        _ ->
+          "File: #{file}"
+      end
+
+    "#{header}\n\n#{code}"
+  end
+
+  defp filter_lines(%{filtered: true, fallback: true}) do
+    ["Smart Decide relevance filter found nothing relevant — showing ranked results."]
+  end
+
+  defp filter_lines(%{filtered: true, skipped: skipped} = stats) when skipped > 0 do
+    [
+      "Smart Decide relevance filter judged #{stats.relevant - skipped}/#{stats.candidates - skipped} " <>
+        "result(s) relevant and kept #{skipped} oversized result(s) unjudged."
+    ]
+  end
+
+  defp filter_lines(%{filtered: true} = stats) do
+    [
+      "Smart Decide relevance filter judged #{stats.relevant}/#{stats.candidates} result(s) relevant."
+    ]
+  end
+
+  defp filter_lines(_stats), do: []
 
   defp add_flag(args, true, flag), do: args ++ [flag]
   defp add_flag(args, _value, _flag), do: args

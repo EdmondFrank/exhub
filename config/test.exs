@@ -7,3 +7,10 @@ config :exhub, :port, 0
 # relevance filter is exercised directly (with an injected decider) in
 # test/exhub/mcp/brain/search/relevance_test.exs.
 config :exhub, Exhub.MCP.Brain.Search.Relevance, enabled: false
+
+# Likewise for Desktop `search_files` semantic mode: disable the Smart Decide
+# relevance filter by default so the probe-backed tool tests stay offline. The
+# filter is exercised directly (with an injected decider) in
+# test/exhub/mcp/desktop/search/relevance_test.exs and
+# test/exhub/mcp/tools/desktop/search_files_filter_test.exs.
+config :exhub, Exhub.MCP.Desktop.Search.Relevance, enabled: false

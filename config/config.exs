@@ -156,4 +156,28 @@ config :exhub, Exhub.MCP.WebTools.Relevance,
   query_char_limit: 800,
   fallback: true
 
+# Desktop `search_files`: Smart Decide (System One) relevance filter applied to
+# the probe semantic-search code blocks. The judged task is the call's
+# `purpose` (falling back to `query`).
+#   - `enabled`: master switch (per-call override via `search_files.filter`)
+#   - `candidate_limit`: probe result pool judged when filtering (>= `max_results`)
+#   - `max_concurrency`: concurrent System One requests (one code block per request)
+#   - `threshold`: minimum `noul` probability to keep a code block
+#   - `state_char_limit`: max characters of code sent as `state` when judging
+#   - `max_judgeable_chars`: a candidate whose state exceeds this is kept unjudged
+#     rather than judged on truncated code
+#   - `query_char_limit`: max characters of the task embedded in the question
+#   - `fallback`: return the ranked pool when nothing is judged relevant
+# In-code defaults in `Exhub.MCP.Desktop.Search.Relevance` apply for any missing key.
+config :exhub, Exhub.MCP.Desktop.Search.Relevance,
+  enabled: true,
+  candidate_limit: 20,
+  max_concurrency: 8,
+  threshold: 0.5,
+  timeout: 30_000,
+  state_char_limit: 4000,
+  max_judgeable_chars: 6000,
+  query_char_limit: 800,
+  fallback: true
+
 import_config "#{config_env()}.exs"
