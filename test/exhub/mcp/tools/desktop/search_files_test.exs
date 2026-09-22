@@ -3,7 +3,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
 
   alias Exhub.MCP.Tools.Desktop.SearchFiles
 
-  # Exile (used by ripgrep/grep paths) needs its supervisor running
+  # Exile (used by ripgrep/grep and probe paths) needs its supervisor running
   setup_all do
     Application.ensure_all_started(:exile)
     :ok
@@ -174,6 +174,160 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       assert resp.isError == true
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
       assert text =~ "not found"
+    end
+
+    test "files/content modes require a pattern" do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(%{path: "/tmp", search_type: "files"}, frame)
+
+      assert resp.isError == true
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "pattern"
+    end
+
+    test "rejects relative paths" do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(%{path: "relative/dir", query: "anything"}, frame)
+
+      assert resp.isError == true
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "Relative paths are not supported"
+    end
+  end
+
+  describe "semantic search (default mode)" do
+    setup do
+      tmp_dir = Path.join(System.tmp_dir!(), "semantic_search_test_#{:rand.uniform(999_999)}")
+      File.mkdir_p!(tmp_dir)
+
+      File.write!(Path.join(tmp_dir, "sample.ex"), """
+      defmodule SampleFixture do
+        def authenticate_user(token) do
+          verify_credentials(token)
+        end
+      end
+      """)
+
+      on_exit(fn -> File.rm_rf!(tmp_dir) end)
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "defaults to semantic search and returns probe code blocks", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(%{path: tmp_dir, query: "authenticate_user"}, frame)
+
+      assert resp.isError == false
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "authenticate_user"
+      assert text =~ "sample.ex"
+    end
+
+    test "requires a query for semantic search", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(%{path: tmp_dir, search_type: "semantic"}, frame)
+
+      assert resp.isError == true
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "query"
+    end
+
+    test "returns error for non-existent directory", %{tmp_dir: _tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(%{path: "/nonexistent/directory", query: "anything"}, frame)
+
+      assert resp.isError == true
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "not found"
+    end
+
+    test "drops unsupported language values", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(
+          %{path: tmp_dir, query: "authenticate_user", language: "elixir"},
+          frame
+        )
+
+      assert resp.isError == false
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "authenticate_user"
+    end
+
+    test "filters by supported language", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(
+          %{path: tmp_dir, query: "authenticate_user", language: "typescript"},
+          frame
+        )
+
+      assert resp.isError == false
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "No results"
+    end
+
+    test "exact and allow_tests flags do not error", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(
+          %{path: tmp_dir, query: "authenticate_user", exact: true, allow_tests: true},
+          frame
+        )
+
+      assert resp.isError == false
+    end
+
+    test "aider-desk parity flags do not error", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(
+          %{
+            path: tmp_dir,
+            query: "authenticate_user",
+            reranker: "bm25",
+            files_only: true,
+            ignore: ["*.json", "tmp/**"],
+            exclude_filenames: true,
+            frequency: true,
+            strict_elastic_syntax: false,
+            max_bytes: 10_000,
+            no_merge: true,
+            merge_threshold: 3,
+            session: "test-session",
+            format: "markdown"
+          },
+          frame
+        )
+
+      assert resp.isError == false
+    end
+
+    test "drops unsupported reranker and format values", %{tmp_dir: tmp_dir} do
+      frame = %{}
+
+      {:reply, resp, ^frame} =
+        SearchFiles.execute(
+          %{path: tmp_dir, query: "authenticate_user", reranker: "nope", format: "nope"},
+          frame
+        )
+
+      assert resp.isError == false
+      text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
+      assert text =~ "authenticate_user"
     end
   end
 end

@@ -2,7 +2,14 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   @moduledoc """
   MCP Tool: search_files
 
-  Search for files by name or search within file contents using ripgrep or grep.
+  Search a codebase. The default `semantic` mode uses probe-backed semantic search
+  (AST-aware ranking with BM25, returning complete code blocks); `files` and
+  `content` modes retain the ripgrep/grep/native filename and literal searches.
+
+  The `probe` binary is resolved from the `:exhub, :probe_binary` config, falling
+  back to the first `probe` on the system `PATH`. Different probe builds can rank
+  results differently (and run at different speeds), so pin `:probe_binary` when
+  reproducible semantic results matter.
   """
 
   alias Anubis.Server.Response
@@ -12,27 +19,67 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
   require Logger
 
+  # Semantic search defaults — mirror aider-desk's SemanticSearchTool.
+  @semantic_timeout_seconds 300
+  @probe_exit_timeout_ms 310_000
+  @default_max_tokens 5000
+
+  # Languages accepted by probe's `--language` flag (mutually exclusive with hints).
+  @supported_languages ~w(
+    rust rs javascript js jsx typescript ts tsx python py go
+    c h cpp cc cxx hpp hxx java ruby rb php swift solidity sol
+    crystal cr csharp cs yaml yml
+  )
+
+  # Rerankers accepted by probe's `--reranker` flag (BERT models need --features).
+  @supported_rerankers ~w(
+    bm25 hybrid hybrid2 tfidf ms-marco-tinybert ms-marco-minilm-l6 ms-marco-minilm-l12
+  )
+
+  # Output formats accepted by probe's `--format` flag (probe defaults to "outline").
+  @supported_formats ~w(outline outline-xml terminal markdown plain json xml color)
+
   def name, do: "search_files"
 
   @impl true
   def description do
     """
-    Search for files by name or search within file contents.
+    Search a codebase. Three search types are supported:
 
-    Two search types are supported:
-    - files: Find files/directories whose names match the pattern
-    - content: Find files whose contents contain the pattern
-
-    Uses ripgrep (rg) if available, otherwise falls back to grep for fast searching.
-    The pattern is treated as a case-insensitive substring by default.
+    - semantic (default): Probe-backed semantic code search. Treats the codebase as
+      code (AST-aware), ranks with BM25 and returns complete code blocks rather than
+      line fragments. Uses `query` with Elasticsearch-style syntax: boolean operators
+      (AND/OR/NOT), +required/-excluded terms, "exact phrases", and file hints such as
+      ext:ts, file:src/**/*.py, dir:tests, lang:typescript.
+    - files: Find files/directories whose names match `pattern` (ripgrep, falling back
+      to native matching).
+    - content: Find files whose contents match `pattern` (ripgrep, falling back to
+      grep/native), with configurable context lines.
 
     Parameters:
     - path: Absolute path or ~ shorthand to the directory to search in
-    - pattern: The search pattern (substring or regex)
-    - search_type: "files" (search by filename) or "content" (search inside files), default "files"
+    - search_type: "semantic" (default), "files" or "content"
+    - query: Semantic search query (required for search_type "semantic")
+    - pattern: Search pattern (required for "files"/"content"; substring or regex)
+    - allow_tests: Include test files in semantic results (default false)
+    - exact: Exact (untokenized, case-insensitive) semantic search (default false)
+    - max_results: Maximum results (files/content default 50; optional for semantic)
+    - max_tokens: Maximum tokens of code content returned by semantic search (default 5000)
+    - language: Limit semantic search to a language (e.g. "typescript", "python", "rust")
+    - reranker: Ranking algorithm for semantic results (probe default "bm25"; also
+      "hybrid", "hybrid2", "tfidf", "ms-marco-tinybert", "ms-marco-minilm-l6", "ms-marco-minilm-l12")
+    - files_only: Return only matching file names, skipping code blocks (default false)
+    - ignore: Glob pattern(s) to exclude, in addition to .gitignore (semantic only)
+    - exclude_filenames: Exclude files whose names match query words (default false)
+    - frequency: Force frequency-based search with stemming/stopwords (probe default on; only passed when true)
+    - strict_elastic_syntax: Require explicit AND/OR operators and quotes (default false)
+    - max_bytes: Maximum total bytes of code content returned (semantic only)
+    - no_merge: Disable merging of adjacent code blocks (default false)
+    - merge_threshold: Max number of lines between blocks to merge (probe default 5)
+    - session: Session ID for caching/paginating semantic results
+    - format: probe output format (probe default "outline"; also "json", "xml", "markdown", "plain", "terminal", "color")
     - file_pattern: Optional glob pattern to filter files (e.g. "*.ex"), only for content search
-    - ignore_case: Case-insensitive matching (default true)
-    - max_results: Maximum number of results to return (default 50)
+    - ignore_case: Case-insensitive matching for files/content (default true)
     - context_lines: Number of context lines around content matches (default 2)
     """
   end
@@ -42,11 +89,89 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       description: "Absolute path or ~ shorthand to the directory to search in"
     )
 
-    field(:pattern, {:required, :string}, description: "The search pattern (substring or regex)")
-
     field(:search_type, :string,
-      description: "\"files\" or \"content\" (default \"files\")",
-      default: "files"
+      description: "\"semantic\" (default), \"files\" or \"content\"",
+      default: "semantic"
+    )
+
+    field(:query, :string,
+      description:
+        "Semantic search query with Elasticsearch syntax (required for search_type \"semantic\"). Use + for important terms."
+    )
+
+    field(:pattern, :string,
+      description:
+        "The search pattern (substring or regex). Required for search_type \"files\" or \"content\"."
+    )
+
+    field(:allow_tests, :boolean,
+      description: "Include test files in semantic search results (default false)",
+      default: false
+    )
+
+    field(:exact, :boolean,
+      description: "Exact (tokenization-free, case-insensitive) semantic search (default false)",
+      default: false
+    )
+
+    field(:max_tokens, :integer,
+      description: "Maximum tokens of code content returned by semantic search (default 5000)",
+      default: @default_max_tokens
+    )
+
+    field(:language, :string,
+      description:
+        "Limit semantic search to a programming language (e.g. \"typescript\", \"python\", \"rust\")"
+    )
+
+    field(:reranker, :string,
+      description:
+        "Ranking algorithm for semantic results (probe default \"bm25\"; also \"hybrid\", \"hybrid2\", \"tfidf\", \"ms-marco-tinybert\", \"ms-marco-minilm-l6\", \"ms-marco-minilm-l12\")"
+    )
+
+    field(:files_only, :boolean,
+      description: "Return only matching file names, skipping code blocks (default false)",
+      default: false
+    )
+
+    field(:ignore, {:list, :string},
+      description: "Glob pattern(s) to exclude, in addition to .gitignore (semantic only)"
+    )
+
+    field(:exclude_filenames, :boolean,
+      description: "Exclude files whose names match query words (default false)",
+      default: false
+    )
+
+    field(:frequency, :boolean,
+      description:
+        "Force frequency-based search with stemming/stopwords (probe default on; only passed when true)",
+      default: false
+    )
+
+    field(:strict_elastic_syntax, :boolean,
+      description: "Require explicit AND/OR operators and quotes (default false)",
+      default: false
+    )
+
+    field(:max_bytes, :integer,
+      description: "Maximum total bytes of code content returned (semantic only)"
+    )
+
+    field(:no_merge, :boolean,
+      description: "Disable merging of adjacent code blocks (default false)",
+      default: false
+    )
+
+    field(:merge_threshold, :integer,
+      description: "Max number of lines between blocks to merge (probe default 5)"
+    )
+
+    field(:session, :string, description: "Session ID for caching/paginating semantic results")
+
+    field(:format, :string,
+      description:
+        "probe output format (probe default \"outline\"; also \"json\", \"xml\", \"markdown\", \"plain\", \"terminal\", \"color\")"
     )
 
     field(:file_pattern, :string,
@@ -54,13 +179,13 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     )
 
     field(:ignore_case, :boolean,
-      description: "Case-insensitive matching (default true)",
+      description: "Case-insensitive matching for files/content search (default true)",
       default: true
     )
 
     field(:max_results, :integer,
-      description: "Maximum number of results to return (default 50)",
-      default: 50
+      description:
+        "Maximum number of results to return (default 50 for files/content; optional for semantic)"
     )
 
     field(:context_lines, :integer,
@@ -72,8 +197,47 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   @impl true
   def execute(params, frame) do
     with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
-      pattern = Map.get(params, :pattern)
-      search_type = Map.get(params, :search_type, "files")
+      search_type = Map.get(params, :search_type, "semantic")
+
+      case search_type do
+        "semantic" ->
+          run_semantic(params, path, frame)
+
+        type when type in ["files", "content"] ->
+          run_pattern_search(params, path, type, frame)
+
+        other ->
+          resp =
+            Response.tool()
+            |> Response.error(
+              "Unknown search_type: #{other}. Use \"semantic\", \"files\" or \"content\"."
+            )
+
+          {:reply, resp, frame}
+      end
+    else
+      {:error, reason} ->
+        resp = Response.tool() |> Response.error(reason)
+        {:reply, resp, frame}
+    end
+  end
+
+  # ============================================================================
+  # Filename / content search (ripgrep, with grep/native fallbacks)
+  # ============================================================================
+
+  defp run_pattern_search(params, path, search_type, frame) do
+    pattern = Map.get(params, :pattern)
+
+    if is_nil(pattern) or pattern == "" do
+      resp =
+        Response.tool()
+        |> Response.error(
+          "Missing required parameter: pattern (for search_type \"#{search_type}\")."
+        )
+
+      {:reply, resp, frame}
+    else
       file_pattern = Map.get(params, :file_pattern)
       ignore_case = Map.get(params, :ignore_case, true)
       max_results = Map.get(params, :max_results, 50)
@@ -105,11 +269,164 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
           resp = Response.tool() |> Response.error("Search failed: #{reason}")
           {:reply, resp, frame}
       end
-    else
-      {:error, reason} ->
-        resp = Response.tool() |> Response.error(reason)
-        {:reply, resp, frame}
     end
+  end
+
+  # ============================================================================
+  # Semantic search (probe CLI)
+  # ============================================================================
+
+  defp run_semantic(params, path, frame) do
+    query = Map.get(params, :query)
+    binary = probe_binary()
+
+    cond do
+      is_nil(query) or String.trim(query) == "" ->
+        resp =
+          Response.tool()
+          |> Response.error("Missing required parameter: query (for search_type \"semantic\").")
+
+        {:reply, resp, frame}
+
+      is_nil(binary) ->
+        resp =
+          Response.tool()
+          |> Response.error(
+            "The 'probe' binary was not found. Install it (https://github.com/probelabs/probe), " <>
+              "put it on the system PATH, or pin it via :probe_binary in the :exhub app config."
+          )
+
+        {:reply, resp, frame}
+
+      true ->
+        case search_semantic(binary, path, query, params) do
+          {:ok, output} ->
+            {:reply, Response.tool() |> Response.text(output), frame}
+
+          {:error, reason} ->
+            resp = Response.tool() |> Response.error("Semantic search failed: #{reason}")
+            {:reply, resp, frame}
+        end
+    end
+  end
+
+  defp search_semantic(binary, path, query, params) do
+    with :ok <- check_directory(path) do
+      max_tokens = Map.get(params, :max_tokens) || @default_max_tokens
+
+      # Flag ordering mirrors aider-desk's probe wrapper (src/main/utils/probe.ts).
+      args =
+        ["search"]
+        |> add_flag(Map.get(params, :files_only, false), "--files-only")
+        |> add_ignores(Map.get(params, :ignore))
+        |> add_flag(Map.get(params, :exclude_filenames, false), "--exclude-filenames")
+        |> add_reranker(Map.get(params, :reranker))
+        |> add_frequency(Map.get(params, :frequency, false))
+        |> add_flag(Map.get(params, :exact, false), "--exact")
+        |> add_flag(Map.get(params, :strict_elastic_syntax, false), "--strict-elastic-syntax")
+        |> add_max_results(Map.get(params, :max_results))
+        |> add_max_bytes(Map.get(params, :max_bytes))
+        |> add_max_tokens(max_tokens)
+        |> add_flag(Map.get(params, :allow_tests, false), "--allow-tests")
+        |> add_flag(Map.get(params, :no_merge, false), "--no-merge")
+        |> add_merge_threshold(Map.get(params, :merge_threshold))
+        |> add_session(Map.get(params, :session))
+        |> add_timeout(@semantic_timeout_seconds)
+        |> add_language(Map.get(params, :language))
+        |> add_format(Map.get(params, :format))
+        |> Kernel.++(["--", query, path])
+
+      run_probe(binary, args)
+    end
+  end
+
+  defp add_flag(args, true, flag), do: args ++ [flag]
+  defp add_flag(args, _value, _flag), do: args
+
+  defp add_ignores(args, patterns) when is_list(patterns),
+    do: Enum.reduce(patterns, args, fn pattern, acc -> add_ignore(acc, pattern) end)
+
+  defp add_ignores(args, pattern), do: add_ignore(args, pattern)
+
+  defp add_ignore(args, pattern) when is_binary(pattern) and pattern != "",
+    do: args ++ ["--ignore", pattern]
+
+  defp add_ignore(args, _), do: args
+
+  defp add_reranker(args, reranker) when reranker in @supported_rerankers,
+    do: args ++ ["--reranker", reranker]
+
+  defp add_reranker(args, _), do: args
+
+  defp add_frequency(args, true), do: args ++ ["--frequency"]
+  defp add_frequency(args, _), do: args
+
+  defp add_max_results(args, max) when is_integer(max) and max > 0,
+    do: args ++ ["--max-results", to_string(max)]
+
+  defp add_max_results(args, _), do: args
+
+  defp add_max_bytes(args, max) when is_integer(max) and max > 0,
+    do: args ++ ["--max-bytes", to_string(max)]
+
+  defp add_max_bytes(args, _), do: args
+
+  defp add_max_tokens(args, max) when is_integer(max) and max > 0,
+    do: args ++ ["--max-tokens", to_string(max)]
+
+  defp add_max_tokens(args, _), do: args
+
+  defp add_merge_threshold(args, threshold) when is_integer(threshold) and threshold >= 0,
+    do: args ++ ["--merge-threshold", to_string(threshold)]
+
+  defp add_merge_threshold(args, _), do: args
+
+  defp add_session(args, session) when is_binary(session) and session != "",
+    do: args ++ ["--session", session]
+
+  defp add_session(args, _), do: args
+
+  defp add_timeout(args, seconds), do: args ++ ["--timeout", to_string(seconds)]
+
+  defp add_language(args, language) when language in @supported_languages,
+    do: args ++ ["--language", language]
+
+  defp add_language(args, _), do: args
+
+  defp add_format(args, format) when format in @supported_formats,
+    do: args ++ ["--format", format]
+
+  defp add_format(args, _), do: args
+
+  defp probe_binary do
+    Application.get_env(:exhub, :probe_binary) || System.find_executable("probe")
+  end
+
+  defp run_probe(binary, args) do
+    {stdout, stderr, exit_code} =
+      Exile.stream([binary | args],
+        stderr: :consume,
+        env: Helpers.clean_env(),
+        exit_timeout: @probe_exit_timeout_ms
+      )
+      |> Enum.reduce({"", "", nil}, fn
+        {:stdout, data}, {out, err, code} -> {out <> data, err, code}
+        {:stderr, data}, {out, err, code} -> {out, err <> data, code}
+        {:exit, {:status, code}}, {out, err, _} -> {out, err, code}
+        {:exit, :epipe}, {out, err, _} -> {out, err, 0}
+        _, acc -> acc
+      end)
+
+    cond do
+      exit_code not in [nil, 0, 1] ->
+        {:error, "probe (#{binary}) exited with code #{exit_code}: #{String.trim(stderr)}"}
+
+      true ->
+        output = String.trim_trailing(stdout)
+        {:ok, if(output == "", do: "No results found.", else: output)}
+    end
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   # ============================================================================
