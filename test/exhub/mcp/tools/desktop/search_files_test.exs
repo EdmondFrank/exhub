@@ -290,7 +290,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       assert resp.isError == false
     end
 
-    test "aider-desk parity flags do not error", %{tmp_dir: tmp_dir} do
+    test "unknown params are ignored", %{tmp_dir: tmp_dir} do
       frame = %{}
 
       {:reply, resp, ^frame} =
@@ -299,35 +299,21 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
             path: tmp_dir,
             query: "authenticate_user",
             reranker: "bm25",
-            files_only: true,
-            ignore: ["*.json", "tmp/**"],
-            exclude_filenames: true,
-            frequency: true,
-            strict_elastic_syntax: false,
-            max_bytes: 10_000,
-            no_merge: true,
-            merge_threshold: 3,
-            session: "test-session",
-            format: "markdown"
+            format: "markdown",
+            session: "test-session"
           },
-          frame
-        )
-
-      assert resp.isError == false
-    end
-
-    test "drops unsupported reranker and format values", %{tmp_dir: tmp_dir} do
-      frame = %{}
-
-      {:reply, resp, ^frame} =
-        SearchFiles.execute(
-          %{path: tmp_dir, query: "authenticate_user", reranker: "nope", format: "nope"},
           frame
         )
 
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
       assert text =~ "authenticate_user"
+    end
+  end
+
+  describe "tool definition (token budget)" do
+    test "description stays terse" do
+      assert byte_size(SearchFiles.description()) < 600
     end
   end
 end

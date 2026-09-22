@@ -31,56 +31,17 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     crystal cr csharp cs yaml yml
   )
 
-  # Rerankers accepted by probe's `--reranker` flag (BERT models need --features).
-  @supported_rerankers ~w(
-    bm25 hybrid hybrid2 tfidf ms-marco-tinybert ms-marco-minilm-l6 ms-marco-minilm-l12
-  )
-
-  # Output formats accepted by probe's `--format` flag (probe defaults to "outline").
-  @supported_formats ~w(outline outline-xml terminal markdown plain json xml color)
-
   def name, do: "search_files"
 
   @impl true
   def description do
     """
-    Search a codebase. Three search types are supported:
-
-    - semantic (default): Probe-backed semantic code search. Treats the codebase as
-      code (AST-aware), ranks with BM25 and returns complete code blocks rather than
-      line fragments. Uses `query` with Elasticsearch-style syntax: boolean operators
-      (AND/OR/NOT), +required/-excluded terms, "exact phrases", and file hints such as
-      ext:ts, file:src/**/*.py, dir:tests, lang:typescript.
-    - files: Find files/directories whose names match `pattern` (ripgrep, falling back
-      to native matching).
-    - content: Find files whose contents match `pattern` (ripgrep, falling back to
-      grep/native), with configurable context lines.
-
-    Parameters:
-    - path: Absolute path or ~ shorthand to the directory to search in
-    - search_type: "semantic" (default), "files" or "content"
-    - query: Semantic search query (required for search_type "semantic")
-    - pattern: Search pattern (required for "files"/"content"; substring or regex)
-    - allow_tests: Include test files in semantic results (default false)
-    - exact: Exact (untokenized, case-insensitive) semantic search (default false)
-    - max_results: Maximum results (files/content default 50; optional for semantic)
-    - max_tokens: Maximum tokens of code content returned by semantic search (default 5000)
-    - language: Limit semantic search to a language (e.g. "typescript", "python", "rust")
-    - reranker: Ranking algorithm for semantic results (probe default "bm25"; also
-      "hybrid", "hybrid2", "tfidf", "ms-marco-tinybert", "ms-marco-minilm-l6", "ms-marco-minilm-l12")
-    - files_only: Return only matching file names, skipping code blocks (default false)
-    - ignore: Glob pattern(s) to exclude, in addition to .gitignore (semantic only)
-    - exclude_filenames: Exclude files whose names match query words (default false)
-    - frequency: Force frequency-based search with stemming/stopwords (probe default on; only passed when true)
-    - strict_elastic_syntax: Require explicit AND/OR operators and quotes (default false)
-    - max_bytes: Maximum total bytes of code content returned (semantic only)
-    - no_merge: Disable merging of adjacent code blocks (default false)
-    - merge_threshold: Max number of lines between blocks to merge (probe default 5)
-    - session: Session ID for caching/paginating semantic results
-    - format: probe output format (probe default "outline"; also "json", "xml", "markdown", "plain", "terminal", "color")
-    - file_pattern: Optional glob pattern to filter files (e.g. "*.ex"), only for content search
-    - ignore_case: Case-insensitive matching for files/content (default true)
-    - context_lines: Number of context lines around content matches (default 2)
+    Search a codebase. Three modes (search_type):
+    - semantic (default): AST-aware BM25 code search over `query`, returning whole code
+      blocks. Supports Elasticsearch syntax (AND/OR/NOT, +required, -excluded, "phrases")
+      and hints such as ext:ts, file:src/**/*.py, dir:tests, lang:typescript.
+    - files: match file/directory names against `pattern`.
+    - content: match file contents against `pattern`, with context lines.
     """
   end
 
@@ -114,6 +75,11 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       default: false
     )
 
+    field(:max_results, :integer,
+      description:
+        "Maximum number of results to return (default 50 for files/content; optional for semantic)"
+    )
+
     field(:max_tokens, :integer,
       description: "Maximum tokens of code content returned by semantic search (default 5000)",
       default: @default_max_tokens
@@ -124,56 +90,6 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
         "Limit semantic search to a programming language (e.g. \"typescript\", \"python\", \"rust\")"
     )
 
-    field(:reranker, :string,
-      description:
-        "Ranking algorithm for semantic results (probe default \"bm25\"; also \"hybrid\", \"hybrid2\", \"tfidf\", \"ms-marco-tinybert\", \"ms-marco-minilm-l6\", \"ms-marco-minilm-l12\")"
-    )
-
-    field(:files_only, :boolean,
-      description: "Return only matching file names, skipping code blocks (default false)",
-      default: false
-    )
-
-    field(:ignore, {:list, :string},
-      description: "Glob pattern(s) to exclude, in addition to .gitignore (semantic only)"
-    )
-
-    field(:exclude_filenames, :boolean,
-      description: "Exclude files whose names match query words (default false)",
-      default: false
-    )
-
-    field(:frequency, :boolean,
-      description:
-        "Force frequency-based search with stemming/stopwords (probe default on; only passed when true)",
-      default: false
-    )
-
-    field(:strict_elastic_syntax, :boolean,
-      description: "Require explicit AND/OR operators and quotes (default false)",
-      default: false
-    )
-
-    field(:max_bytes, :integer,
-      description: "Maximum total bytes of code content returned (semantic only)"
-    )
-
-    field(:no_merge, :boolean,
-      description: "Disable merging of adjacent code blocks (default false)",
-      default: false
-    )
-
-    field(:merge_threshold, :integer,
-      description: "Max number of lines between blocks to merge (probe default 5)"
-    )
-
-    field(:session, :string, description: "Session ID for caching/paginating semantic results")
-
-    field(:format, :string,
-      description:
-        "probe output format (probe default \"outline\"; also \"json\", \"xml\", \"markdown\", \"plain\", \"terminal\", \"color\")"
-    )
-
     field(:file_pattern, :string,
       description: "Optional glob pattern to filter files (e.g. \"*.ex\")"
     )
@@ -181,11 +97,6 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     field(:ignore_case, :boolean,
       description: "Case-insensitive matching for files/content search (default true)",
       default: true
-    )
-
-    field(:max_results, :integer,
-      description:
-        "Maximum number of results to return (default 50 for files/content; optional for semantic)"
     )
 
     field(:context_lines, :integer,
@@ -312,28 +223,17 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
   defp search_semantic(binary, path, query, params) do
     with :ok <- check_directory(path) do
-      max_tokens = Map.get(params, :max_tokens) || @default_max_tokens
-
-      # Flag ordering mirrors aider-desk's probe wrapper (src/main/utils/probe.ts).
       args =
         ["search"]
-        |> add_flag(Map.get(params, :files_only, false), "--files-only")
-        |> add_ignores(Map.get(params, :ignore))
-        |> add_flag(Map.get(params, :exclude_filenames, false), "--exclude-filenames")
-        |> add_reranker(Map.get(params, :reranker))
-        |> add_frequency(Map.get(params, :frequency, false))
         |> add_flag(Map.get(params, :exact, false), "--exact")
-        |> add_flag(Map.get(params, :strict_elastic_syntax, false), "--strict-elastic-syntax")
-        |> add_max_results(Map.get(params, :max_results))
-        |> add_max_bytes(Map.get(params, :max_bytes))
-        |> add_max_tokens(max_tokens)
         |> add_flag(Map.get(params, :allow_tests, false), "--allow-tests")
-        |> add_flag(Map.get(params, :no_merge, false), "--no-merge")
-        |> add_merge_threshold(Map.get(params, :merge_threshold))
-        |> add_session(Map.get(params, :session))
-        |> add_timeout(@semantic_timeout_seconds)
-        |> add_language(Map.get(params, :language))
-        |> add_format(Map.get(params, :format))
+        |> put_arg("--max-results", positive_int(Map.get(params, :max_results)))
+        |> put_arg(
+          "--max-tokens",
+          positive_int(Map.get(params, :max_tokens)) || @default_max_tokens
+        )
+        |> put_arg("--language", supported_language(Map.get(params, :language)))
+        |> put_arg("--timeout", @semantic_timeout_seconds)
         |> Kernel.++(["--", query, path])
 
       run_probe(binary, args)
@@ -343,60 +243,14 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   defp add_flag(args, true, flag), do: args ++ [flag]
   defp add_flag(args, _value, _flag), do: args
 
-  defp add_ignores(args, patterns) when is_list(patterns),
-    do: Enum.reduce(patterns, args, fn pattern, acc -> add_ignore(acc, pattern) end)
+  defp put_arg(args, _flag, nil), do: args
+  defp put_arg(args, flag, value), do: args ++ [flag, to_string(value)]
 
-  defp add_ignores(args, pattern), do: add_ignore(args, pattern)
+  defp positive_int(n) when is_integer(n) and n > 0, do: n
+  defp positive_int(_), do: nil
 
-  defp add_ignore(args, pattern) when is_binary(pattern) and pattern != "",
-    do: args ++ ["--ignore", pattern]
-
-  defp add_ignore(args, _), do: args
-
-  defp add_reranker(args, reranker) when reranker in @supported_rerankers,
-    do: args ++ ["--reranker", reranker]
-
-  defp add_reranker(args, _), do: args
-
-  defp add_frequency(args, true), do: args ++ ["--frequency"]
-  defp add_frequency(args, _), do: args
-
-  defp add_max_results(args, max) when is_integer(max) and max > 0,
-    do: args ++ ["--max-results", to_string(max)]
-
-  defp add_max_results(args, _), do: args
-
-  defp add_max_bytes(args, max) when is_integer(max) and max > 0,
-    do: args ++ ["--max-bytes", to_string(max)]
-
-  defp add_max_bytes(args, _), do: args
-
-  defp add_max_tokens(args, max) when is_integer(max) and max > 0,
-    do: args ++ ["--max-tokens", to_string(max)]
-
-  defp add_max_tokens(args, _), do: args
-
-  defp add_merge_threshold(args, threshold) when is_integer(threshold) and threshold >= 0,
-    do: args ++ ["--merge-threshold", to_string(threshold)]
-
-  defp add_merge_threshold(args, _), do: args
-
-  defp add_session(args, session) when is_binary(session) and session != "",
-    do: args ++ ["--session", session]
-
-  defp add_session(args, _), do: args
-
-  defp add_timeout(args, seconds), do: args ++ ["--timeout", to_string(seconds)]
-
-  defp add_language(args, language) when language in @supported_languages,
-    do: args ++ ["--language", language]
-
-  defp add_language(args, _), do: args
-
-  defp add_format(args, format) when format in @supported_formats,
-    do: args ++ ["--format", format]
-
-  defp add_format(args, _), do: args
+  defp supported_language(language) when language in @supported_languages, do: language
+  defp supported_language(_language), do: nil
 
   defp probe_binary do
     Application.get_env(:exhub, :probe_binary) || System.find_executable("probe")
