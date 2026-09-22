@@ -35,9 +35,19 @@ defmodule Exhub.KuriDaemon do
 
   ## Binary resolution order
 
+  Re-evaluated on every start attempt, so a moved or upgraded binary is picked
+  up without a VM restart:
+
   1. `:kuri_binary` application env (if set)
   2. `System.find_executable("kuri")` (PATH)
-  3. `~/Code/kuri/zig-out/bin/kuri` (local dev build)
+  3. Common install dirs: `~/.cargo/bin/kuri`, `~/.local/bin/kuri`,
+     `/opt/homebrew/bin/kuri`, `/usr/local/bin/kuri`
+  4. `~/Code/kuri/zig-out/bin/kuri` (local dev build)
+
+  ## Telemetry
+
+  The managed server is started with `KURI_NO_TELEMETRY=1` (kuri telemetry is
+  opt-out upstream since 0.5.1).
   """
 
   use GenServer
@@ -153,28 +163,61 @@ defmodule Exhub.KuriDaemon do
 
   @impl true
   def handle_info(:start_daemon, state) do
-    Logger.info("[KuriDaemon] Starting kuri server on #{state.host}:#{state.port}...")
-
-    # Check if a server is already running on this port
-    case check_existing_server(state.host, state.port) do
-      {:ok, _body} ->
-        Logger.info(
-          "[KuriDaemon] ✓ kuri server already running at http://#{state.host}:#{state.port}"
-        )
-
-        timer = schedule_health_check()
-        {:noreply, %{state | status: :healthy, health_timer: timer, consecutive_failures: 0}}
-
-      {:error, {:port_in_use, status}} ->
+    case resolve_binary() do
+      nil ->
+        # Binary is missing or was moved (e.g. after an upgrade). Spawning now
+        # would crash Exile with a MatchError, so back off and retry instead.
         Logger.warning(
-          "[KuriDaemon] Port #{state.port} is in use but returned status #{status}. " <>
-            "Proceeding with caution — may conflict with existing service."
+          "[KuriDaemon] `kuri` binary not found on PATH or in common install dirs " <>
+            "(~/.cargo/bin, ~/.local/bin, /opt/homebrew/bin). Install kuri or set " <>
+            ":exhub, :kuri_binary. Not starting daemon."
         )
 
-        start_new_daemon(state)
+        timer = Process.send_after(self(), :start_daemon, restart_delay(state.restart_count))
 
-      {:error, :no_server} ->
-        start_new_daemon(state)
+        {:noreply,
+         %{
+           state
+           | status: :disabled,
+             binary: nil,
+             daemon_ref: nil,
+             daemon_pid: nil,
+             health_timer: nil,
+             restart_timer: timer,
+             restart_count: state.restart_count + 1
+         }}
+
+      binary ->
+        # Re-resolve on every attempt so an upgraded/relocated binary is picked
+        # up without restarting the VM.
+        if binary != state.binary do
+          Logger.info("[KuriDaemon] Using kuri binary at #{binary}")
+        end
+
+        state = %{state | binary: binary}
+        Logger.info("[KuriDaemon] Starting kuri server on #{state.host}:#{state.port}...")
+
+        # Check if a server is already running on this port
+        case check_existing_server(state.host, state.port) do
+          {:ok, _body} ->
+            Logger.info(
+              "[KuriDaemon] ✓ kuri server already running at http://#{state.host}:#{state.port}"
+            )
+
+            timer = schedule_health_check()
+            {:noreply, %{state | status: :healthy, health_timer: timer, consecutive_failures: 0}}
+
+          {:error, {:port_in_use, status}} ->
+            Logger.warning(
+              "[KuriDaemon] Port #{state.port} is in use but returned status #{status}. " <>
+                "Proceeding with caution — may conflict with existing service."
+            )
+
+            start_new_daemon(state)
+
+          {:error, :no_server} ->
+            start_new_daemon(state)
+        end
     end
   end
 
@@ -212,9 +255,7 @@ defmodule Exhub.KuriDaemon do
 
     # Auto-restart after too many consecutive failures
     if new_failures >= @max_consecutive_failures and state.daemon_pid do
-      Logger.warning(
-        "[KuriDaemon] #{new_failures} consecutive failures — restarting kuri daemon"
-      )
+      Logger.warning("[KuriDaemon] #{new_failures} consecutive failures — restarting kuri daemon")
 
       kill_daemon(state)
       timer = Process.send_after(self(), :start_daemon, restart_delay(state.restart_count))
@@ -233,11 +274,26 @@ defmodule Exhub.KuriDaemon do
        }}
     else
       timer = schedule_health_check()
-      {:noreply, %{state | status: new_status, health_timer: timer, consecutive_failures: new_failures}}
+
+      {:noreply,
+       %{state | status: new_status, health_timer: timer, consecutive_failures: new_failures}}
     end
   end
 
   defp start_new_daemon(state) do
+    if is_binary(state.binary) and File.exists?(state.binary) do
+      do_start_new_daemon(state)
+    else
+      Logger.warning(
+        "[KuriDaemon] kuri binary #{inspect(state.binary)} is not available — " <>
+          "skipping start and retrying later."
+      )
+
+      schedule_restart(state)
+    end
+  end
+
+  defp do_start_new_daemon(state) do
     env = build_env(state)
 
     {pid, ref} =
@@ -245,8 +301,8 @@ defmodule Exhub.KuriDaemon do
         run_kuri(state.binary, env)
       end)
 
-    # Wait for kuri to become healthy
-    case wait_for_startup(state.host, state.port) do
+    # Wait for kuri to become healthy (or bail out early if the process died)
+    case wait_for_startup(state.host, state.port, ref) do
       :ok ->
         Logger.info("[KuriDaemon] ✓ kuri server is healthy at http://#{state.host}:#{state.port}")
         timer = schedule_health_check()
@@ -261,6 +317,10 @@ defmodule Exhub.KuriDaemon do
              consecutive_failures: 0,
              restart_count: 0
          }}
+
+      {:daemon_exited, reason} ->
+        Logger.warning("[KuriDaemon] kuri exited during startup: #{inspect(reason)}")
+        schedule_restart(state)
 
       :timeout ->
         Logger.warning(
@@ -292,32 +352,37 @@ defmodule Exhub.KuriDaemon do
 
   defp resolve_binary do
     explicit = Application.get_env(:exhub, :kuri_binary)
+    home = System.user_home!()
 
-    dev_path = Path.join([System.user_home!(), "Code", "kuri", "zig-out", "bin", "kuri"])
+    candidates =
+      [
+        explicit,
+        System.find_executable("kuri")
+      ] ++
+        [
+          Path.join([home, ".cargo", "bin", "kuri"]),
+          Path.join([home, ".local", "bin", "kuri"]),
+          "/opt/homebrew/bin/kuri",
+          "/usr/local/bin/kuri",
+          Path.join([home, "Code", "kuri", "zig-out", "bin", "kuri"])
+        ]
 
-    cond do
-      is_binary(explicit) and File.exists?(explicit) ->
-        explicit
-
-      path = System.find_executable("kuri") ->
-        path
-
-      File.exists?(dev_path) ->
-        dev_path
-
-      true ->
-        nil
-    end
+    Enum.find(candidates, fn
+      path when is_binary(path) -> File.exists?(path)
+      _ -> false
+    end)
   end
 
   defp build_env(state) do
     base = [
       {"HOST", state.host},
       {"PORT", Integer.to_string(state.port)},
-      {"HEADLESS", to_string(state.headless)}
+      {"HEADLESS", to_string(state.headless)},
+      # kuri telemetry is opt-out upstream (since 0.5.1); don't phone home.
+      {"KURI_NO_TELEMETRY", "1"}
     ]
 
-    # Filter out nil values from env
+    # Filter out nil/empty values from env
     Enum.reject(base, fn {_k, v} -> v == "nil" or v == "" end)
   end
 
@@ -338,7 +403,7 @@ defmodule Exhub.KuriDaemon do
         data
         |> String.trim()
         |> String.split("\n")
-        |> Enum.each(fn line -> Logger.warning("[kuri:err] #{line}") end)
+        |> Enum.each(&log_kuri_line/1)
 
         acc
 
@@ -355,18 +420,45 @@ defmodule Exhub.KuriDaemon do
     end)
   end
 
-  defp wait_for_startup(host, port, elapsed \\ 0) do
-    if elapsed >= @startup_timeout_ms do
-      :timeout
-    else
-      case do_http_health_check(host, port) do
-        {:ok, _} ->
-          :ok
+  # kuri writes structured log lines to stderr ("info:", "warning:", "error:").
+  # Classify them so normal startup output isn't logged as a warning.
+  defp log_kuri_line(line) do
+    trimmed = String.trim_leading(line)
 
-        _ ->
-          Process.sleep(@startup_poll_interval_ms)
-          wait_for_startup(host, port, elapsed + @startup_poll_interval_ms)
-      end
+    cond do
+      String.contains?(trimmed, "error") -> Logger.error("[kuri] #{trimmed}")
+      String.contains?(trimmed, "warning") -> Logger.warning("[kuri] #{trimmed}")
+      true -> Logger.debug("[kuri] #{trimmed}")
+    end
+  end
+
+  defp wait_for_startup(host, port, ref) do
+    wait_for_startup(host, port, ref, 0)
+  end
+
+  defp wait_for_startup(_host, _port, _ref, elapsed) when elapsed >= @startup_timeout_ms do
+    :timeout
+  end
+
+  defp wait_for_startup(host, port, ref, elapsed) do
+    receive do
+      {:DOWN, ^ref, :process, _pid, reason} when is_reference(ref) ->
+        Process.demonitor(ref, [:flush])
+        {:daemon_exited, reason}
+
+      {^ref, result} when is_reference(ref) ->
+        Process.demonitor(ref, [:flush])
+        {:daemon_exited, result}
+    after
+      0 ->
+        case do_http_health_check(host, port) do
+          {:ok, _} ->
+            :ok
+
+          _ ->
+            Process.sleep(@startup_poll_interval_ms)
+            wait_for_startup(host, port, ref, elapsed + @startup_poll_interval_ms)
+        end
     end
   end
 
@@ -431,7 +523,9 @@ defmodule Exhub.KuriDaemon do
     cancel_timer(state.health_timer)
     delay = restart_delay(state.restart_count)
 
-    Logger.info("[KuriDaemon] Scheduling restart in #{delay}ms (attempt #{state.restart_count + 1})")
+    Logger.info(
+      "[KuriDaemon] Scheduling restart in #{delay}ms (attempt #{state.restart_count + 1})"
+    )
 
     timer = Process.send_after(self(), :start_daemon, delay)
 
@@ -450,7 +544,7 @@ defmodule Exhub.KuriDaemon do
 
   # Exponential backoff: 5s, 10s, 20s, 40s, capped at 60s
   defp restart_delay(restart_count) do
-    delay = @base_restart_delay_ms * :math.pow(2, restart_count) |> round()
+    delay = (@base_restart_delay_ms * :math.pow(2, restart_count)) |> round()
     min(delay, @max_restart_delay_ms)
   end
 
@@ -493,8 +587,12 @@ defmodule Exhub.KuriDaemon do
     case System.cmd("lsof", ["-ti", ":#{port}"], stderr_to_stdout: true) do
       {output, 0} ->
         case output |> String.trim() |> String.split("\n") |> List.first() do
-          nil -> :error
-          "" -> :error
+          nil ->
+            :error
+
+          "" ->
+            :error
+
           pid_str ->
             case Integer.parse(pid_str) do
               {pid, _} -> {:ok, pid}
