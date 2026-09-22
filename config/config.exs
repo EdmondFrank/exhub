@@ -22,6 +22,14 @@ config :exhub, :translate_llm, "openai/hy-mt2-30b-a3b"
 # Override in runtime.exs or environment-specific config.
 config :exhub, :obsidian_vault_path, "~/GTD/PKB"
 
+# `probe` binary used by the Desktop `search_files` tool's semantic mode.
+# Different probe builds rank results differently and run at noticeably
+# different speeds — the npm-bundled build (~/.bun/bin/probe) is ~2.5x slower
+# and returns ~2x the output tokens of the native build — so pin the binary
+# instead of relying on PATH resolution order. Set to nil to fall back to the
+# first `probe` on the system PATH.
+config :exhub, :probe_binary, "/usr/local/bin/probe"
+
 # Brain vault search ranking defaults. Tunable per-call via brain_search_vault
 # `fusion`/`weights`/`min_score` params, which are merged over these defaults.
 config :exhub, :brain_ranking, %{

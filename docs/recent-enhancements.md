@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## Desktop `search_files` — Leaner Tool Surface & Pinned `probe`
+
+- **Leaner tool definition**: `description/0` no longer enumerates every parameter (the schema documents them) and the schema was trimmed from 22 to 12 fields — dropping probe flags that were never plumbed through (`reranker`, `files_only`, `ignore`, `exclude_filenames`, `frequency`, `strict_elastic_syntax`, `max_bytes`, `no_merge`, `merge_threshold`, `session`, `format`). Tool definition: ~6.3 KB → ~2.3 KB (≈1000 tokens saved per request), matching aider-desk's `semantic_search` footprint while still covering three modes. Unknown params are now ignored rather than rejected.
+- **Simpler internals**: nine per-flag helper functions replaced by `add_flag/3`, `put_arg/3`, `positive_int/1` and `supported_language/1`.
+- **`probe` pinned**: `config/config.exs` now sets `config :exhub, :probe_binary, "/usr/local/bin/probe"`. Previously the binary came from `System.find_executable("probe")`, which resolved to the npm-bundled build (`~/.bun/bin/probe`) — measured ~2.5x slower (3.03 s vs 1.20 s) and ~2x the output tokens (11.2 KB vs 6.0 KB) for the same query. Pinning brings `search_files` semantic mode to parity with aider-desk's Power Tool.
+- **Benchmark finding**: with the same binary pinned, `search_files` and Power Tools' `semantic_search` returned identical file sets and within ±1 byte of output — the earlier gap was entirely the binary. `probe` itself is non-deterministic across identical runs (ordering, and occasionally size, vary), so comparisons need medians over repeats. `search_files` still pays the MCP-hub → ExHub HTTP round trip (~100–550 ms) that an in-process tool does not.
+- **Modified Files**:
+  - `lib/exhub/mcp/tools/desktop/search_files.ex` — terse description, 12-field schema, simplified semantic arg builder
+  - `config/config.exs` — `:probe_binary` pin
+  - `test/exhub/mcp/tools/desktop/search_files_test.exs` — removed-flag tests replaced by an "unknown params are ignored" test; token-budget guard on the description
+  - `docs/modules/desktop.md` — `search_files` reference: semantic mode, parameter table, and a Probe Binary configuration section
+  - `docs/tools.md` — Search tool summary
+
+---
+
 ## MCP Think/Plan — Store-Backed Scratchpad (fix: only one record returned)
 
 - **Problem**: The `think` and `plan` tools kept their journal in the MCP frame's `assigns` (`:think_notes` / `:plan_steps`). ExHub serves every `tools/call` through `Exhub.MCP.ConcurrentToolDispatcher`, which builds a fresh frame per request and discards the frame returned by the tool — so state never accumulated and every call reported `recorded: 1`. Frame-based persistence only works on the `Anubis.Server.Session` path, which `tools/call` never reaches.

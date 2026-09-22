@@ -338,19 +338,76 @@ This helps identify exactly what needs to be corrected in `old_string`.
 
 ### search_files
 
-Searches for files by name or searches within file contents. Uses ripgrep (`rg`) if available, falls back to `grep`, then native Elixir implementation.
+Searches a codebase in one of three modes (`search_type`): `semantic` (the default) — probe-backed, AST-aware BM25 code search returning whole code blocks; `files` — filename matching; `content` — literal/regex content matching with context lines. The `files` and `content` modes use ripgrep (`rg`) if available, fall back to `grep`, then a native Elixir implementation; `semantic` shells out to the `probe` CLI instead.
 
 **Parameters**
 
-| Name            | Type    | Required | Default   | Description                                                         |
-|-----------------|---------|----------|-----------|---------------------------------------------------------------------|
-| `path`          | string  | yes      | —         | Absolute path to the directory to search in                         |
-| `pattern`       | string  | yes      | —         | The search pattern (substring or regex)                             |
-| `search_type`   | string  | no       | `"files"` | `"files"` or `"content"`                                            |
-| `file_pattern`  | string  | no       | `nil`     | Glob pattern to filter files (e.g. `*.ex`), only for content search |
-| `ignore_case`   | boolean | no       | `true`    | Case-insensitive matching                                           |
-| `max_results`   | integer | no       | `50`      | Maximum number of results to return                                 |
-| `context_lines` | integer | no       | `2`       | Number of context lines around content matches                      |
+| Name            | Type    | Required              | Default      | Description                                                          |
+|-----------------|---------|-----------------------|--------------|----------------------------------------------------------------------|
+| `path`          | string  | yes                   | —            | Absolute path (or `~` shorthand) to the directory to search in       |
+| `search_type`   | string  | no                    | `"semantic"` | `"semantic"` (default), `"files"` or `"content"`                     |
+| `query`         | string  | for `semantic`        | —            | Semantic query; Elasticsearch syntax and hints supported             |
+| `pattern`       | string  | for `files`/`content` | —            | The search pattern (substring or regex)                             |
+| `file_pattern`  | string  | no                    | `nil`        | Glob pattern to filter files (e.g. `*.ex`), only for content search  |
+| `allow_tests`   | boolean | no                    | `false`      | Include test files in semantic results                               |
+| `exact`         | boolean | no                    | `false`      | Tokenization-free, case-insensitive semantic match                   |
+| `max_results`   | integer | no                    | `50`         | Max results (`files`/`content`); optional for `semantic`             |
+| `max_tokens`    | integer | no                    | `5000`       | Max tokens of code content returned by semantic search               |
+| `language`      | string  | no                    | `nil`        | Restrict semantic search to one language (see below)                 |
+| `ignore_case`   | boolean | no                    | `true`       | Case-insensitive matching (`files`/`content`)                        |
+| `context_lines` | integer | no                    | `2`          | Number of context lines around content matches                       |
+
+#### search_type: "semantic" (default)
+
+AST-aware, BM25-ranked code search over `query`, backed by the [`probe`](https://github.com/probelabs/probe) CLI. Unlike `files`/`content` this returns whole code blocks (with file path and block line numbers) rather than individual matching lines, and it understands Elasticsearch-style query syntax.
+
+**Query syntax**
+
+| Syntax        | Example                                                | Meaning                                                     |
+|---------------|--------------------------------------------------------|-------------------------------------------------------------|
+| Required term | `+authenticate`                                        | Term must appear                                            |
+| Excluded term | `-migration`                                           | Term must not appear                                        |
+| Boolean       | `parse AND token`                                      | Both terms                                                  |
+| Phrase        | `"reset password"`                                     | Exact phrase                                                |
+| Hint          | `ext:ex`, `dir:lib`, `lang:elixir`, `file:src/**/*.py` | Restrict by extension / directory / language / glob         |
+
+**Probe invocation**
+
+`semantic` mode shells out to `probe` (the `files`/`content` modes never do):
+
+```
+probe search [--exact] [--allow-tests] [--max-results N] --max-tokens N [--language L] --timeout 300 -- <query> <path>
+```
+
+`--max-tokens` defaults to `5000`; the probe-side timeout is fixed at 300 s (ExHub kills the subprocess after 310 s). Defaults mirror aider-desk's `semantic_search` Power Tool.
+
+**Return Value (success)**
+
+Plain text — not a structured/TOON payload:
+
+```
+Pattern: <query>
+Path: <path>
+---
+File: /abs/path/to/file.ext
+
+<line>  <code>
+...
+
+---
+```
+
+**Error Cases**
+
+- `"Missing required parameter: query (for search_type \"semantic\")."` — `query` omitted or blank
+- `"The 'probe' binary was not found. ..."` — no `probe` on `PATH` and `:probe_binary` unset
+- `"Semantic search failed: <reason>"` — probe exited non-zero or could not be started
+- `"No results found."` — probe produced no output
+
+**Caveats**
+
+- **Non-deterministic ranking.** `probe` re-indexes per invocation and tie-breaks nondeterministically, so identical repeated calls can return the same files in a different order (and occasionally a slightly different byte size). Compare medians across repeats rather than single runs.
+- **Build-dependent results.** Distinct `probe` builds can report the same version (`probe-code 0.6.0`) yet behave differently; in local measurements the npm-bundled build (`~/.bun/bin/probe`) was ~2.5x slower and returned ~2x the output tokens of the native build. Pin `:probe_binary` (see [Probe Binary](#probe-binary)) when reproducible results matter.
 
 #### search_type: "files"
 
@@ -424,7 +481,7 @@ The `context` field shows `context_lines` before and after each match:
 
 - `"Not a directory: #{path}"` — Path is not a directory
 - `"Directory not found: #{path}"` — Directory does not exist
-- `"Unknown search_type: #{search_type}. Use \"files\" or \"content\"."` — Invalid search type
+- `"Unknown search_type: #{search_type}. Use \"semantic\", \"files\" or \"content\"."` — Invalid search type
 
 ---
 
@@ -556,7 +613,7 @@ mix test test/exhub/mcp/tools/desktop/ --trace
 
 **Special Setup for search_files**
 
-The `SearchFilesTest` module starts the `:exile` application via `setup_all` to enable ripgrep/grep subprocess support:
+The `SearchFilesTest` module starts the `:exile` application via `setup_all` to enable ripgrep/grep and probe subprocess support. Semantic-mode tests therefore assume a `probe` binary is resolvable (config or `PATH`); they assert on output shape rather than a fixed ranking, since `probe` ordering is non-deterministic.
 
 ```elixir
 setup_all do
@@ -620,6 +677,19 @@ config :exhub, :shell, "fish"
 # Use a specific path to a shell
 config :exhub, :shell, "/usr/local/bin/bash"
 ```
+
+## Probe Binary
+
+`search_files` in `semantic` mode (the default) shells out to the `probe` CLI. ExHub resolves it from the `:exhub, :probe_binary` config, falling back to the first `probe` on the system `PATH` (`System.find_executable("probe")`). The `files` and `content` modes are unaffected — they use `rg`/`grep`/native Elixir.
+
+Pin it when reproducible results matter, since different builds (even those reporting the same version) rank results differently and run at different speeds:
+
+```elixir
+# config/config.exs
+config :exhub, :probe_binary, "/usr/local/bin/probe"
+```
+
+Set it to `nil` (or delete the key) to fall back to `PATH` lookup. As with the shell, the value can be overridden in `config/runtime.exs`.
 
 ## Path Expansion
 

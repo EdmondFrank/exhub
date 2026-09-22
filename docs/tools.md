@@ -164,7 +164,7 @@ Provides comprehensive filesystem, editing, process control, and search capabili
 | **Filesystem** | `read_file`, `read_multiple_files`, `write_file`, `create_directory`, `list_directory`, `move_file`, `get_file_info`, `delete_file` |
 | **Editing** | `edit_block` — targeted find-and-replace within a text file |
 | **Process / Terminal** | `execute_command`, `start_process`, `read_process_output`, `interact_with_process`, `list_managed_processes`, `list_processes`, `kill_process` |
-| **Search** | `search_files` — search by filename or inside file contents |
+| **Search** | `search_files` — search a codebase: probe-backed semantic code search (default), filename match, or content match |
 
 ### Mac Use
 
