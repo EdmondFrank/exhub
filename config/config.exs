@@ -126,4 +126,26 @@ config :exhub, Exhub.MCP.Hub.ToolRelevance,
   exclude_servers: ["mcp-hub"],
   fallback: true
 
+# Web tools: Smart Decide (System One) relevance filter applied to the web
+# search result pages returned by `web_search`.
+#   - `enabled`: master switch (per-call override via `web_search.filter`)
+#   - `candidate_limit`: API pool judged when filtering (>= the tool's `count`)
+#   - `max_concurrency`: concurrent System One requests (one result per request)
+#   - `threshold`: minimum `noul` probability to keep a result. Measured
+#     judgments are strongly bimodal (relevant >= 0.95, irrelevant <= 0.27),
+#     so 0.7 sits inside that gap and discards the instruction's "unsure -> yes"
+#     borderline band without dropping on-topic results.
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~2k context
+#   - `fallback`: return the raw search results when nothing is judged relevant
+# In-code defaults in `Exhub.MCP.WebTools.Relevance` apply for any missing key.
+config :exhub, Exhub.MCP.WebTools.Relevance,
+  enabled: true,
+  candidate_limit: 20,
+  max_concurrency: 8,
+  threshold: 0.7,
+  timeout: 30_000,
+  state_char_limit: 1500,
+  query_char_limit: 800,
+  fallback: true
+
 import_config "#{config_env()}.exs"

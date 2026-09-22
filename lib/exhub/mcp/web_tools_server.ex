@@ -7,6 +7,19 @@ defmodule Exhub.MCP.WebToolsServer do
   2. web_fetch - Fetch content from a specific URL
 
   The server uses HTTP transport and can be accessed at the /mcp/web endpoint.
+
+  ## Relevance filtering
+
+  `web_search` results are filtered for relevance by the Smart Decide
+  (System One) model: each candidate page is judged with a single yes/no
+  (`noul`) question and only the relevant ones are kept (on by default;
+  `web_search.filter: false` disables it). See
+  `Exhub.MCP.WebTools.Relevance`.
+
+  ## See Also
+  - `Exhub.MCP.WebTools.Relevance` — Smart Decide relevance filter over
+    web search results
+  - `docs/modules/web-tools.md` — full user-facing documentation
   """
 
   use Anubis.Server,

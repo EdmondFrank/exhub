@@ -42,6 +42,45 @@ This endpoint accepts MCP protocol messages for tool invocations.
 - `count` (optional): Number of results to return (1-50, default: 10)
 - `summary` (optional): Enable AI-generated summary (default: false)
 - `freshness` (optional): Filter by freshness — `noLimit`, `oneDay`, `oneWeek`, `oneMonth`, `oneYear`
+- `filter` (optional): Smart Decide relevance filtering (default: true); `false` returns the raw search results
+
+### Relevance filtering
+
+After the web page results are retrieved, `web_search` applies a second, sharper
+pass powered by the Smart Decide (System One) `noul` model: each candidate page
+is judged with a single yes/no question (`Result: <title>` plus URL, snippet and
+summary) and only the relevant pages are kept. Set `filter: false` to skip it and
+get the raw search results.
+
+Filtering widens the API pool to `candidate_limit` first (`count` is raised to
+`max(count, candidate_limit)`, capped at 50), then narrows the judged set back
+down to `count`, so the tool still returns at most `count` pages. When the cut
+discards relevant results the summary line says so, e.g.
+`Smart Decide relevance filter judged 20/20 result(s) relevant; returning 5.`
+
+The pass is fault-tolerant:
+
+- a per-result failure is treated as **relevant** (fail-open, preserving recall)
+  and counted in `:errors`;
+- a blank query or an empty candidate list skips the pass entirely;
+- if **no** page is judged relevant the raw results are returned
+  (`fallback: true`), so callers still receive the best-ranked guesses.
+
+Images and videos are not filtered.
+
+Configuration (in-code defaults in `Exhub.MCP.WebTools.Relevance`, overridable
+under `config :exhub, Exhub.MCP.WebTools.Relevance` in `config/config.exs`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch (`web_search.filter` overrides per call) |
+| `candidate_limit` | `20` | API pool judged when filtering (always ≥ `count`) |
+| `max_concurrency` | `8` | Concurrent System One requests (one result per request) |
+| `threshold` | `0.5` | Minimum `noul` probability to keep a result |
+| `timeout` | `30_000` | Per-request timeout in ms |
+| `state_char_limit` | `1500` | Result text truncation, to stay within the ~2k context |
+| `query_char_limit` | `800` | Query truncation in the question |
+| `fallback` | `true` | Return the raw results when nothing is judged relevant |
 
 ### web_fetch
 
