@@ -42,14 +42,36 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   @impl true
   def description do
     """
-    Search a codebase. Three modes (search_type):
-    - semantic (default): AST-aware BM25 code search over `query`, returning whole code
-      blocks. Supports Elasticsearch syntax (AND/OR/NOT, +required, -excluded, "phrases")
-      and hints such as ext:ts, file:src/**/*.py, dir:tests, lang:typescript.
-      Results are filtered for relevance by the Smart Decide model (on by default;
-      `filter: false` skips it), guided by an optional natural-language `purpose`.
+    Search a codebase. Three modes, selected with `search_type`:
+
+    - semantic (default): AST-aware BM25 code search over `query`, returning whole
+      code blocks. Supports Elasticsearch syntax (AND/OR/NOT, +required, -excluded,
+      "phrases") and hints such as ext:ts, file:src/**/*.py, dir:tests,
+      lang:typescript. Results are filtered for relevance by the Smart Decide model
+      (on by default; set `filter: false` for the raw, unfiltered results),
+      judged against the natural-language `purpose` (falling back to `query`).
     - files: match file/directory names against `pattern`.
-    - content: match file contents against `pattern`, with context lines.
+    - content: match file contents against `pattern`, with `context_lines` of
+      surrounding context.
+
+    `query` is required for search_type "semantic"; `pattern` is required for
+    search_type "files" or "content".
+
+    Parameters:
+    - path: Absolute path or ~ shorthand to the directory to search in
+    - search_type: "semantic" (default), "files" or "content"
+    - query: Semantic search query with Elasticsearch syntax (required for search_type "semantic"). Use + for important terms.
+    - purpose: Natural-language purpose of the semantic search, used by the Smart Decide relevance filter to judge each result. Falls back to `query` when omitted.
+    - pattern: The search pattern (substring or regex). Required for search_type "files" or "content".
+    - allow_tests: Include test files in semantic search results (default false)
+    - exact: Exact (tokenization-free, case-insensitive) semantic search (default false)
+    - max_results: Maximum number of results to return (default 50 for files/content; optional for semantic)
+    - max_tokens: Maximum tokens of code content returned by semantic search (default 5000)
+    - language: Limit semantic search to a programming language (e.g. "typescript", "python", "rust")
+    - file_pattern: Optional glob pattern to filter files (e.g. "*.ex")
+    - ignore_case: Case-insensitive matching for files/content search (default true)
+    - context_lines: Number of context lines around content matches (default 2)
+    - filter: Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw results
     """
   end
 
@@ -119,7 +141,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     field(:filter, :boolean,
       description:
-        "Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw probe results"
+        "Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw results"
     )
   end
 
