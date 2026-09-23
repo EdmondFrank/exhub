@@ -74,6 +74,10 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
               {:reply, resp, frame}
 
+            {:timeout, result} ->
+              resp = Response.tool() |> Response.error(timeout_message(result, timeout_ms))
+              {:reply, resp, frame}
+
             {:error, reason} ->
               resp = Response.tool() |> Response.error("Command execution failed: #{reason}")
               {:reply, resp, frame}
@@ -86,44 +90,103 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     end
   end
 
+  # Cap on the partial output attached to a timeout error, to keep a chatty
+  # command from dumping megabytes into the LLM context. Keeps the tail, which
+  # is where the hang is most likely to become visible.
+  @timeout_output_limit 8_000
+
   defp run_command(command, timeout_ms, working_dir) do
     argv = Helpers.shell_command_args(command)
     opts = build_opts(working_dir)
+    parent = self()
 
-    try do
-      task =
-        Task.async(fn ->
-          Exile.stream(argv, opts)
-          |> Enum.reduce({"", "", nil}, fn
-            {:stdout, data}, {out, err, code} -> {out <> data, err, code}
-            {:stderr, data}, {out, err, code} -> {out, err <> data, code}
-            {:exit, {:status, code}}, {out, err, _} -> {out, err, code}
-            {:exit, :epipe}, {out, err, _} -> {out, err, 0}
-            _, acc -> acc
-          end)
+    task =
+      Task.async(fn ->
+        Exile.stream(argv, opts)
+        |> Enum.reduce({"", "", nil}, fn event, acc ->
+          # Forward every raw event so the caller can reconstruct the partial
+          # output if this task is killed on timeout. Sending deltas (not the
+          # running accumulator) keeps mailbox growth linear in the output size.
+          send(parent, {:execute_command_output, event})
+          accumulate(event, acc)
         end)
+      end)
 
-      case Task.yield(task, timeout_ms) do
-        {:ok, {stdout, stderr, exit_code}} ->
-          # Default exit_code to 0 if stream ended without explicit exit
-          exit_code = exit_code || 0
+    case Task.yield(task, timeout_ms) do
+      {:ok, {stdout, stderr, exit_code}} ->
+        flush_pending_output()
+        {:ok, build_result(stdout, stderr, exit_code || 0)}
 
-          result = %{"exit_code" => exit_code}
-          result = if stdout != "", do: Map.put(result, "stdout", stdout), else: result
-          result = if stderr != "", do: Map.put(result, "stderr", stderr), else: result
+      nil ->
+        # Shutdown waits for the task to go DOWN, so no further events are sent
+        # past this point and the drained output is the complete captured prefix.
+        Task.shutdown(task, :brutal_kill)
+        {stdout, stderr, _exit_code} = flush_pending_output()
+        {:timeout, build_result(stdout, stderr, nil)}
 
-          {:ok, result}
+      {:exit, reason} ->
+        flush_pending_output()
+        {:error, "Command failed: #{inspect(reason)}"}
+    end
+  rescue
+    e ->
+      {:error, Exception.message(e)}
+  end
 
-        nil ->
-          Task.shutdown(task, :brutal_kill)
-          {:error, "Command timed out after #{timeout_ms}ms"}
+  defp accumulate({:stdout, data}, {out, err, code}), do: {out <> data, err, code}
+  defp accumulate({:stderr, data}, {out, err, code}), do: {out, err <> data, code}
+  defp accumulate({:exit, {:status, code}}, {out, err, _}), do: {out, err, code}
+  defp accumulate({:exit, :epipe}, {out, err, _}), do: {out, err, 0}
+  defp accumulate(_event, acc), do: acc
 
-        {:exit, reason} ->
-          {:error, "Command failed: #{inspect(reason)}"}
-      end
-    rescue
-      e ->
-        {:error, Exception.message(e)}
+  # Fold any events forwarded by the stream task into the accumulated output.
+  # Also empties the mailbox on the success path so no messages leak.
+  defp flush_pending_output, do: flush_pending_output({"", "", nil})
+
+  defp flush_pending_output(acc) do
+    receive do
+      {:execute_command_output, event} -> flush_pending_output(accumulate(event, acc))
+    after
+      0 -> acc
+    end
+  end
+
+  defp build_result(stdout, stderr, exit_code) do
+    result = %{"exit_code" => exit_code}
+    result = if stdout != "", do: Map.put(result, "stdout", stdout), else: result
+    if stderr != "", do: Map.put(result, "stderr", stderr), else: result
+  end
+
+  defp timeout_message(result, timeout_ms) do
+    payload =
+      result
+      |> Map.put("timed_out", true)
+      |> Map.put("timeout_ms", timeout_ms)
+      |> Map.put(
+        "hint",
+        "Command was killed at the timeout; stdout/stderr show output captured before termination."
+      )
+      |> cap_output()
+
+    "Command timed out after #{timeout_ms}ms. Partial output captured before termination:\n" <>
+      Helpers.toon_encode(payload)
+  end
+
+  defp cap_output(result) do
+    result
+    |> cap_stream("stdout")
+    |> cap_stream("stderr")
+  end
+
+  defp cap_stream(result, key) do
+    case Map.get(result, key) do
+      value when is_binary(value) and byte_size(value) > @timeout_output_limit ->
+        omitted = byte_size(value) - @timeout_output_limit
+        tail = binary_part(value, byte_size(value) - @timeout_output_limit, @timeout_output_limit)
+        Map.put(result, key, "[... #{omitted} bytes omitted ...]\n" <> tail)
+
+      _ ->
+        result
     end
   end
 

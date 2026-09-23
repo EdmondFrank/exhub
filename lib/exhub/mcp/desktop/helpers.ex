@@ -27,16 +27,24 @@ defmodule Exhub.MCP.Desktop.Helpers do
   """
   @spec toon_response(Response.t(), map()) :: Response.t()
   def toon_response(%Response{} = resp, data) when is_map(data) do
+    Response.text(resp, toon_encode(data))
+  end
+
+  @doc """
+  Encode a map as TOON, falling back to JSON if TOON encoding fails.
+
+  Useful for embedding structured data inside a larger text payload (e.g. an
+  error message that must also carry partial output).
+  """
+  @spec toon_encode(map()) :: String.t()
+  def toon_encode(data) when is_map(data) do
     data = Encoding.sanitize_utf8(data)
 
-    encoded =
-      try do
-        Toon.encode!(data)
-      rescue
-        _ -> Jason.encode!(data)
-      end
-
-    Response.text(resp, encoded)
+    try do
+      Toon.encode!(data)
+    rescue
+      _ -> Jason.encode!(data)
+    end
   end
 
   @doc """
