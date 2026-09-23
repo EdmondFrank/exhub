@@ -300,16 +300,14 @@ defmodule Exhub.BlinkSearch.Backend do
 
   Uses Exile for robust process management. Kills any previous subprocess
   stored in `state[:port]` before starting a new one.
+
+  Options:
+  - `:cd` — working directory for the child process
+  - `:env` — extra `{key, value}` pairs merged over `clean_env/0`
   """
   @spec get_process_result([String.t()], keyword()) :: [String.t()]
   def get_process_result(command_list, opts \\ []) do
-    cwd = Keyword.get(opts, :cd)
-
-    exile_opts =
-      [stderr: :consume, env: clean_env()]
-      |> then(fn base -> if cwd, do: Keyword.put(base, :cd, cwd), else: base end)
-
-    Exile.stream(command_list, exile_opts)
+    Exile.stream(command_list, process_options(opts))
     |> Enum.reduce("", fn
       {:stdout, data}, acc -> acc <> data
       _, acc -> acc
@@ -321,6 +319,54 @@ defmodule Exhub.BlinkSearch.Backend do
       require Logger
       Logger.warning("get_process_result failed: #{inspect(e)}")
       []
+  end
+
+  @doc """
+  Run an external command and capture its exit status alongside stdout.
+
+  Returns `{:ok, stdout}` on exit code 0, or `{:error, {exit_code, stdout}}`
+  otherwise. stderr is consumed (discarded) unless captured by the caller.
+
+  Options:
+  - `:cd` — working directory for the child process
+  - `:env` — extra `{key, value}` pairs merged over `clean_env/0`
+  - `:input` — Enumerable of binaries piped to the child's stdin (Exile `:input`)
+
+  ## Security
+
+  Never forward the returned stdout to Emacs or the logs when the command may
+  emit a secret (e.g. `cotp extract`): use the exit status, not the text.
+  """
+  @spec run_capture([String.t()], keyword()) ::
+          {:ok, String.t()} | {:error, {integer() | nil, String.t()}}
+  def run_capture(command_list, opts \\ []) do
+    {stdout, exit_code} =
+      Exile.stream(command_list, process_options(opts))
+      |> Enum.reduce({"", 0}, fn
+        {:stdout, data}, {out, code} -> {out <> data, code}
+        {:exit, {:status, code}}, {out, _} -> {out, code}
+        {:exit, :epipe}, {out, _} -> {out, 0}
+        _, acc -> acc
+      end)
+
+    if exit_code == 0 do
+      {:ok, stdout}
+    else
+      {:error, {exit_code, stdout}}
+    end
+  rescue
+    e -> {:error, {nil, Exception.message(e)}}
+  end
+
+  # Build Exile options shared by the process helpers.
+  defp process_options(opts) do
+    cwd = Keyword.get(opts, :cd)
+    extra_env = Keyword.get(opts, :env, [])
+    input = Keyword.get(opts, :input)
+
+    [stderr: :consume, env: clean_env() ++ extra_env]
+    |> then(fn base -> if cwd, do: Keyword.put(base, :cd, cwd), else: base end)
+    |> then(fn base -> if input, do: Keyword.put(base, :input, input), else: base end)
   end
 
   @doc "Clean environment for child processes (strip RELEASE_* vars)."

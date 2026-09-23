@@ -119,6 +119,30 @@ makes sandboxd run a TCC attribution query, which drove tccd's CPU up."
   :type 'string
   :group 'blink-search-exhub)
 
+(defcustom blink-search-exhub-envless-root
+  (expand-file-name "~/GTD")
+  "ENVLESS_ROOT vault directory for the Envless backend."
+  :type 'string
+  :group 'blink-search-exhub)
+
+(defcustom blink-search-exhub-envless-env
+  "dev"
+  "Envless environment name for the Envless backend."
+  :type 'string
+  :group 'blink-search-exhub)
+
+(defcustom blink-search-exhub-cotp-pass-key
+  "cotp_pass"
+  "SecretVault secret name holding the cotp database password."
+  :type 'string
+  :group 'blink-search-exhub)
+
+(defcustom blink-search-exhub-cotp-db-path
+  nil
+  "Optional cotp database path.  Nil uses cotp's default."
+  :type '(choice (const :tag "Default" nil) string)
+  :group 'blink-search-exhub)
+
 (defcustom blink-search-exhub-flash-line-delay 0.3
   "Seconds to flash the current line after navigation."
   :type 'number
@@ -383,6 +407,14 @@ With prefix ARG, search current symbol."
                                 (list blink-search-exhub-kv-db-path
                                       blink-search-exhub-kv-db-table))
 
+  ;; Push Envless / OTP backend config
+  (blink-search-exhub-call-flat "update" "Envless"
+                                (list blink-search-exhub-envless-root
+                                      blink-search-exhub-envless-env))
+  (blink-search-exhub-call-flat "update" "OTP"
+                                (list blink-search-exhub-cotp-pass-key
+                                      (or blink-search-exhub-cotp-db-path "")))
+
   ;; Send current buffer content for Current Buffer backend
   (blink-search-exhub-call-flat "init_current_buffer"
                                 (buffer-name blink-search-exhub-start-buffer)
@@ -454,6 +486,16 @@ With prefix ARG, search current symbol."
              (blink-search-exhub-call-flat "search" (substring input 1)
                                            (blink-search-exhub-get-row-number)
                                            '("PDF")))
+            ((or (string-prefix-p "$" input)
+                 (string-prefix-p "＄" input))
+             (blink-search-exhub-call-flat "search" (substring input 1)
+                                           (blink-search-exhub-get-row-number)
+                                           '("Envless")))
+            ((or (string-prefix-p "?" input)
+                 (string-prefix-p "？" input))
+             (blink-search-exhub-call-flat "search" (substring input 1)
+                                           (blink-search-exhub-get-row-number)
+                                           '("OTP")))
             (t
              (blink-search-exhub-call-flat "search" input
                                            (blink-search-exhub-get-row-number)

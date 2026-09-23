@@ -54,7 +54,11 @@ defmodule Exhub.BlinkSearch.Server do
     "Google Suggest" => Exhub.BlinkSearch.Backends.GoogleSuggest,
     "Key Value" => Exhub.BlinkSearch.Backends.KeyValueStore,
     "Grep PDF" => Exhub.BlinkSearch.Backends.GrepPDF,
-    "PDF" => Exhub.BlinkSearch.Backends.PDF
+    "PDF" => Exhub.BlinkSearch.Backends.PDF,
+    # Prefix-triggered (not in @default_backends): a normal search must not
+    # enumerate vault keys or OTP entries.
+    "Envless" => Exhub.BlinkSearch.Backends.Envless,
+    "OTP" => Exhub.BlinkSearch.Backends.OTP
   }
 
   # ===========================================================================

@@ -186,4 +186,21 @@ defmodule Exhub.BlinkSearch.ServerTest do
     messages = collect_renders(200)
     refute Enum.any?(messages, &String.contains?(&1, "switch-to-buffer"))
   end
+
+  # ── Prefix-triggered backends (Envless / OTP) ────────────────────────
+
+  # "Envless" and "OTP" are intentionally left out of @default_backends (the
+  # `$` / `?` prefixes opt in), but must still resolve in @backend_modules and
+  # accept the config the elisp frontend pushes via `update`.
+  test "resolves the Envless backend and applies config pushed from Emacs" do
+    Server.update_backend("Envless", ["/vault", "prod"])
+
+    assert %{root: "/vault", env: "prod"} = Server.get_state().backend_states["Envless"]
+  end
+
+  test "resolves the OTP backend and applies config pushed from Emacs" do
+    Server.update_backend("OTP", ["cotp_pass", ""])
+
+    assert %{pass_key: "cotp_pass", db_path: nil} = Server.get_state().backend_states["OTP"]
+  end
 end

@@ -471,7 +471,7 @@ defmodule Exhub.LLMModels do
   This is used by `Exhub.Llm.LlmConfigServer` as the fallback default.
   """
   @spec default_llm_name() :: String.t()
-  def default_llm_name, do: "openai/deepseek-v4-flash"
+  def default_llm_name, do: "step-3.7-flash"
 
   @doc """
   Checks if a model name is known (exists in any model list).

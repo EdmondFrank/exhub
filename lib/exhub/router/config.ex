@@ -502,6 +502,21 @@ defmodule Exhub.Router.Config do
     case SecretVault.Config.fetch_from_current_env(:exhub) do
       {:ok, vault_config} ->
         update_from_vault(vault_config)
+
+        # Refresh the persistent_term copy of every secret (as done at boot by
+        # `Exhub.Application.load_secrets/0`), so secrets added after boot —
+        # e.g. `cotp_pass` for the blink-search OTP backend — become available
+        # without restarting the VM.
+        case SecretVault.Storage.to_persistent_term(vault_config) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "[Router.Config] SecretVault persistent_term refresh failed: #{inspect(reason)}"
+            )
+        end
+
         Logger.info("[Router.Config] Reloaded API keys from SecretVault")
         :ok
 
