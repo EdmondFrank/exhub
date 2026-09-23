@@ -338,28 +338,31 @@ This helps identify exactly what needs to be corrected in `old_string`.
 
 ### search_files
 
-Searches a codebase in one of three modes (`search_type`): `semantic` (the default) — probe-backed, AST-aware BM25 code search returning whole code blocks; `files` — filename matching; `content` — literal/regex content matching with context lines. The `files` and `content` modes use ripgrep (`rg`) if available, fall back to `grep`, then a native Elixir implementation; `semantic` shells out to the `probe` CLI instead.
+Searches a codebase in one of three modes (`search_type`): `semantic` (the default) — probe-backed, AST-aware BM25 code search returning whole code blocks; `glob` — glob matching over relative file and directory paths (mirrors aider-desk's `power_glob`); `content` — literal/regex content matching with context lines. The `glob` and `content` modes use ripgrep (`rg`) if available and fall back to a native Elixir implementation; `semantic` shells out to the `probe` CLI instead.
 
 **Parameters**
 
 | Name            | Type    | Required              | Default      | Description                                                          |
 |-----------------|---------|-----------------------|--------------|----------------------------------------------------------------------|
 | `path`          | string  | yes                   | —            | Absolute path (or `~` shorthand) to the directory to search in       |
-| `search_type`   | string  | no                    | `"semantic"` | `"semantic"` (default), `"files"` or `"content"`                     |
+| `search_type`   | string  | no                    | `"semantic"` | `"semantic"` (default), `"glob"` or `"content"`                     |
 | `query`         | string  | for `semantic`        | —            | Semantic query; Elasticsearch syntax and hints supported             |
-| `pattern`       | string  | for `files`/`content` | —            | The search pattern (substring or regex)                             |
+| `pattern`       | string  | for `glob`/`content`  | —            | For `glob`, a glob pattern relative to `path` (trailing `/` = directories only); for `content`, substring/regex |
 | `file_pattern`  | string  | no                    | `nil`        | Glob pattern to filter files (e.g. `*.ex`), only for content search  |
 | `allow_tests`   | boolean | no                    | `false`      | Include test files in semantic results                               |
 | `exact`         | boolean | no                    | `false`      | Tokenization-free, case-insensitive semantic match                   |
-| `max_results`   | integer | no                    | `50`         | Max results (`files`/`content`); optional for `semantic`             |
+| `max_results`   | integer | no                    | `1000`/`50`  | Max results (`glob` default `1000`, `content` `50`); optional for `semantic` |
 | `max_tokens`    | integer | no                    | `5000`       | Max tokens of code content returned by semantic search               |
 | `language`      | string  | no                    | `nil`        | Restrict semantic search to one language (see below)                 |
-| `ignore_case`   | boolean | no                    | `true`       | Case-insensitive matching (`files`/`content`)                        |
+| `ignore_case`   | boolean | no                    | `true`       | Case-insensitive matching (`content`)                                |
+| `ignore`        | list    | no                    | `nil`        | Glob patterns to exclude from `glob` results                         |
+| `include_ignored` | boolean | no                  | `false`      | Include `.gitignore`/`.ignore`/`.rgignore` matches and hidden dotfiles |
+| `include_dirs`  | boolean | no                    | `true`       | Include directories (suffixed `/`) in `glob` results                 |
 | `context_lines` | integer | no                    | `2`          | Number of context lines around content matches                       |
 
 #### search_type: "semantic" (default)
 
-AST-aware, BM25-ranked code search over `query`, backed by the [`probe`](https://github.com/probelabs/probe) CLI. Unlike `files`/`content` this returns whole code blocks (with file path and block line numbers) rather than individual matching lines, and it understands Elasticsearch-style query syntax.
+AST-aware, BM25-ranked code search over `query`, backed by the [`probe`](https://github.com/probelabs/probe) CLI. Unlike `glob`/`content` this returns whole code blocks (with file path and block line numbers) rather than individual matching lines, and it understands Elasticsearch-style query syntax.
 
 **Query syntax**
 
@@ -373,7 +376,7 @@ AST-aware, BM25-ranked code search over `query`, backed by the [`probe`](https:/
 
 **Probe invocation**
 
-`semantic` mode shells out to `probe` (the `files`/`content` modes never do):
+`semantic` mode shells out to `probe` (the `glob`/`content` modes never do):
 
 ```
 probe search [--exact] [--allow-tests] [--max-results N] --max-tokens N [--language L] --timeout 300 -- <query> <path>
@@ -409,27 +412,23 @@ File: /abs/path/to/file.ext
 - **Non-deterministic ranking.** `probe` re-indexes per invocation and tie-breaks nondeterministically, so identical repeated calls can return the same files in a different order (and occasionally a slightly different byte size). Compare medians across repeats rather than single runs.
 - **Build-dependent results.** Distinct `probe` builds can report the same version (`probe-code 0.6.0`) yet behave differently; in local measurements the npm-bundled build (`~/.bun/bin/probe`) was ~2.5x slower and returned ~2x the output tokens of the native build. Pin `:probe_binary` (see [Probe Binary](#probe-binary)) when reproducible results matter.
 
-#### search_type: "files"
+#### search_type: "glob"
 
-Finds files and directories whose names match the pattern (case-insensitive substring by default).
+Finds files and directories whose paths match a glob `pattern` (relative to `path`) and returns paths relative to `path`. Mirrors aider-desk's `power_glob`.
+
+Supports `*`, `**`, `?`, `[...]` and `{a,b}` (e.g. `src/**/*.ts`, `*.md`, `config/*.{ex,exs}`). A pattern without a `/` is anchored to `path`, so `*.ex` matches only files directly under `path`. **Directories are included by default and suffixed with `/`** (set `include_dirs: false` for files only); a pattern ending in `/` returns directories only. Directories are discovered as the ancestors of the files ripgrep reports, so a directory with no non-ignored file (e.g. an empty one) is not returned. Hidden dotfiles and entries matched by `.gitignore`/`.ignore`/`.rgignore` are excluded unless `include_ignored` is true; pass `ignore` to exclude additional globs. Results are capped at `max_results` (default 1000) with a 5000-entry walk limit — truncation is reported via `limit_reached`/`notice` rather than silently dropped.
 
 **Return Value (success)**
 
-| Field         | Type    | Description                     |
-|---------------|---------|---------------------------------|
-| `path`        | string  | The directory that was searched |
-| `pattern`     | string  | The search pattern used         |
-| `search_type` | string  | `"files"`                       |
-| `results`     | list    | List of result maps             |
-| `count`       | integer | Number of results               |
-
-Each result contains:
-
-| Field  | Type   | Description                     |
-|--------|--------|---------------------------------|
-| `path` | string | Full path to the file/directory |
-| `name` | string | Base name of the file/directory |
-| `type` | string | `"file"` or `"directory"`       |
+| Field           | Type    | Description                          |
+|-----------------|---------|--------------------------------------|
+| `path`          | string  | The directory that was searched      |
+| `pattern`       | string  | The glob pattern used                |
+| `search_type`   | string  | `"glob"`                             |
+| `results`       | list    | Paths relative to `path` (directories end in `/`) |
+| `count`         | integer | Number of results                    |
+| `limit_reached` | boolean | `true` when results were truncated   |
+| `notice`        | string  | Truncation guidance, when truncated  |
 
 #### search_type: "content"
 
@@ -481,7 +480,7 @@ The `context` field shows `context_lines` before and after each match:
 
 - `"Not a directory: #{path}"` — Path is not a directory
 - `"Directory not found: #{path}"` — Directory does not exist
-- `"Unknown search_type: #{search_type}. Use \"semantic\", \"files\" or \"content\"."` — Invalid search type
+- `"Unknown search_type: #{search_type}. Use \"semantic\", \"glob\" or \"content\"."` — Invalid search type
 
 ---
 
@@ -680,7 +679,7 @@ config :exhub, :shell, "/usr/local/bin/bash"
 
 ## Probe Binary
 
-`search_files` in `semantic` mode (the default) shells out to the `probe` CLI. ExHub resolves it from the `:exhub, :probe_binary` config, falling back to the first `probe` on the system `PATH` (`System.find_executable("probe")`). The `files` and `content` modes are unaffected — they use `rg`/`grep`/native Elixir.
+`search_files` in `semantic` mode (the default) shells out to the `probe` CLI. ExHub resolves it from the `:exhub, :probe_binary` config, falling back to the first `probe` on the system `PATH` (`System.find_executable("probe")`). The `glob` and `content` modes are unaffected — they use `rg`/native Elixir.
 
 Pin it when reproducible results matter, since different builds (even those reporting the same version) rank results differently and run at different speeds:
 

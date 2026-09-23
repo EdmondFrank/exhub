@@ -3,8 +3,10 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   MCP Tool: search_files
 
   Search a codebase. The default `semantic` mode uses probe-backed semantic search
-  (AST-aware ranking with BM25, returning complete code blocks); `files` and
-  `content` modes retain the ripgrep/grep/native filename and literal searches.
+  (AST-aware ranking with BM25, returning complete code blocks); `glob` mode
+  matches file and directory paths against a glob pattern, returning directories
+  suffixed with "/" (mirroring aider-desk's `power_glob`), and `content` mode
+  retains the ripgrep/grep/native literal search.
 
   The `probe` binary is resolved from the `:exhub, :probe_binary` config, falling
   back to the first `probe` on the system `PATH`. Different probe builds can rank
@@ -30,6 +32,11 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   @probe_exit_timeout_ms 310_000
   @default_max_tokens 5000
 
+  # Glob search defaults — mirror aider-desk's `power_glob`.
+  @default_glob_max_results 1000
+  @default_content_max_results 50
+  @glob_walk_limit 5000
+
   # Languages accepted by probe's `--language` flag (mutually exclusive with hints).
   @supported_languages ~w(
     rust rs javascript js jsx typescript ts tsx python py go
@@ -50,27 +57,36 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       lang:typescript. Results are filtered for relevance by the Smart Decide model
       (on by default; set `filter: false` for the raw, unfiltered results),
       judged against the natural-language `purpose` (falling back to `query`).
-    - files: match file/directory names against `pattern`.
+    - glob: match file and directory paths against a glob `pattern` relative to
+      `path` (e.g. `src/**/*.ts`, `*.md`), returning paths relative to `path`.
+      Directories are included and suffixed with "/" (set `include_dirs: false`
+      for files only; a `pattern` ending in "/" returns directories only).
+      Hidden dotfiles and entries matched by .gitignore/.ignore/.rgignore are
+      excluded unless `include_ignored` is true; pass `ignore` to exclude extra
+      globs.
     - content: match file contents against `pattern`, with `context_lines` of
       surrounding context.
 
     `query` is required for search_type "semantic"; `pattern` is required for
-    search_type "files" or "content".
+    search_type "glob" or "content".
 
     Parameters:
     - path: Absolute path or ~ shorthand to the directory to search in
-    - search_type: "semantic" (default), "files" or "content"
+    - search_type: "semantic" (default), "glob" or "content"
     - query: Semantic search query with Elasticsearch syntax (required for search_type "semantic"). Use + for important terms.
     - purpose: Natural-language purpose of the semantic search, used by the Smart Decide relevance filter to judge each result. Falls back to `query` when omitted.
-    - pattern: The search pattern (substring or regex). Required for search_type "files" or "content".
+    - pattern: Required for search_type "glob" or "content". For "glob", a glob pattern relative to `path` (e.g. "src/**/*.ts", "*.md"); a trailing "/" returns directories only. For "content", a substring or regex.
     - allow_tests: Include test files in semantic search results (default false)
     - exact: Exact (tokenization-free, case-insensitive) semantic search (default false)
-    - max_results: Maximum number of results to return (default 50 for files/content; optional for semantic)
+    - max_results: Maximum number of results to return (default 1000 for glob, 50 for content; optional for semantic)
     - max_tokens: Maximum tokens of code content returned by semantic search (default 5000)
     - language: Limit semantic search to a programming language (e.g. "typescript", "python", "rust")
-    - file_pattern: Optional glob pattern to filter files (e.g. "*.ex")
-    - ignore_case: Case-insensitive matching for files/content search (default true)
+    - file_pattern: Optional glob pattern to filter files (e.g. "*.ex"; content search only)
+    - ignore: Glob patterns to exclude from glob results (e.g. ["**/node_modules/**"])
+    - ignore_case: Case-insensitive matching for content search (default true)
     - context_lines: Number of context lines around content matches (default 2)
+    - include_ignored: Include files excluded by .gitignore/.ignore/.rgignore and hidden dotfiles (default false)
+    - include_dirs: Glob search only: include directories (suffixed with "/") in results (default true)
     - filter: Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw results
     """
   end
@@ -81,7 +97,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     )
 
     field(:search_type, :string,
-      description: "\"semantic\" (default), \"files\" or \"content\"",
+      description: "\"semantic\" (default), \"glob\" or \"content\"",
       default: "semantic"
     )
 
@@ -97,7 +113,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     field(:pattern, :string,
       description:
-        "The search pattern (substring or regex). Required for search_type \"files\" or \"content\"."
+        "Required for search_type \"glob\" or \"content\". For \"glob\", a glob pattern relative to `path` (e.g. \"src/**/*.ts\", \"*.md\"); for \"content\", a substring or regex."
     )
 
     field(:allow_tests, :boolean,
@@ -112,7 +128,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     field(:max_results, :integer,
       description:
-        "Maximum number of results to return (default 50 for files/content; optional for semantic)"
+        "Maximum number of results to return (default 1000 for glob, 50 for content; optional for semantic)"
     )
 
     field(:max_tokens, :integer,
@@ -126,11 +142,28 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     )
 
     field(:file_pattern, :string,
-      description: "Optional glob pattern to filter files (e.g. \"*.ex\")"
+      description: "Optional glob pattern to filter files (e.g. \"*.ex\"; content search only)"
+    )
+
+    field(:ignore, {:list, :string},
+      description:
+        "Glob patterns to exclude from glob results (e.g. [\"**/node_modules/**\"]). Ignored files are already excluded unless `include_ignored` is true."
     )
 
     field(:ignore_case, :boolean,
-      description: "Case-insensitive matching for files/content search (default true)",
+      description: "Case-insensitive matching for content search (default true)",
+      default: true
+    )
+
+    field(:include_ignored, :boolean,
+      description:
+        "Include files excluded by .gitignore/.ignore/.rgignore and hidden dotfiles (default false)",
+      default: false
+    )
+
+    field(:include_dirs, :boolean,
+      description:
+        "Glob search only: include directories in the results (default true). Directories are suffixed with \"/\"; set false for files only.",
       default: true
     )
 
@@ -154,14 +187,14 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
         "semantic" ->
           run_semantic(params, path, frame)
 
-        type when type in ["files", "content"] ->
+        type when type in ["glob", "content"] ->
           run_pattern_search(params, path, type, frame)
 
         other ->
           resp =
             Response.tool()
             |> Response.error(
-              "Unknown search_type: #{other}. Use \"semantic\", \"files\" or \"content\"."
+              "Unknown search_type: #{other}. Use \"semantic\", \"glob\" or \"content\"."
             )
 
           {:reply, resp, frame}
@@ -190,8 +223,11 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       {:reply, resp, frame}
     else
       file_pattern = Map.get(params, :file_pattern)
+      ignore = Map.get(params, :ignore, [])
       ignore_case = Map.get(params, :ignore_case, true)
-      max_results = Map.get(params, :max_results, 50)
+      include_ignored = Map.get(params, :include_ignored, false)
+      include_dirs = Map.get(params, :include_dirs, true)
+      max_results = Map.get(params, :max_results) || default_max_results(search_type)
       context_lines = Map.get(params, :context_lines, 2)
 
       case do_search(
@@ -200,21 +236,24 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
              search_type,
              file_pattern,
              ignore_case,
+             include_ignored,
              max_results,
-             context_lines
+             context_lines,
+             ignore,
+             include_dirs
            ) do
         {:ok, results} ->
-          resp =
-            Response.tool()
-            |> Helpers.toon_response(%{
-              "path" => path,
-              "pattern" => pattern,
-              "search_type" => search_type,
-              "results" => results,
-              "count" => length(results)
-            })
+          results_response(
+            path,
+            pattern,
+            search_type,
+            results,
+            limit_notice(results, max_results),
+            frame
+          )
 
-          {:reply, resp, frame}
+        {:ok, results, extra} ->
+          results_response(path, pattern, search_type, results, extra, frame)
 
         {:error, reason} ->
           resp = Response.tool() |> Response.error("Search failed: #{reason}")
@@ -490,15 +529,20 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   # File name search (find files by name)
   # ============================================================================
 
-  defp do_search(path, pattern, "files", _file_pattern, ignore_case, max_results, _context_lines) do
+  defp do_search(
+         path,
+         pattern,
+         "glob",
+         _file_pattern,
+         _ignore_case,
+         include_ignored,
+         max_results,
+         _context_lines,
+         ignore,
+         include_dirs
+       ) do
     with :ok <- check_directory(path) do
-      cond do
-        ripgrep_available?() ->
-          search_files_ripgrep(path, pattern, ignore_case, max_results)
-
-        true ->
-          search_files_native(path, pattern, ignore_case, max_results)
-      end
+      search_glob(path, pattern, ignore, include_ignored, include_dirs, max_results)
     end
   end
 
@@ -506,7 +550,18 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   # Content search (search inside files)
   # ============================================================================
 
-  defp do_search(path, pattern, "content", file_pattern, ignore_case, max_results, context_lines) do
+  defp do_search(
+         path,
+         pattern,
+         "content",
+         file_pattern,
+         ignore_case,
+         include_ignored,
+         max_results,
+         context_lines,
+         _ignore,
+         _include_dirs
+       ) do
     with :ok <- check_directory(path) do
       cond do
         ripgrep_available?() ->
@@ -515,6 +570,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
             pattern,
             file_pattern,
             ignore_case,
+            include_ignored,
             max_results,
             context_lines
           )
@@ -542,8 +598,8 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     end
   end
 
-  defp do_search(_path, _pattern, search_type, _, _, _, _) do
-    {:error, "Unknown search_type: #{search_type}. Use \"files\" or \"content\"."}
+  defp do_search(_path, _pattern, search_type, _, _, _, _, _, _, _) do
+    {:error, "Unknown search_type: #{search_type}. Use \"glob\" or \"content\"."}
   end
 
   # ============================================================================
@@ -581,54 +637,211 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   # Ripgrep implementations
   # ============================================================================
 
-  defp search_files_ripgrep(path, pattern, ignore_case, max_results) do
-    args =
-      [
-        "--files",
-        "--sort",
-        "path"
-      ]
-      |> add_ripgrep_case_flag(ignore_case)
-      |> add_ripgrep_max_count(max_results)
+  defp search_glob(path, pattern, ignore, include_ignored, include_dirs, max_results) do
+    # A trailing slash is the npm-glob convention for "directories only".
+    dirs_only = String.ends_with?(pattern, "/")
+    glob = String.trim_trailing(pattern, "/")
+    want_dirs = include_dirs or dirs_only
+    want_files = not dirs_only
 
-    # Escape special regex characters for literal matching
-    pattern = Regex.escape(pattern)
-    args = args ++ ["-g", "*#{pattern}*", path]
+    with {:ok, regex} <- compile_glob(glob),
+         {:ok, entries} <- glob_entries(path, include_ignored) do
+      ignore_regexes =
+        ignore
+        |> Enum.map(&compile_glob/1)
+        |> Enum.flat_map(fn
+          {:ok, regex} -> [regex]
+          {:error, _reason} -> []
+        end)
 
-    case run_exile_command(["rg" | args]) do
-      {:ok, output} ->
-        results =
-          output
-          |> String.split("\n")
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.take(max_results)
-          |> Enum.map(fn file_path ->
-            %{
-              "path" => file_path,
-              "name" => Path.basename(file_path),
-              "type" => if(File.dir?(file_path), do: "directory", else: "file")
-            }
-          end)
+      walked =
+        entries
+        |> Enum.filter(fn {entry, type} ->
+          Regex.match?(regex, entry) and
+            ((type == :dir and want_dirs) or (type == :file and want_files))
+        end)
+        |> Enum.reject(fn {entry, _type} ->
+          Enum.any?(ignore_regexes, &Regex.match?(&1, entry))
+        end)
+        |> Enum.map(fn {entry, type} -> if type == :dir, do: entry <> "/", else: entry end)
+        |> Enum.sort()
+        |> Enum.take(@glob_walk_limit)
 
-        {:ok, results}
+      {results, extra} = finalize_glob(walked, max_results)
 
-      {:error, reason} ->
-        Logger.warning("[SearchFiles] ripgrep failed: #{reason}, falling back to native")
-        search_files_native(path, pattern, ignore_case, max_results)
+      {:ok, results, extra}
     end
   end
+
+  # Candidate entries (`{relative_path, :file | :dir}`) under `path`. ripgrep
+  # lists files only, so directories are inferred as the ancestors of the files
+  # ripgrep reports, which inherits its .gitignore/.ignore/hidden pruning for
+  # free. A directory with no non-ignored file (e.g. an empty one) is therefore
+  # not discoverable this way.
+  defp glob_entries(path, include_ignored) do
+    if ripgrep_available?() do
+      case rg_file_list(path, include_ignored) do
+        {:ok, files} ->
+          dirs = files |> Enum.flat_map(&ancestor_dirs/1) |> MapSet.new() |> MapSet.to_list()
+
+          {:ok, Enum.map(files, &{&1, :file}) ++ Enum.map(dirs, &{&1, :dir})}
+
+        {:error, reason} ->
+          Logger.warning(
+            "[SearchFiles] ripgrep glob listing failed: #{inspect(reason)}, falling back to native"
+          )
+
+          {:ok, native_entries(path, include_ignored)}
+      end
+    else
+      {:ok, native_entries(path, include_ignored)}
+    end
+  end
+
+  # Run ripgrep from `path` (searching `.`) so entries come back relative to the
+  # search root; `--sort path` keeps the walk order deterministic.
+  defp rg_file_list(path, include_ignored) do
+    args =
+      ["--files", "--sort", "path"]
+      |> Kernel.++(rg_ignore_flags(include_ignored))
+      |> Kernel.++(["--", "."])
+
+    Logger.debug("[SearchFiles] rg glob argv (cd=#{path}): " <> Enum.join(["rg" | args], " "))
+
+    case run_exile_command(["rg" | args], cd: path) do
+      {:ok, output} ->
+        {:ok,
+         output
+         |> String.split("\n")
+         |> Enum.reject(&(&1 == ""))
+         |> Enum.map(&strip_dot_prefix/1)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp ancestor_dirs(relative_file), do: ancestor_chain(Path.dirname(relative_file), [])
+
+  defp ancestor_chain(dir, acc) when dir in [".", "", "/"], do: acc
+  defp ancestor_chain(dir, acc), do: ancestor_chain(Path.dirname(dir), [dir | acc])
+
+  # Cap the walk, then the returned count, and report truncation rather than
+  # silently dropping entries (mirrors `power_glob`'s walk/result limits).
+  defp finalize_glob(walked, max_results) do
+    total = length(walked)
+
+    extra =
+      cond do
+        total >= @glob_walk_limit ->
+          %{
+            "limit_reached" => true,
+            "notice" =>
+              "walk limit of #{@glob_walk_limit} entries reached (results may be incomplete). Refine your pattern for more specific results."
+          }
+
+        total > max_results ->
+          %{
+            "limit_reached" => true,
+            "notice" =>
+              "results truncated at #{max_results} entries. Refine your pattern for more specific results."
+          }
+
+        true ->
+          %{}
+      end
+
+    {Enum.take(walked, max_results), extra}
+  end
+
+  # Native fallback when ripgrep is unavailable: `Path.wildcard/2` supports the
+  # same `*`, `**`, `?`, `[...]` and `{a,b}` syntax and yields directories too.
+  # It cannot honor gitignore rules, so `include_ignored` only toggles hidden
+  # (`match_dot`) matching here.
+  defp native_entries(dir, include_ignored) do
+    dir
+    |> Path.join("**")
+    |> Path.wildcard(match_dot: include_ignored)
+    |> Enum.map(fn abs ->
+      {relative_path(abs, dir), if(File.dir?(abs), do: :dir, else: :file)}
+    end)
+  end
+
+  # Translate a glob into an anchored regexp over a path relative to the search
+  # root. Supports `*` (within a segment), `**` (across segments), `?`, `[...]`
+  # and `{a,b}`. A pattern without a slash is anchored, so `*.ex` matches only
+  # root-level entries (mirrors npm glob / `power_glob`).
+  defp compile_glob(glob), do: Regex.compile("^" <> glob_source(glob) <> "$")
+
+  defp glob_source("**/" <> rest), do: "(?:[^/]+/)*" <> glob_source(rest)
+  defp glob_source("**" <> rest), do: ".*" <> glob_source(rest)
+  defp glob_source("*" <> rest), do: "[^/]*" <> glob_source(rest)
+  defp glob_source("?" <> rest), do: "[^/]" <> glob_source(rest)
+
+  defp glob_source("{" <> rest) do
+    case split_at(rest, "}") do
+      {alternatives, tail} ->
+        "(?:" <>
+          Enum.map_join(String.split(alternatives, ","), "|", &glob_source/1) <>
+          ")" <> glob_source(tail)
+
+      :error ->
+        "\\{" <> glob_source(rest)
+    end
+  end
+
+  defp glob_source("[" <> rest) do
+    case split_at(rest, "]") do
+      {inner, tail} -> "[" <> class_body(inner) <> "]" <> glob_source(tail)
+      :error -> "\\[" <> glob_source(rest)
+    end
+  end
+
+  defp glob_source(<<char::utf8, rest::binary>>),
+    do: Regex.escape(<<char::utf8>>) <> glob_source(rest)
+
+  defp glob_source(""), do: ""
+
+  # `[!abc]` is a negated glob class; everything else passes through verbatim.
+  defp class_body("!" <> rest), do: "^" <> rest
+  defp class_body(inner), do: inner
+
+  defp split_at(string, delimiter) do
+    case :binary.match(string, delimiter) do
+      {index, 1} ->
+        <<head::binary-size(index), _delimiter::binary-size(1), tail::binary>> = string
+        {head, tail}
+
+      :nomatch ->
+        :error
+    end
+  end
+
+  defp relative_path(file, root) do
+    String.replace_prefix(file, String.trim_trailing(root, "/") <> "/", "")
+  end
+
+  defp strip_dot_prefix("./" <> rest), do: rest
+  defp strip_dot_prefix(path), do: path
 
   defp search_content_ripgrep(
          path,
          pattern,
          file_pattern,
          ignore_case,
+         include_ignored,
          max_results,
          context_lines
        ) do
     args =
       [
+        "--no-heading",
         "--line-number",
+        "--color",
+        "never",
+        "--max-columns",
+        "2000",
+        "--max-columns-preview",
         "--sort",
         "path",
         "-C",
@@ -636,19 +849,23 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
       ]
       |> add_ripgrep_case_flag(ignore_case)
       |> add_ripgrep_max_count(max_results)
+      |> Kernel.++(rg_ignore_flags(include_ignored))
 
-    args =
-      if file_pattern do
-        args ++ ["-g", file_pattern]
-      else
-        args
-      end
+    # -g preserves ripgrep's glob semantics for file_pattern, but it also
+    # overrides .gitignore/hidden rules, so ignored results are dropped
+    # post-hoc below unless the caller opted into them.
+    args = if file_pattern, do: args ++ ["-g", file_pattern], else: args
+    args = args ++ ["--", pattern, path]
 
-    args = args ++ [pattern, path]
+    Logger.debug("[SearchFiles] rg content argv: " <> Enum.join(["rg" | args], " "))
 
     case run_exile_command(["rg" | args]) do
       {:ok, output} ->
-        results = parse_ripgrep_output(output, max_results, context_lines)
+        results =
+          output
+          |> parse_ripgrep_output(max_results, context_lines)
+          |> drop_ignored(path, file_pattern, include_ignored)
+
         {:ok, results}
 
       {:error, reason} ->
@@ -695,7 +912,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     # Use find piped to xargs grep for efficiency
     cmd =
-      "find #{escape_shell_args(find_args)} | xargs grep #{grep_flags} #{context_flag} #{escape_shell_pattern(pattern)} 2>/dev/null || true"
+      "find #{escape_shell_args(find_args)} | xargs grep #{grep_flags} #{context_flag} -- #{escape_shell_pattern(pattern)} 2>/dev/null || true"
 
     case run_shell_command(cmd) do
       {:ok, output} ->
@@ -787,66 +1004,72 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   end
 
   # ============================================================================
-  # Native Elixir implementations (fallback)
+  # Ignore handling / result limiting
   # ============================================================================
 
-  defp search_files_native(dir, pattern, ignore_case, max_results) do
-    regex = build_regex(pattern, ignore_case)
-    results = find_files_recursive(dir, regex, max_results, [])
-    {:ok, Enum.take(results, max_results)}
-  end
+  # ripgrep's -g/--glob overrides .gitignore/hidden rules, so a content search
+  # that passes file_pattern can surface ignored files. Drop any result ripgrep
+  # would not search by default, unless the caller opted into ignored files.
+  defp drop_ignored(results, _path, _file_pattern, true), do: results
+  defp drop_ignored(results, _path, nil, _include_ignored), do: results
 
-  defp find_files_recursive(_dir, _regex, 0, acc), do: acc
-
-  defp find_files_recursive(dir, regex, remaining, acc) do
-    case File.ls(dir) do
-      {:ok, names} ->
-        Enum.reduce_while(names, {remaining, acc}, fn name, {rem, results} ->
-          full_path = Path.join(dir, name)
-
-          new_results =
-            if Regex.match?(regex, name) do
-              case File.stat(full_path) do
-                {:ok, stat} ->
-                  [
-                    %{
-                      "path" => full_path,
-                      "name" => name,
-                      "type" => if(stat.type == :directory, do: "directory", else: "file")
-                    }
-                    | results
-                  ]
-
-                _ ->
-                  results
-              end
-            else
-              results
-            end
-
-          new_rem = rem - (length(new_results) - length(results))
-
-          if new_rem <= 0 do
-            {:halt, {0, new_results}}
-          else
-            final_results =
-              case File.stat(full_path) do
-                {:ok, %File.Stat{type: :directory}} ->
-                  find_files_recursive(full_path, regex, new_rem, new_results)
-
-                _ ->
-                  new_results
-              end
-
-            {:cont, {new_rem - (length(final_results) - length(new_results)), final_results}}
-          end
-        end)
-        |> elem(1)
-
-      {:error, _} ->
-        acc
+  defp drop_ignored(results, path, _file_pattern, false) do
+    case visible_files(path) do
+      :unknown -> results
+      visible -> Enum.filter(results, fn %{"path" => p} -> MapSet.member?(visible, p) end)
     end
   end
+
+  # Files ripgrep searches under default ignore rules (gitignore + hidden).
+  defp visible_files(path) do
+    case run_exile_command(["rg", "--files", "--", path]) do
+      {:ok, output} ->
+        output
+        |> String.split("\n")
+        |> Enum.reject(&(&1 == ""))
+        |> MapSet.new()
+
+      {:error, _reason} ->
+        :unknown
+    end
+  end
+
+  defp rg_ignore_flags(true), do: ["--no-ignore", "--hidden"]
+  defp rg_ignore_flags(_include_ignored), do: []
+
+  defp limit_notice(results, max_results)
+       when is_integer(max_results) and max_results > 0 and length(results) >= max_results do
+    %{
+      "limit_reached" => true,
+      "notice" =>
+        "#{max_results} result limit reached. Use max_results=#{max_results * 2} for more, or refine pattern/file_pattern."
+    }
+  end
+
+  defp limit_notice(_results, _max_results), do: %{}
+
+  defp default_max_results("glob"), do: @default_glob_max_results
+  defp default_max_results(_search_type), do: @default_content_max_results
+
+  defp results_response(path, pattern, search_type, results, extra, frame) do
+    payload =
+      %{
+        "path" => path,
+        "pattern" => pattern,
+        "search_type" => search_type,
+        "results" => results,
+        "count" => length(results)
+      }
+      |> Map.merge(extra)
+
+    resp = Response.tool() |> Helpers.toon_response(payload)
+
+    {:reply, resp, frame}
+  end
+
+  # ============================================================================
+  # Native Elixir implementations (fallback)
+  # ============================================================================
 
   defp search_content_native(dir, pattern, file_pattern, ignore_case, max_results, context_lines) do
     regex = build_regex(pattern, ignore_case)
@@ -963,10 +1186,12 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     end
   end
 
-  defp run_exile_command(argv) do
+  defp run_exile_command(argv, opts \\ []) do
+    stream_opts = Keyword.merge([stderr: :consume, exit_timeout: 5000], opts)
+
     try do
       {stdout, stderr, exit_code} =
-        Exile.stream(argv, stderr: :consume, exit_timeout: 5000)
+        Exile.stream(argv, stream_opts)
         |> Enum.reduce({"", "", 0}, fn
           {:stdout, data}, {out, err, code} -> {out <> data, err, code}
           {:stderr, data}, {out, err, code} -> {out, err <> data, code}

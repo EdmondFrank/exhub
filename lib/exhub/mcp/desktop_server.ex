@@ -32,7 +32,7 @@ defmodule Exhub.MCP.DesktopServer do
   - `kill_process`     — Kill a process by OS pid or managed process_id
 
   ### Search
-  - `search_files`     — Semantic (probe) code search with Smart Decide filtering, plus files/content search
+  - `search_files`     — Semantic (probe) code search with Smart Decide filtering, plus glob/content search
 
   The server is accessible at `/desktop/mcp`.
   """

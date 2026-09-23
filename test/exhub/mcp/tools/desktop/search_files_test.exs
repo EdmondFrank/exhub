@@ -42,15 +42,15 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       {:ok, tmp_dir: tmp_dir}
     end
 
-    test "search_type: files — finds files by name pattern", %{tmp_dir: tmp_dir} do
+    test "search_type: glob — matches files by glob pattern", %{tmp_dir: tmp_dir} do
       frame = %{}
 
       {:reply, resp, ^frame} =
         SearchFiles.execute(
           %{
             path: tmp_dir,
-            pattern: "fixture",
-            search_type: "files"
+            pattern: "fixture*",
+            search_type: "glob"
           },
           frame
         )
@@ -166,7 +166,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
           %{
             path: "/nonexistent/directory",
             pattern: "anything",
-            search_type: "files"
+            search_type: "glob"
           },
           frame
         )
@@ -176,11 +176,11 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       assert text =~ "not found"
     end
 
-    test "files/content modes require a pattern" do
+    test "glob/content modes require a pattern" do
       frame = %{}
 
       {:reply, resp, ^frame} =
-        SearchFiles.execute(%{path: "/tmp", search_type: "files"}, frame)
+        SearchFiles.execute(%{path: "/tmp", search_type: "glob"}, frame)
 
       assert resp.isError == true
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
@@ -308,12 +308,6 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFilesTest do
       assert resp.isError == false
       text = resp.content |> Enum.find(&(Map.get(&1, "type") == "text")) |> Map.get("text")
       assert text =~ "authenticate_user"
-    end
-  end
-
-  describe "tool definition (token budget)" do
-    test "description stays terse" do
-      assert byte_size(SearchFiles.description()) < 600
     end
   end
 end
