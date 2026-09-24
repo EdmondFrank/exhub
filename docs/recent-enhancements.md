@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## Exhub Probe — WebSocket Code-Search Frontend
+
+- **New Feature**: `exhub-probe`, an Emacs code-search frontend that runs ExHub's `search_files` tool over the existing WebSocket connection instead of a subprocess. It keeps probe.el's UX shape (per-query+directory buffers, file collapse, syntax highlighting, `RET` to jump) while replacing its transport.
+- **Transport**: Emacs sends `(exhub-call "exhub-search" ACTION REQ-ID PARAMS)`; `Exhub.ResponseHandlers.ExhubSearch` calls `BuiltInRegistry.call_tool("desktop", "search_files", PARAMS)` in the same BEAM VM (no HTTP loopback or session handshake) and pushes the result back as `(exhub-probe--receive REQ-ID IS-ERROR JSON)`. The registry call runs inside the handler `Task`, so a multi-second probe run never blocks the Cowboy process; `Hub.ClientManager` is avoided because its GenServer would serialize the whole search behind one call.
+- **Actions**: `"search"` (semantic), `"glob"`, `"content"`. The handler always sets `search_type`, and for semantic sets an explicit `filter` default (`true`) — never relying on the server-side default, which is off in `config/test.exs`. `glob`/`content` replies TOON-decode the tool output into a `data` field; semantic results stay plain text and are parsed in elisp. Replies for superseded requests are dropped, so a slow earlier search cannot override a newer one.
+- **Commands**: `exhub-probe-search` (query + optional purpose), `-at-point`, `-region`, `-glob`, `-content`, `-dir`, `-parent-dir`, `-rerun`. Result buffers support `RET` visit, `TAB` collapse, `t` tests, `f` Smart Decide filter, `r` reranker (display-only), `D`/`^` directory, `C` config.
+- **Modified Files**:
+  - `exhub-probe.el` — NEW: Emacs frontend
+  - `lib/exhub/response_handlers/exhub_search.ex` — NEW: WebSocket dispatch + in-VM `search_files` call
+  - `lib/exhub/default_response_handler.ex` — route `"exhub-search"` to the handler
+  - `docs/modules/probe.md` — NEW: module documentation
+  - `README.md` — feature bullet + documentation-table entry
+  - `docs/modules/desktop.md` — `search_files` cross-reference and `purpose`/`filter` parameters
+
+---
+
 ## Desktop `search_files` — Leaner Tool Surface & Pinned `probe`
 
 - **Leaner tool definition**: `description/0` no longer enumerates every parameter (the schema documents them) and the schema was trimmed from 22 to 12 fields — dropping probe flags that were never plumbed through (`reranker`, `files_only`, `ignore`, `exclude_filenames`, `frequency`, `strict_elastic_syntax`, `max_bytes`, `no_merge`, `merge_threshold`, `session`, `format`). Tool definition: ~6.3 KB → ~2.3 KB (≈1000 tokens saved per request), matching aider-desk's `semantic_search` footprint while still covering three modes. Unknown params are now ignored rather than rejected.

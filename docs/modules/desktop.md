@@ -338,7 +338,7 @@ This helps identify exactly what needs to be corrected in `old_string`.
 
 ### search_files
 
-Searches a codebase in one of three modes (`search_type`): `semantic` (the default) — probe-backed, AST-aware BM25 code search returning whole code blocks; `glob` — glob matching over relative file and directory paths (mirrors aider-desk's `power_glob`); `content` — literal/regex content matching with context lines. The `glob` and `content` modes use ripgrep (`rg`) if available and fall back to a native Elixir implementation; `semantic` shells out to the `probe` CLI instead.
+Searches a codebase in one of three modes (`search_type`): `semantic` (the default) — probe-backed, AST-aware BM25 code search returning whole code blocks; `glob` — glob matching over relative file and directory paths (mirrors aider-desk's `power_glob`); `content` — literal/regex content matching with context lines. The `glob` and `content` modes use ripgrep (`rg`) if available and fall back to a native Elixir implementation; `semantic` shells out to the `probe` CLI instead. The Emacs `exhub-probe` frontend ([probe.md](probe.md)) invokes this tool in-process via `BuiltInRegistry`, without the MCP-hub HTTP round trip.
 
 **Parameters**
 
@@ -347,6 +347,7 @@ Searches a codebase in one of three modes (`search_type`): `semantic` (the defau
 | `path`          | string  | yes                   | —            | Absolute path (or `~` shorthand) to the directory to search in       |
 | `search_type`   | string  | no                    | `"semantic"` | `"semantic"` (default), `"glob"` or `"content"`                     |
 | `query`         | string  | for `semantic`        | —            | Semantic query; Elasticsearch syntax and hints supported             |
+| `purpose`       | string  | no                    | `nil`        | Natural-language purpose for the Smart Decide filter (falls back to `query`) |
 | `pattern`       | string  | for `glob`/`content`  | —            | For `glob`, a glob pattern relative to `path` (trailing `/` = directories only); for `content`, substring/regex |
 | `file_pattern`  | string  | no                    | `nil`        | Glob pattern to filter files (e.g. `*.ex`), only for content search  |
 | `allow_tests`   | boolean | no                    | `false`      | Include test files in semantic results                               |
@@ -359,6 +360,7 @@ Searches a codebase in one of three modes (`search_type`): `semantic` (the defau
 | `include_ignored` | boolean | no                  | `false`      | Include `.gitignore`/`.ignore`/`.rgignore` matches and hidden dotfiles |
 | `include_dirs`  | boolean | no                    | `true`       | Include directories (suffixed `/`) in `glob` results                 |
 | `context_lines` | integer | no                    | `2`          | Number of context lines around content matches                       |
+| `filter`        | boolean | no                    | `true`       | Smart Decide relevance filtering of semantic results (`false` = raw results) |
 
 #### search_type: "semantic" (default)
 
