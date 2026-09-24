@@ -22,6 +22,7 @@ defmodule Exhub.Router do
   - `GET|POST /bailiancloud/v1/*path` - Proxies to BailianCloud (Aliyun MaaS) API with Bearer token auth
 
   ### API Endpoints
+  - `GET /llms` - Curated LLM model catalog (default model + model names)
   - `POST /v1/messages` - Anthropic-compatible messages endpoint
   - `POST /v1/messages/count_tokens` - Token counting endpoint
 
@@ -62,6 +63,7 @@ defmodule Exhub.Router do
   alias Exhub.Router.Helpers
   alias Exhub.Converters.Anthropic, as: AnthropicConverter
   alias Exhub.Llm.LlmConfigServer
+  alias Exhub.LLMModels
   alias Exhub.Metrics.PerformanceTracker
   alias Exhub.Metrics.PerformanceStats
   alias UUID
@@ -89,6 +91,22 @@ defmodule Exhub.Router do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(200, Jason.encode!(%{status: "ok", message: summary}))
+  end
+
+  # ============================================================================
+  # LLM Model Catalog
+  # ============================================================================
+
+  get "/llms" do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(
+      200,
+      Jason.encode!(%{
+        default: LLMModels.default_llm_name(),
+        models: LLMModels.all_models()
+      })
+    )
   end
 
   # ============================================================================
