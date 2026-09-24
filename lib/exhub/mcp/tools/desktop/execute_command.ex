@@ -9,6 +9,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.WorkingDir
 
   use Anubis.Server.Component, type: :tool
 
@@ -28,7 +29,8 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     - command: The shell command to execute
     - timeout_ms: Maximum time to wait in milliseconds (default 30000)
     - working_dir: Working directory for the command. Required unless the command
-      contains absolute paths (starting with / or ~/) or includes 'cd'.
+      specifies its own location (an absolute or ~ path, or a cd into one) or does
+      not depend on the working directory.
       (Current server pwd: #{Helpers.current_pwd()})
     """
   end
@@ -55,11 +57,11 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
         resp = Response.tool() |> Response.error("Missing required parameter: command")
         {:reply, resp, frame}
 
-      is_nil(working_dir) and Helpers.needs_working_dir?(command) ->
+      is_nil(working_dir) and WorkingDir.needs_working_dir?(command) ->
         resp =
           Response.tool()
           |> Response.error(
-            "Missing required parameter: working_dir. It must be provided unless the command contains absolute paths (starting with / or ~/) or includes 'cd'."
+            "Missing required parameter: working_dir. It must be provided unless the command specifies its own location (an absolute or ~ path, or a cd into one) or does not depend on the working directory."
           )
 
         {:reply, resp, frame}

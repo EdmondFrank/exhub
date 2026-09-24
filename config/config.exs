@@ -183,4 +183,23 @@ config :exhub, Exhub.MCP.Desktop.Search.Relevance,
   query_char_limit: 3200,
   fallback: true
 
+# Desktop shell tools (`execute_command`, `start_process`): decide whether a
+# command requires a `working_dir` before running it in the server's cwd.
+# Commands that specify their own location (absolute/~ paths, or `cd`) are
+# resolved locally; every other command is judged by a Smart Decide (System One)
+# `noul` question, with the deterministic `Exhub.MCP.Desktop.Helpers` heuristic
+# as the failure fallback (fail closed).
+#   - `enabled`: master switch (falls back to the pure heuristic when false)
+#   - `threshold`: minimum `noul` probability to require a `working_dir`
+#   - `timeout`: per-request timeout in milliseconds
+#   - `cache_ttl_ms`: how long a verdict is cached per command string
+#   - `cache_limit`: clear the cache when it grows past this many entries
+# In-code defaults in `Exhub.MCP.Desktop.WorkingDir` apply for any missing key.
+config :exhub, Exhub.MCP.Desktop.WorkingDir,
+  enabled: true,
+  threshold: 0.5,
+  timeout: 30_000,
+  cache_ttl_ms: 60_000,
+  cache_limit: 2000
+
 import_config "#{config_env()}.exs"

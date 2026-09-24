@@ -186,25 +186,63 @@ defmodule Exhub.MCP.Desktop.Helpers do
   @doc """
   Checks if a command likely needs a working directory.
 
-  Returns `false` if the command contains `cd`, `ls`, or any absolute path
-  (starting with `/` or `~/`), since those commands already specify where
-  to operate.
+  The inverse of `anchored?/1`: a command needs a working directory unless it
+  names its own location. This is the deterministic fallback used when Smart
+  Decide is disabled or unavailable, so it errs towards `true` (fail closed).
   """
   @spec needs_working_dir?(String.t()) :: boolean()
-  def needs_working_dir?(command) do
-    trimmed = String.trim(command)
+  def needs_working_dir?(command), do: not anchored?(command)
 
-    has_cd = String.starts_with?(trimmed, "cd ") or String.contains?(trimmed, " cd ")
-    has_ls = String.starts_with?(trimmed, "ls ") or String.contains?(trimmed, " ls ")
+  @doc """
+  Returns `true` when `command` names its own location, so the working
+  directory is irrelevant:
+
+    * it contains an absolute (`/…`) or `~`/`~/…` path token, anywhere;
+    * it contains a `cd` whose target is absolute or `~` (e.g. `cd /tmp`,
+      `cd ~/src`) — that also covers an absolute target under an explicit `cd`;
+    * it contains a bare `cd` (which goes to `$HOME`), e.g. `cd`, `cd;`,
+      `cd && ls`.
+
+  A `cd` into a **relative** directory is *not* anchored: `cd build && make`
+  still depends on the working directory to resolve `build`, so it must supply
+  one. Text inside single or double quotes is ignored, so a `cd` that is merely
+  printed (`git commit -m "cd fix"`) does not count.
+
+  ## Examples
+
+      iex> anchored?("cd /tmp && ls")
+      true
+
+      iex> anchored?("cd build && make")
+      false
+  """
+  @spec anchored?(String.t()) :: boolean()
+  def anchored?(command) when is_binary(command) do
+    stripped = strip_quoted(command)
 
     has_absolute_path =
-      trimmed
+      stripped
       |> String.split()
-      |> Enum.any?(fn word ->
-        String.starts_with?(word, "/") or String.starts_with?(word, "~/")
-      end)
+      |> Enum.any?(&absolute_word?/1)
 
-    not (has_cd or has_ls or has_absolute_path)
+    has_absolute_cd = Regex.match?(~r{(^|[;&|()\s])cd\s+(~|~/|/)\S*}, stripped)
+    has_bare_cd = Regex.match?(~r{(^|[;&|()\s])cd\s*($|[;&|()])}, stripped)
+
+    has_absolute_path or has_absolute_cd or has_bare_cd
+  end
+
+  def anchored?(_command), do: false
+
+  # Drop shell-quoted spans before looking for tokens, so a value such as
+  # `git commit -m "cd fix"` is not mistaken for a `cd` command.
+  defp strip_quoted(text) do
+    text
+    |> String.replace(~r/'[^']*'/, " ")
+    |> String.replace(~r/"[^"]*"/, " ")
+  end
+
+  defp absolute_word?(word) do
+    word == "~" or String.starts_with?(word, "/") or String.starts_with?(word, "~/")
   end
 
   @doc """

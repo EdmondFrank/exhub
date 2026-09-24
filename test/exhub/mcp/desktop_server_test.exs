@@ -22,6 +22,15 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert {:needs_working_dir?, 1} in functions
     end
 
+    test "WorkingDir module exists" do
+      assert is_atom(Exhub.MCP.Desktop.WorkingDir)
+      functions = Exhub.MCP.Desktop.WorkingDir.__info__(:functions)
+      assert {:needs_working_dir?, 1} in functions
+      assert {:needs_working_dir?, 2} in functions
+      assert {:enabled?, 0} in functions
+      assert {:config, 0} in functions
+    end
+
     test "ProcessStore module exists" do
       assert is_atom(Exhub.MCP.Desktop.ProcessStore)
       functions = Exhub.MCP.Desktop.ProcessStore.__info__(:functions)
@@ -367,10 +376,12 @@ defmodule Exhub.MCP.DesktopServerTest do
     test "DesktopServer has 17 component declarations" do
       # Count the component() calls by extracting the module body
       {:ok, content} = File.read("lib/exhub/mcp/desktop_server.ex")
+
       component_count =
         content
         |> String.split("\n")
         |> Enum.count(&String.contains?(&1, "component("))
+
       assert component_count == 17,
              "Expected 17 component() declarations, got #{component_count}"
     end

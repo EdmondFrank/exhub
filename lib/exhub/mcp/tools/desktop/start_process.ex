@@ -7,6 +7,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.WorkingDir
   alias Exhub.MCP.Desktop.ExecListener
   alias Exhub.MCP.Desktop.PortListener
   alias Exhub.MCP.Desktop.ProcessStore
@@ -32,7 +33,8 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     Parameters:
     - command: The shell command to execute
     - working_dir: Working directory for the command. Required unless the command
-      contains absolute paths (starting with / or ~/) or includes 'cd'.
+      specifies its own location (an absolute or ~ path, or a cd into one) or does
+      not depend on the working directory.
       (Current server pwd: #{Helpers.current_pwd()})
     - interactive: Enable interactive mode for sending input via interact_with_process
     - pty: Enable pseudo-terminal (PTY) support via erlexec. When true, interactive
@@ -72,11 +74,11 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
         resp = Response.tool() |> Response.error("Missing required parameter: command")
         {:reply, resp, frame}
 
-      is_nil(working_dir) and Helpers.needs_working_dir?(command) ->
+      is_nil(working_dir) and WorkingDir.needs_working_dir?(command) ->
         resp =
           Response.tool()
           |> Response.error(
-            "Missing required parameter: working_dir. It must be provided unless the command contains absolute paths (starting with / or ~/) or includes 'cd'."
+            "Missing required parameter: working_dir. It must be provided unless the command specifies its own location (an absolute or ~ path, or a cd into one) or does not depend on the working directory."
           )
 
         {:reply, resp, frame}
@@ -84,7 +86,9 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
       pty == true and interactive != true ->
         resp =
           Response.tool()
-          |> Response.error("pty: true requires interactive: true. Set both parameters to enable PTY mode.")
+          |> Response.error(
+            "pty: true requires interactive: true. Set both parameters to enable PTY mode."
+          )
 
         {:reply, resp, frame}
 
@@ -215,7 +219,14 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     # Use {:pty, opts} instead of bare :pty to explicitly disable INLCR,
     # which translates input NL (\n) to CR (\r) — breaking line terminators
     # for SSH, REPLs, and other TTY-dependent programs.
-    exec_opts = [:stdin, :stdout, {:stderr, :stdout}, {:pty, [{:inlcr, false}]}, :pty_echo, :monitor]
+    exec_opts = [
+      :stdin,
+      :stdout,
+      {:stderr, :stdout},
+      {:pty, [{:inlcr, false}]},
+      :pty_echo,
+      :monitor
+    ]
 
     exec_opts =
       if working_dir do

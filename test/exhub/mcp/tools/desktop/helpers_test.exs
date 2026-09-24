@@ -49,6 +49,50 @@ defmodule Exhub.MCP.Tools.Desktop.HelpersTest do
       assert Helpers.needs_working_dir?("cat relative/path/file.txt")
       assert Helpers.needs_working_dir?("echo hello > output.txt")
     end
+
+    test "returns true for a cd into a relative directory" do
+      assert Helpers.needs_working_dir?("cd build && make")
+      assert Helpers.needs_working_dir?("cd .. && ls")
+      assert Helpers.needs_working_dir?("cd sub/dir; ls")
+      assert Helpers.needs_working_dir?("cd -")
+    end
+
+    test "returns false for an absolute/~ cd target or a bare cd" do
+      refute Helpers.needs_working_dir?("cd /tmp")
+      refute Helpers.needs_working_dir?("cd ~/src")
+      refute Helpers.needs_working_dir?("cd")
+      refute Helpers.needs_working_dir?("cd;")
+      refute Helpers.needs_working_dir?("cd && ls")
+      refute Helpers.needs_working_dir?("(cd /tmp && make)")
+    end
+
+    test "quoted cd/path text does not anchor, so it fails closed" do
+      assert Helpers.needs_working_dir?(~s(git commit -m "cd fix"))
+      assert Helpers.needs_working_dir?("echo 'a | cd /x'")
+      assert Helpers.needs_working_dir?(~s(echo "ls /tmp"))
+    end
+  end
+
+  describe "anchored?/1" do
+    test "is true for absolute/~ paths and an absolute or bare cd" do
+      assert Helpers.anchored?("cat /etc/hosts")
+      assert Helpers.anchored?("~/bin/x")
+      assert Helpers.anchored?("cd /tmp")
+      assert Helpers.anchored?("cd")
+      assert Helpers.anchored?("cd && ls")
+    end
+
+    test "is false for a relative cd or an unanchored command" do
+      refute Helpers.anchored?("cd build && make")
+      refute Helpers.anchored?("cd ..")
+      refute Helpers.anchored?("git status")
+      refute Helpers.anchored?("make")
+    end
+
+    test "ignores quoted text" do
+      refute Helpers.anchored?(~s(git commit -m "cd fix"))
+      refute Helpers.anchored?("echo 'a | cd /x'")
+    end
   end
 
   describe "expand_path/1" do
