@@ -30,6 +30,23 @@ config :exhub, :obsidian_vault_path, "~/GTD/PKB"
 # first `probe` on the system PATH.
 config :exhub, :probe_binary, "/usr/local/bin/probe"
 
+# Code mode (`code_mode` MCP tool on the hub): evaluate a Lua 5.3 snippet that
+# calls visible hub tools as functions, in a resource-bounded sandbox. See
+# `Exhub.MCP.Hub.CodeMode`. Set `enabled: false` to turn the tool into an error.
+config :exhub, :code_mode,
+  enabled: true,
+  # Match the Hub server's `request_timeout` (600s) so the sandbox times out
+  # gracefully before the transport hard-kills the request.
+  timeout_ms: 600_000,
+  max_instructions: 5_000_000,
+  max_call_depth: 200,
+  max_heap_size: 268_435_456,
+  max_string_bytes: 8_388_608,
+  max_output_chars: 12_000,
+  max_concurrency: 8,
+  raise_on_tool_error: true,
+  exclude_servers: ["mcp-hub"]
+
 # Brain vault search ranking defaults. Tunable per-call via brain_search_vault
 # `fusion`/`weights`/`min_score` params, which are merged over these defaults.
 config :exhub, :brain_ranking, %{

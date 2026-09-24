@@ -49,6 +49,7 @@ defmodule Exhub.MixProject do
       {:exile, "~> 0.10"},
       {:erlexec, "~> 2.0"},
       {:toon, "~> 0.3.0"},
+      {:lua, "~> 1.0"},
       {:ex_mcp, "~> 0.9.0"},
       {:sagents, "~> 0.9.0"},
       {:yamerl, "~> 0.10.0"},
