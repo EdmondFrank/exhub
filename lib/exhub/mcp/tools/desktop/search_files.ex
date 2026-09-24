@@ -8,6 +8,9 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   suffixed with "/" (mirroring aider-desk's `power_glob`), and `content` mode
   retains the ripgrep/grep/native literal search.
 
+  `path` may name a directory (searched recursively) or a single file; a file
+  scopes every mode to that one file.
+
   The `probe` binary is resolved from the `:exhub, :probe_binary` config, falling
   back to the first `probe` on the system `PATH`. Different probe builds can rank
   results differently (and run at different speeds), so pin `:probe_binary` when
@@ -71,7 +74,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     search_type "glob" or "content".
 
     Parameters:
-    - path: Absolute path or ~ shorthand to the directory to search in
+    - path: Absolute path or ~ shorthand to the directory (or a single file) to search in
     - search_type: "semantic" (default), "glob" or "content"
     - query: Semantic search query with Elasticsearch syntax (required for search_type "semantic"). Use + for important terms.
     - purpose: Natural-language purpose of the semantic search, used by the Smart Decide relevance filter to judge each result. Falls back to `query` when omitted.
@@ -93,7 +96,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
   schema do
     field(:path, {:required, :string},
-      description: "Absolute path or ~ shorthand to the directory to search in"
+      description: "Absolute path or ~ shorthand to the directory or file to search in"
     )
 
     field(:search_type, :string,
@@ -359,7 +362,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   defp request_max_results(params, false), do: positive_int(Map.get(params, :max_results))
 
   defp search_semantic(binary, path, query, params) do
-    with :ok <- check_directory(path) do
+    with :ok <- check_searchable_path(path) do
       args =
         ["search"]
         |> add_flag(Map.get(params, :exact, false), "--exact")
@@ -380,7 +383,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   # Structured probe run used by the Smart Decide pass; `-o json` yields the
   # candidate maps (file, code, lines, owner_symbol) the filter judges.
   defp search_semantic_json(binary, path, query, params) do
-    with :ok <- check_directory(path) do
+    with :ok <- check_searchable_path(path) do
       args =
         ["search"]
         |> add_flag(Map.get(params, :exact, false), "--exact")
@@ -541,7 +544,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
          ignore,
          include_dirs
        ) do
-    with :ok <- check_directory(path) do
+    with :ok <- check_searchable_path(path) do
       search_glob(path, pattern, ignore, include_ignored, include_dirs, max_results)
     end
   end
@@ -562,7 +565,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
          _ignore,
          _include_dirs
        ) do
-    with :ok <- check_directory(path) do
+    with :ok <- check_searchable_path(path) do
       cond do
         ripgrep_available?() ->
           search_content_ripgrep(
@@ -606,11 +609,13 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   # Directory validation
   # ============================================================================
 
-  defp check_directory(path) do
+  # Accepts a directory or a single regular file; a file path scopes the search
+  # to that one file (all three search modes support it).
+  defp check_searchable_path(path) do
     case File.stat(path) do
-      {:ok, %File.Stat{type: :directory}} -> :ok
-      {:ok, _} -> {:error, "Not a directory: #{path}"}
-      {:error, :enoent} -> {:error, "Directory not found: #{path}"}
+      {:ok, %File.Stat{type: type}} when type in [:directory, :regular] -> :ok
+      {:ok, _} -> {:error, "Not a file or directory: #{path}"}
+      {:error, :enoent} -> {:error, "Path not found: #{path}"}
       {:error, reason} -> {:error, inspect(reason)}
     end
   end
@@ -679,22 +684,30 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   # free. A directory with no non-ignored file (e.g. an empty one) is therefore
   # not discoverable this way.
   defp glob_entries(path, include_ignored) do
-    if ripgrep_available?() do
-      case rg_file_list(path, include_ignored) do
-        {:ok, files} ->
-          dirs = files |> Enum.flat_map(&ancestor_dirs/1) |> MapSet.new() |> MapSet.to_list()
+    cond do
+      # An explicitly-named file is its own candidate set: ripgrep's `--files`
+      # walk needs a directory to descend into, and explicit paths bypass ignore
+      # rules, so no gitignore/hidden pruning is applied here.
+      File.regular?(path) ->
+        {:ok, [{Path.basename(path), :file}]}
 
-          {:ok, Enum.map(files, &{&1, :file}) ++ Enum.map(dirs, &{&1, :dir})}
+      ripgrep_available?() ->
+        case rg_file_list(path, include_ignored) do
+          {:ok, files} ->
+            dirs = files |> Enum.flat_map(&ancestor_dirs/1) |> MapSet.new() |> MapSet.to_list()
 
-        {:error, reason} ->
-          Logger.warning(
-            "[SearchFiles] ripgrep glob listing failed: #{inspect(reason)}, falling back to native"
-          )
+            {:ok, Enum.map(files, &{&1, :file}) ++ Enum.map(dirs, &{&1, :dir})}
 
-          {:ok, native_entries(path, include_ignored)}
-      end
-    else
-      {:ok, native_entries(path, include_ignored)}
+          {:error, reason} ->
+            Logger.warning(
+              "[SearchFiles] ripgrep glob listing failed: #{inspect(reason)}, falling back to native"
+            )
+
+            {:ok, native_entries(path, include_ignored)}
+        end
+
+      true ->
+        {:ok, native_entries(path, include_ignored)}
     end
   end
 
@@ -836,6 +849,9 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     args =
       [
         "--no-heading",
+        # Force the filename prefix even for a single explicit file, which
+        # ripgrep would otherwise omit, breaking the line parser below.
+        "--with-filename",
         "--line-number",
         "--color",
         "never",
@@ -1102,7 +1118,22 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
     {:ok, results}
   end
 
-  defp collect_files(dir, file_pattern) do
+  # A directly-named regular file is its own result set; a directory is walked
+  # recursively (honoring file_pattern).
+  defp collect_files(path, file_pattern) do
+    case File.stat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        if matches_file_pattern?(Path.basename(path), file_pattern), do: [path], else: []
+
+      {:ok, %File.Stat{type: :directory}} ->
+        collect_dir_files(path, file_pattern)
+
+      _ ->
+        []
+    end
+  end
+
+  defp collect_dir_files(dir, file_pattern) do
     case File.ls(dir) do
       {:ok, names} ->
         Enum.flat_map(names, fn name ->
@@ -1110,7 +1141,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
           case File.stat(full_path) do
             {:ok, %File.Stat{type: :directory}} ->
-              collect_files(full_path, file_pattern)
+              collect_dir_files(full_path, file_pattern)
 
             {:ok, %File.Stat{type: :regular}} ->
               if matches_file_pattern?(name, file_pattern), do: [full_path], else: []

@@ -344,7 +344,7 @@ Searches a codebase in one of three modes (`search_type`): `semantic` (the defau
 
 | Name            | Type    | Required              | Default      | Description                                                          |
 |-----------------|---------|-----------------------|--------------|----------------------------------------------------------------------|
-| `path`          | string  | yes                   | —            | Absolute path (or `~` shorthand) to the directory to search in       |
+| `path`          | string  | yes                   | —            | Absolute path (or `~` shorthand) to the directory or single file to search in       |
 | `search_type`   | string  | no                    | `"semantic"` | `"semantic"` (default), `"glob"` or `"content"`                     |
 | `query`         | string  | for `semantic`        | —            | Semantic query; Elasticsearch syntax and hints supported             |
 | `purpose`       | string  | no                    | `nil`        | Natural-language purpose for the Smart Decide filter (falls back to `query`) |
@@ -384,7 +384,7 @@ AST-aware, BM25-ranked code search over `query`, backed by the [`probe`](https:/
 probe search [--exact] [--allow-tests] [--max-results N] --max-tokens N [--language L] --timeout 300 -- <query> <path>
 ```
 
-`--max-tokens` defaults to `5000`; the probe-side timeout is fixed at 300 s (ExHub kills the subprocess after 310 s). Defaults mirror aider-desk's `semantic_search` Power Tool.
+`--max-tokens` defaults to `5000`; the probe-side timeout is fixed at 300 s (ExHub kills the subprocess after 310 s). Defaults mirror aider-desk's `semantic_search` Power Tool. `path` may name a single file — probe accepts file and directory paths alike.
 
 **Return Value (success)**
 
@@ -418,7 +418,7 @@ File: /abs/path/to/file.ext
 
 Finds files and directories whose paths match a glob `pattern` (relative to `path`) and returns paths relative to `path`. Mirrors aider-desk's `power_glob`.
 
-Supports `*`, `**`, `?`, `[...]` and `{a,b}` (e.g. `src/**/*.ts`, `*.md`, `config/*.{ex,exs}`). A pattern without a `/` is anchored to `path`, so `*.ex` matches only files directly under `path`. **Directories are included by default and suffixed with `/`** (set `include_dirs: false` for files only); a pattern ending in `/` returns directories only. Directories are discovered as the ancestors of the files ripgrep reports, so a directory with no non-ignored file (e.g. an empty one) is not returned. Hidden dotfiles and entries matched by `.gitignore`/`.ignore`/`.rgignore` are excluded unless `include_ignored` is true; pass `ignore` to exclude additional globs. Results are capped at `max_results` (default 1000) with a 5000-entry walk limit — truncation is reported via `limit_reached`/`notice` rather than silently dropped.
+Supports `*`, `**`, `?`, `[...]` and `{a,b}` (e.g. `src/**/*.ts`, `*.md`, `config/*.{ex,exs}`). A pattern without a `/` is anchored to `path`, so `*.ex` matches only files directly under `path`. **Directories are included by default and suffixed with `/`** (set `include_dirs: false` for files only); a pattern ending in `/` returns directories only. Directories are discovered as the ancestors of the files ripgrep reports, so a directory with no non-ignored file (e.g. an empty one) is not returned. Hidden dotfiles and entries matched by `.gitignore`/`.ignore`/`.rgignore` are excluded unless `include_ignored` is true; pass `ignore` to exclude additional globs. Results are capped at `max_results` (default 1000) with a 5000-entry walk limit — truncation is reported via `limit_reached`/`notice` rather than silently dropped. When `path` names a single file, the candidate set is just that file, matched against `pattern` by its basename; a pattern ending in `/` then matches nothing.
 
 **Return Value (success)**
 
@@ -480,8 +480,8 @@ The `context` field shows `context_lines` before and after each match:
 
 **Error Cases**
 
-- `"Not a directory: #{path}"` — Path is not a directory
-- `"Directory not found: #{path}"` — Directory does not exist
+- `"Not a file or directory: #{path}"` — Path is neither a directory nor a regular file
+- `"Path not found: #{path}"` — Path does not exist
 - `"Unknown search_type: #{search_type}. Use \"semantic\", \"glob\" or \"content\"."` — Invalid search type
 
 ---
