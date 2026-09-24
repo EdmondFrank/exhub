@@ -9,7 +9,7 @@ defmodule Exhub.MCP.WebTools.Relevance do
   sharper pass: each candidate result is judged by a single `noul` (yes/no)
   System One question and only the pages the model considers relevant are kept.
 
-  Each candidate is sent as one request on its own — the model has a ~2k-token
+  Each candidate is sent as one request on its own — the model has a ~8k-token
   context, so a single result preview is all the state it receives. Judgments
   run concurrently (`Task.async_stream`) and the pass degrades gracefully:
 
@@ -34,8 +34,8 @@ defmodule Exhub.MCP.WebTools.Relevance do
     max_concurrency: 8,
     threshold: 0.7,
     timeout: 30_000,
-    state_char_limit: 1500,
-    query_char_limit: 800,
+    state_char_limit: 6000,
+    query_char_limit: 3200,
     fallback: true
   ]
 
@@ -75,8 +75,8 @@ defmodule Exhub.MCP.WebTools.Relevance do
     * `:threshold` — minimum `noul` probability to keep a result (`0.7`)
     * `:max_concurrency` — concurrent System One requests (`8`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
-    * `:state_char_limit` — max characters of result text sent as `state` (`1500`)
-    * `:query_char_limit` — max characters of the query in `instructions` (`800`)
+    * `:state_char_limit` — max characters of result text sent as `state` (`18000`)
+    * `:query_char_limit` — max characters of the query in `instructions` (`3200`)
     * `:fallback` — return the ranked pool when nothing is judged relevant (`true`)
   """
   @spec filter(String.t(), [map()], keyword()) :: {[map()], stats()}

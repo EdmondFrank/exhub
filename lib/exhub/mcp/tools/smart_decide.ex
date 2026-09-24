@@ -5,7 +5,8 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   Evaluates a `state` (the content to judge) against a flat set of typed
   `questions` and returns one structured answer per question. Backed by the
   OpenAI-style `POST /v1/systemone` endpoint, compatible with the TypeSafe
-  System One / Jev contract and the Bespoke Nimble decision model.
+  System One / Jev contract; served by the `APUS-OpenJev-v1-9B` model (8k-token
+  context) with `Bespoke-Nimble-9B` (2k context) still available.
 
   No free-form text is generated: the model scores the allowed answer tokens
   directly and returns the chosen answer plus calibrated probabilities.
@@ -24,7 +25,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   use Anubis.Server.Component, type: :tool
 
   @api_url "https://api.moark.com/v1/systemone"
-  @default_model "Bespoke-Nimble-9B"
+  @default_model "APUS-OpenJev-v1-9B"
   @request_timeout 120_000
   @valid_types ~w(noul choice score)
 
@@ -34,7 +35,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   def description do
     """
     Make fast, typed decisions about a piece of content ("state") using the
-    System One decision model (Bespoke-Nimble-9B) via Gitee AI.
+    System One decision model (APUS-OpenJev-v1-9B) via Gitee AI.
 
     This tool generates no reasoning or free-form text: it scores the allowed
     answer tokens directly and returns the chosen answer with its calibrated
@@ -69,7 +70,10 @@ defmodule Exhub.MCP.Tools.SmartDecide do
       required: true
     )
 
-    field(:model, :string, description: "System One model. Default: Bespoke-Nimble-9B")
+    field(:model, :string,
+      description:
+        "System One model. Default: APUS-OpenJev-v1-9B (8k context); Bespoke-Nimble-9B (2k context) also available"
+    )
 
     field(:compact, :boolean,
       description:

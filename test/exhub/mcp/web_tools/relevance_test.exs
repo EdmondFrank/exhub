@@ -203,7 +203,7 @@ defmodule Exhub.MCP.WebTools.RelevanceTest do
 
       assert Keyword.get(config, :enabled) == true
       assert Keyword.get(config, :candidate_limit) == 20
-      assert Keyword.get(config, :max_concurrency) == 8
+      assert Keyword.get(config, :max_concurrency) == 20
       assert Keyword.get(config, :threshold) == 0.7
       assert Keyword.get(config, :fallback) == true
       assert Relevance.enabled?() == true

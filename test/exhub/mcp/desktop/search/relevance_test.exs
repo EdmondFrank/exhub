@@ -200,7 +200,7 @@ defmodule Exhub.MCP.Desktop.Search.RelevanceTest do
     test "keeps an oversized block unjudged instead of judging truncated code" do
       decider = fn _state, _questions, _opts -> flunk("decider must not be called") end
 
-      huge = String.duplicate("x", 7000)
+      huge = String.duplicate("x", 25000)
 
       {relevant, stats} =
         Relevance.filter("q", [block("t.ex", huge)], decider: decider, fallback: false)
@@ -316,11 +316,11 @@ defmodule Exhub.MCP.Desktop.Search.RelevanceTest do
       config = Relevance.config()
 
       assert Keyword.get(config, :candidate_limit) == 20
-      assert Keyword.get(config, :max_concurrency) == 8
+      assert Keyword.get(config, :max_concurrency) == 20
       assert Keyword.get(config, :threshold) == 0.5
-      assert Keyword.get(config, :state_char_limit) == 4000
-      assert Keyword.get(config, :max_judgeable_chars) == 6000
-      assert Keyword.get(config, :query_char_limit) == 800
+      assert Keyword.get(config, :state_char_limit) == 18000
+      assert Keyword.get(config, :max_judgeable_chars) == 24000
+      assert Keyword.get(config, :query_char_limit) == 3200
       assert Keyword.get(config, :fallback) == true
       assert is_boolean(Keyword.get(config, :enabled))
     end

@@ -9,7 +9,7 @@ defmodule Exhub.MCP.Desktop.Search.Relevance do
   candidate block is judged by a single `noul` (yes/no) System One question and
   only the blocks the model considers relevant are kept.
 
-  Each candidate is sent as one request on its own — the model has a ~2k-token
+  Each candidate is sent as one request on its own — the model has a ~8k-token
   context, so a single code block is all the state it receives. Judgments run
   concurrently (`Task.async_stream`) and the pass degrades gracefully:
 
@@ -42,9 +42,9 @@ defmodule Exhub.MCP.Desktop.Search.Relevance do
     max_concurrency: 8,
     threshold: 0.5,
     timeout: 30_000,
-    state_char_limit: 4000,
-    max_judgeable_chars: 6000,
-    query_char_limit: 800,
+    state_char_limit: 18000,
+    max_judgeable_chars: 24000,
+    query_char_limit: 3200,
     fallback: true
   ]
 
@@ -86,10 +86,10 @@ defmodule Exhub.MCP.Desktop.Search.Relevance do
     * `:max_concurrency` — concurrent System One requests (`8`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
     * `:state_char_limit` — max characters of code text sent as `state` when
-      judging (`4000`)
+      judging (`16000`)
     * `:max_judgeable_chars` — candidates whose state is longer than this are
-      kept unjudged rather than judged on truncated code (`6000`)
-    * `:query_char_limit` — max characters of the task in `instructions` (`800`)
+      kept unjudged rather than judged on truncated code (`24000`)
+    * `:query_char_limit` — max characters of the task in `instructions` (`3200`)
     * `:fallback` — return the ranked pool when nothing is judged relevant (`true`)
   """
   @spec filter(String.t(), [map()], keyword()) :: {[map()], stats()}

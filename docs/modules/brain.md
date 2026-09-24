@@ -229,8 +229,8 @@ overridable under `config :exhub, Exhub.MCP.Brain.Search.Relevance` in
 | `max_concurrency` | `8` | Concurrent System One requests (one note per request) |
 | `threshold` | `0.5` | Minimum `noul` probability to keep a note |
 | `timeout` | `30_000` | Per-request timeout in ms |
-| `state_char_limit` | `1500` | Note text truncation, to stay within the ~2k context |
-| `query_char_limit` | `800` | Query truncation embedded in `instructions` |
+| `state_char_limit` | `18000` | Note text truncation, to stay within the ~8k context |
+| `query_char_limit` | `3200` | Query truncation embedded in `instructions` |
 | `fallback` | `true` | Return the ranked pool when nothing is judged relevant |
 
 ---

@@ -259,10 +259,10 @@ defmodule Exhub.MCP.Brain.Search.RelevanceTest do
       config = Relevance.config()
 
       assert Keyword.get(config, :candidate_limit) == 20
-      assert Keyword.get(config, :max_concurrency) == 8
+      assert Keyword.get(config, :max_concurrency) == 20
       assert Keyword.get(config, :threshold) == 0.5
-      assert Keyword.get(config, :state_char_limit) == 1500
-      assert Keyword.get(config, :query_char_limit) == 800
+      assert Keyword.get(config, :state_char_limit) == 18000
+      assert Keyword.get(config, :query_char_limit) == 3200
       assert Keyword.get(config, :fallback) == true
       assert is_boolean(Keyword.get(config, :enabled))
     end

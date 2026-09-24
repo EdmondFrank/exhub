@@ -4,7 +4,8 @@ The `exhub-smart-decide` module provides MCP-based **structured decision
 making** using the System One approach — the same primitive popularised by
 TypeSafe's [Jev](https://docs.typesafe.ai/primitives/choice) and implemented by
 [Bespoke Nimble](https://github.com/bespokelabsai/nimble). It is served by Gitee
-AI / [moark](https://moark.com) as the `Bespoke-Nimble-9B` model.
+AI / [moark](https://moark.com) as the `APUS-OpenJev-v1-9B` model (8k-token
+context), with `Bespoke-Nimble-9B` (2k context) still available.
 
 Unlike a chat model, Smart Decide generates **no reasoning and no free-form
 text**. It reads the logits for the allowed answer tokens, turns them into
@@ -34,7 +35,7 @@ Evaluate a `state` against a set of typed `questions`.
 |-----------|------|----------|---------|-------------|
 | `state` | string \| object \| array | ✓ | — | The content to judge. JSON object/array strings are decoded automatically. |
 | `questions` | object | ✓ | — | Map of question-id => typed question. JSON strings are decoded automatically. |
-| `model` | string | | `Bespoke-Nimble-9B` | System One model. The API currently serves only `Bespoke-Nimble-9B`; other values are ignored and fall back to it. |
+| `model` | string | | `APUS-OpenJev-v1-9B` | System One model. Defaults to `APUS-OpenJev-v1-9B` (8k-token context); `Bespoke-Nimble-9B` (2k context) is also served. |
 | `compact` | boolean | | `false` | Drop `probabilities`/`confidence`/`legend` from the answers |
 
 ### Question types
@@ -56,7 +57,7 @@ same keys. Keys are not sent to the model and do not affect inference.
 
 ```json
 {
-  "model": "Bespoke-Nimble-9B",
+  "model": "APUS-OpenJev-v1-9B",
   "answers": {
     "is_urgent":   { "type": "noul",   "noul": 0.92 },
     "department":  { "type": "choice", "choice": "technical",
@@ -150,10 +151,11 @@ filter `retrieve_tools` candidates and the Brain server to filter
 - The model only picks from the answers you supply — it cannot write text or
   return nested JSON.
 - Each `choice` question supports at most 26 options.
-- Prompts exceeding 2048 tokens are rejected.
+- `APUS-OpenJev-v1-9B` accepts prompts up to ~8k tokens; the older
+  `Bespoke-Nimble-9B` rejects prompts exceeding 2048 tokens.
 - `instructions` is required for every question and must be non-empty.
-- `model` is effectively fixed: the API only serves `Bespoke-Nimble-9B` and
-  silently falls back to it for any other value.
+- The model is selected by name; the API serves `APUS-OpenJev-v1-9B` (default)
+  and `Bespoke-Nimble-9B`.
 
 ## Endpoint
 

@@ -99,17 +99,18 @@ config :exhub, Exhub.BrainIndexRefresh,
 #   - `candidate_limit`: ranked pool judged when filtering (>= the policy's `top_n`)
 #   - `max_concurrency`: concurrent System One requests (one note per request)
 #   - `threshold`: minimum `noul` probability to keep a note
-#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~2k context
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~8k-token
+#     input budget (~3 chars/token for code, ~4.3 for prose)
 #   - `fallback`: return the ranked pool when nothing is judged relevant
 # In-code defaults in `Exhub.MCP.Brain.Search.Relevance` apply for any missing key.
 config :exhub, Exhub.MCP.Brain.Search.Relevance,
   enabled: true,
   candidate_limit: 20,
-  max_concurrency: 8,
+  max_concurrency: 20,
   threshold: 0.5,
   timeout: 30_000,
-  state_char_limit: 1500,
-  query_char_limit: 800,
+  state_char_limit: 18000,
+  query_char_limit: 3200,
   fallback: true
 
 # MCP Hub tool retrieval: Smart Decide (System One) relevance filter applied
@@ -118,7 +119,8 @@ config :exhub, Exhub.MCP.Brain.Search.Relevance,
 #   - `candidate_limit`: TF-IDF pool judged when filtering (>= the tool's `limit`)
 #   - `max_concurrency`: concurrent System One requests (one tool per request)
 #   - `threshold`: minimum `noul` probability to keep a tool
-#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~2k context
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~8k-token
+#     input budget (~3 chars/token for code, ~4.3 for prose)
 #   - `exclude_servers`: servers never offered as candidates (the hub's own
 #     search tools); `smart-decide` is left in so it stays discoverable
 #   - `fallback`: return the TF-IDF pool when nothing is judged relevant
@@ -126,11 +128,11 @@ config :exhub, Exhub.MCP.Brain.Search.Relevance,
 config :exhub, Exhub.MCP.Hub.ToolRelevance,
   enabled: true,
   candidate_limit: 30,
-  max_concurrency: 8,
+  max_concurrency: 20,
   threshold: 0.5,
   timeout: 30_000,
-  state_char_limit: 1500,
-  query_char_limit: 800,
+  state_char_limit: 18000,
+  query_char_limit: 3200,
   exclude_servers: ["mcp-hub"],
   fallback: true
 
@@ -143,17 +145,18 @@ config :exhub, Exhub.MCP.Hub.ToolRelevance,
 #     judgments are strongly bimodal (relevant >= 0.95, irrelevant <= 0.27),
 #     so 0.7 sits inside that gap and discards the instruction's "unsure -> yes"
 #     borderline band without dropping on-topic results.
-#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~2k context
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~8k-token
+#     input budget (~3 chars/token for code, ~4.3 for prose)
 #   - `fallback`: return the raw search results when nothing is judged relevant
 # In-code defaults in `Exhub.MCP.WebTools.Relevance` apply for any missing key.
 config :exhub, Exhub.MCP.WebTools.Relevance,
   enabled: true,
   candidate_limit: 20,
-  max_concurrency: 8,
+  max_concurrency: 20,
   threshold: 0.7,
   timeout: 30_000,
-  state_char_limit: 1500,
-  query_char_limit: 800,
+  state_char_limit: 18000,
+  query_char_limit: 3200,
   fallback: true
 
 # Desktop `search_files`: Smart Decide (System One) relevance filter applied to
@@ -172,12 +175,12 @@ config :exhub, Exhub.MCP.WebTools.Relevance,
 config :exhub, Exhub.MCP.Desktop.Search.Relevance,
   enabled: true,
   candidate_limit: 20,
-  max_concurrency: 8,
+  max_concurrency: 20,
   threshold: 0.5,
   timeout: 30_000,
-  state_char_limit: 4000,
-  max_judgeable_chars: 6000,
-  query_char_limit: 800,
+  state_char_limit: 18000,
+  max_judgeable_chars: 24000,
+  query_char_limit: 3200,
   fallback: true
 
 import_config "#{config_env()}.exs"

@@ -279,7 +279,7 @@ defmodule Exhub.MCP.Hub.ToolRelevanceTest do
 
       assert Keyword.get(config, :enabled) == true
       assert Keyword.get(config, :candidate_limit) == 30
-      assert Keyword.get(config, :max_concurrency) == 8
+      assert Keyword.get(config, :max_concurrency) == 20
       assert Keyword.get(config, :threshold) == 0.5
       assert Keyword.get(config, :exclude_servers) == ["mcp-hub"]
       assert Keyword.get(config, :fallback) == true

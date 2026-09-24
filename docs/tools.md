@@ -97,7 +97,7 @@ checks, yes/no judgments, rubric scoring) without free-form reasoning, use the
 ```
 
 Returns one structured answer per question with probabilities and confidence
-(set `compact: true` to drop that detail). Default model: `Bespoke-Nimble-9B`.
+(set `compact: true` to drop that detail). Default model: `APUS-OpenJev-v1-9B`.
 ## MCP Tool Calls
 
 ### Pre-invocation Rule

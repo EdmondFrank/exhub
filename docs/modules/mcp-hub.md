@@ -392,7 +392,7 @@ The Hub Server exposes two meta-tools as `Anubis.Server.Component` modules:
 Two-stage retrieval across all connected servers (both upstream and built-in):
 
 1. **Recall — TF-IDF** (`Exhub.MCP.Hub.ToolSearch`): pulls a wide candidate pool (default 30) ranked by term overlap with the query. Meta servers (`exclude_servers`) are dropped up front.
-2. **Precision — Smart Decide** (`Exhub.MCP.Hub.ToolRelevance`): each candidate is judged by a single `noul` (yes/no) System One question — **one tool per request** so the tool text fits the model's ~2k-token context — and only the relevant tools are kept. Judgments run concurrently. If nothing passes the pass falls back to the TF-IDF pool.
+2. **Precision — Smart Decide** (`Exhub.MCP.Hub.ToolRelevance`): each candidate is judged by a single `noul` (yes/no) System One question — **one tool per request** so the tool text fits the model's ~8k-token context — and only the relevant tools are kept. Judgments run concurrently. If nothing passes the pass falls back to the TF-IDF pool.
 
 Instead of returning all tools (which can overwhelm clients), the search returns only the most relevant tools for a given natural language query.
 
@@ -473,8 +473,8 @@ Configuration (in-code defaults in `Exhub.MCP.Hub.ToolRelevance`, overridable un
 | `max_concurrency` | `8` | Concurrent System One requests |
 | `threshold` | `0.5` | Minimum `noul` probability to keep a tool |
 | `timeout` | `30_000` | Per-request timeout in ms |
-| `state_char_limit` | `1500` | Tool text truncation, to stay within the ~2k context |
-| `query_char_limit` | `800` | Query truncation embedded in `instructions` |
+| `state_char_limit` | `18000` | Tool text truncation, to stay within the ~8k context |
+| `query_char_limit` | `3200` | Query truncation embedded in `instructions` |
 | `exclude_servers` | `["mcp-hub"]` | Servers dropped from the candidate pool before judging |
 | `fallback` | `true` | Return the TF-IDF pool when nothing is judged relevant |
 

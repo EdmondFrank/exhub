@@ -4,7 +4,8 @@ defmodule Exhub.MCP.SmartDecideServer do
 
   Exposes the `smart_decide` tool, which evaluates a piece of state against a
   set of typed questions and returns one structured answer per question. Backed
-  by the Bespoke Nimble / Jev-compatible `POST /v1/systemone` endpoint.
+  by the Jev-compatible `POST /v1/systemone` endpoint, served by the
+  `APUS-OpenJev-v1-9B` model (8k-token context) by default.
 
   The server uses HTTP transport and can be accessed at the /smart-decide/mcp
   endpoint.

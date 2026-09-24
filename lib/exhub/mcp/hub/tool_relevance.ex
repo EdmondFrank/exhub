@@ -9,7 +9,7 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
   candidate is judged by a single `noul` (yes/no) System One question and only
   the tools the model considers relevant are kept.
 
-  Each candidate is sent as one request on its own — the model has a ~2k-token
+  Each candidate is sent as one request on its own — the model has a ~8k-token
   context, so a single tool description is all the state it receives. Judgments
   run concurrently (`Task.async_stream`) and the pass degrades gracefully:
 
@@ -37,8 +37,8 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
     max_concurrency: 8,
     threshold: 0.5,
     timeout: 30_000,
-    state_char_limit: 1500,
-    query_char_limit: 800,
+    state_char_limit: 18000,
+    query_char_limit: 3200,
     exclude_servers: ["mcp-hub"],
     fallback: true
   ]
@@ -80,8 +80,8 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
     * `:threshold` — minimum `noul` probability to keep a tool (`0.5`)
     * `:max_concurrency` — concurrent System One requests (`8`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
-    * `:state_char_limit` — max characters of tool text sent as `state` (`1500`)
-    * `:query_char_limit` — max characters of the query in `instructions` (`800`)
+    * `:state_char_limit` — max characters of tool text sent as `state` (`6000`)
+    * `:query_char_limit` — max characters of the query in `instructions` (`3200`)
     * `:exclude_servers` — servers dropped from the pool before judging
       (`["mcp-hub"]`)
     * `:fallback` — return the TF-IDF pool when nothing is judged relevant (`true`)
