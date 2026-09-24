@@ -38,9 +38,7 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
 
     **Calling tools** (both forms work):
     - Nested by server: `desktop.read_file(args)`, `web_tools.web_fetch(args)`
-    - Flat lookup: `tools["desktop__read_file"](args)` — the exact `server__tool`
-      name returned by `retrieve_tools` (kept verbatim, e.g.
-      `tools["browser-use__browser_navigate"]`).
+    - Flat lookup: `tools["desktop__read_file"](args)`, `tools["browser-use__browser_navigate"](args)`.
 
     **Parallel calls** (one round trip, many tools at once):
         local r = parallel({
