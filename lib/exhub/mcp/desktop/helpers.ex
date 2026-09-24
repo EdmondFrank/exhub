@@ -198,15 +198,18 @@ defmodule Exhub.MCP.Desktop.Helpers do
   directory is irrelevant:
 
     * it contains an absolute (`/…`) or `~`/`~/…` path token, anywhere;
-    * it contains a `cd` whose target is absolute or `~` (e.g. `cd /tmp`,
-      `cd ~/src`) — that also covers an absolute target under an explicit `cd`;
-    * it contains a bare `cd` (which goes to `$HOME`), e.g. `cd`, `cd;`,
-      `cd && ls`.
+    * it contains a `cd` command whose target is absolute or `~` (e.g.
+      `cd /tmp`, `cd ~/src`), or a bare `cd` (which goes to `$HOME`), e.g.
+      `cd`, `cd;`, `cd && ls`. A `cd` only counts at the start of the command
+      or after a command separator (`;`, `&`, `|`, `(`, `)`, newline) — a
+      trailing argument such as `cat cd` or `grep foo cd` does not anchor, nor
+      does a `cd` merely printed (`git commit -m "cd fix"`).
 
   A `cd` into a **relative** directory is *not* anchored: `cd build && make`
   still depends on the working directory to resolve `build`, so it must supply
-  one. Text inside single or double quotes is ignored, so a `cd` that is merely
-  printed (`git commit -m "cd fix"`) does not count.
+  one. Text inside single or double quotes is replaced by an empty token before
+  scanning, so a quoted path (`echo "ls /tmp"`) anchors nothing and a quoted
+  `cd` target (`cd "build"`) stays relative.
 
   ## Examples
 
@@ -225,20 +228,22 @@ defmodule Exhub.MCP.Desktop.Helpers do
       |> String.split()
       |> Enum.any?(&absolute_word?/1)
 
-    has_absolute_cd = Regex.match?(~r{(^|[;&|()\s])cd\s+(~|~/|/)\S*}, stripped)
-    has_bare_cd = Regex.match?(~r{(^|[;&|()\s])cd\s*($|[;&|()])}, stripped)
+    has_absolute_cd = Regex.match?(~r{(^|[;&|()\n])\s*cd\s+(~|/)\S*}, stripped)
+    has_bare_cd = Regex.match?(~r{(^|[;&|()\n])\s*cd\s*($|[;&|()\n])}, stripped)
 
     has_absolute_path or has_absolute_cd or has_bare_cd
   end
 
   def anchored?(_command), do: false
 
-  # Drop shell-quoted spans before looking for tokens, so a value such as
-  # `git commit -m "cd fix"` is not mistaken for a `cd` command.
+  # Replace shell-quoted spans with an empty token before looking for tokens:
+  # a value such as `git commit -m "cd fix"` must not be mistaken for a `cd`
+  # command, and a quoted path must not anchor — while a quoted argument still
+  # counts as a token, so `cd "build"` is not misread as a bare `cd`.
   defp strip_quoted(text) do
     text
-    |> String.replace(~r/'[^']*'/, " ")
-    |> String.replace(~r/"[^"]*"/, " ")
+    |> String.replace(~r/'[^']*'/, ~s(""))
+    |> String.replace(~r/"[^"]*"/, ~s(""))
   end
 
   defp absolute_word?(word) do

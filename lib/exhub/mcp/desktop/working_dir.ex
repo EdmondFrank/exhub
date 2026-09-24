@@ -21,12 +21,19 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
        wrong directory.
 
   Verdicts are cached per command string, so a repeated command does not re-hit
-  the API. The cache is a lazily-created named ETS table (no supervision-tree
-  child), matching `Exhub.BlinkSearch.Backends.FindFile`.
+  the API. The cache is a named ETS table owned by this module's supervised
+  process (`start_link/1`), started alongside the Desktop `ProcessStore`.
+  Ownership matters: Anubis runs each `tools/call` in a transient task, so a
+  table created lazily by a request would be destroyed as soon as that request
+  returned. `ensure_cache_table/0` still creates the table on demand as a
+  fallback for tests and for a hot-reloaded VM whose supervisor child is not
+  running yet.
 
   Configuration lives under `:exhub, Exhub.MCP.Desktop.WorkingDir`; in-code
   defaults apply when it is absent.
   """
+
+  use GenServer
 
   require Logger
 
@@ -42,6 +49,25 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
     cache_ttl_ms: 60_000,
     cache_limit: 2_000
   ]
+
+  # --- Supervision ---
+
+  @doc """
+  Starts the cache owner.
+
+  The ETS table is created in `init/1`, so it is owned by this long-lived
+  process rather than by whichever request populates it first.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
+
+  @impl true
+  def init(_opts) do
+    ensure_cache_table()
+    {:ok, %{}}
+  end
 
   @doc """
   Returns the effective configuration, merging `:exhub,
@@ -142,7 +168,7 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
   end
 
   defp judge(command, opts) do
-    if Keyword.get(opts, :enabled, enabled?()) do
+    if enabled?(opts) do
       case decide(command, opts) do
         {:ok, result} ->
           needs_working_dir_result?(result, opt(opts, :threshold))
@@ -157,6 +183,17 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
       end
     else
       Helpers.needs_working_dir?(command)
+    end
+  end
+
+  # An injected `:decider` is an explicit request to run the decision (tests,
+  # overrides), so it implies enabled unless `:enabled` says otherwise. Without
+  # this, `config/test.exs` (`enabled: false`) would silently ignore injected
+  # deciders and fall back to the heuristic.
+  defp enabled?(opts) do
+    case Keyword.fetch(opts, :enabled) do
+      {:ok, value} -> value
+      :error -> Keyword.has_key?(opts, :decider) or enabled?()
     end
   end
 
@@ -253,6 +290,9 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
     :ok
   end
 
+  # Fallback table creation for when the supervised owner is not running (unit
+  # tests, or a hot-reloaded VM before the supervisor child is attached). In
+  # production `init/1` creates the table first, so this is a no-op.
   defp ensure_cache_table do
     if :ets.whereis(@cache_table) == :undefined do
       try do

@@ -97,6 +97,9 @@ defmodule Exhub.Application do
        session_idle_timeout: 86_400_000 * 365},
       # MCP Desktop Server (filesystem, process, search tools)
       {Exhub.MCP.Desktop.ProcessStore, name: Exhub.MCP.Desktop.ProcessStore},
+      # Owns the working-dir verdict cache ETS table (must start before the
+      # Desktop server, so the table outlives the per-request tool tasks)
+      {Exhub.MCP.Desktop.WorkingDir, []},
       {Exhub.MCP.DesktopServer,
        transport: :streamable_http,
        request_timeout: 600_000,

@@ -71,6 +71,12 @@ defmodule Exhub.MCP.Tools.Desktop.HelpersTest do
       assert Helpers.needs_working_dir?("echo 'a | cd /x'")
       assert Helpers.needs_working_dir?(~s(echo "ls /tmp"))
     end
+
+    test "a trailing cd argument or a quoted relative target does not anchor" do
+      assert Helpers.needs_working_dir?("grep foo cd")
+      assert Helpers.needs_working_dir?("cat cd")
+      assert Helpers.needs_working_dir?(~s(cd "build"))
+    end
   end
 
   describe "anchored?/1" do
@@ -92,6 +98,13 @@ defmodule Exhub.MCP.Tools.Desktop.HelpersTest do
     test "ignores quoted text" do
       refute Helpers.anchored?(~s(git commit -m "cd fix"))
       refute Helpers.anchored?("echo 'a | cd /x'")
+    end
+
+    test "only counts a cd that is a command, not a trailing argument" do
+      refute Helpers.anchored?("grep foo cd")
+      refute Helpers.anchored?("cat cd")
+      refute Helpers.anchored?(~s(cd "build"))
+      assert Helpers.anchored?("ls; cd /tmp")
     end
   end
 

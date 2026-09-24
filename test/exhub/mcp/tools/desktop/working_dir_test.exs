@@ -128,6 +128,17 @@ defmodule Exhub.MCP.Tools.Desktop.WorkingDirTest do
       refute WorkingDir.needs_working_dir?("cat /etc/passwd", enabled: false)
     end
 
+    test "an injected decider enables the decision, but an explicit enabled: false wins" do
+      decider = fn _s, _q, _o -> noul(0.05) end
+
+      # No `:enabled` — the injected decider is honoured even though
+      # `config/test.exs` disables the gate by default.
+      refute WorkingDir.needs_working_dir?("git status", decider: decider)
+
+      # An explicit `:enabled` still forces the deterministic heuristic.
+      assert WorkingDir.needs_working_dir?("git status", enabled: false, decider: decider)
+    end
+
     test "fails closed on an unparsable answer" do
       decider = fn _state, _questions, _opts -> {:ok, %{}} end
       assert WorkingDir.needs_working_dir?("git status", decider: decider)
