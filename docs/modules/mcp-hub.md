@@ -550,12 +550,13 @@ A call may also be given as `{name = "server__tool", args = {…}}`.
 
 **Rules**:
 
-- Arguments are a Lua table with named keys, decoded to a JSON object; a call without a table passes `{}`.
+- Arguments are a Lua table with named keys, decoded to a JSON object; a call without a table passes `{}`. A positional table (`{"a", "b"}`) is rejected — MCP arguments must be named objects.
 - Results are Lua tables — most tools expose their text payload at `r.content[1].text`.
 - A failing call raises a Lua error, catchable with `pcall`:
-  `local ok, r = pcall(desktop.read_file, {path = "/nope"})`. Both failure sources raise: hub/transport errors, and MCP results carrying `isError = true`. Set config `raise_on_tool_error: false` to return `isError` payloads as ordinary data instead (then check `r.isError`).
+  `local ok, r = pcall(desktop.read_file, {path = "/nope"})` (note `pcall` yields only the message string, not the structured payload). Both failure sources raise: hub/transport errors, and MCP results carrying `isError = true`. Set config `raise_on_tool_error: false` to return `isError` payloads as ordinary data instead (then check `r.isError`).
 - `print(...)` output is collected and returned above the snippet's `return` value.
 - Returning nothing yields `Execution completed with no return value.`
+- When the result exceeds `max_output_chars`, the returned text is truncated and the full output is written to a temp file whose path is included — read it back with `desktop.read_file` (set `spill_truncated: false` to disable).
 - The sandbox blocks `io`/`os`/`require`/filesystem — the only way out is the tools. Loops are bounded by an instruction budget, a wall-clock timeout and a heap cap; each evaluation runs in its own short-lived, unlinked process, so a runaway script cannot take the hub down. `print`, `parallel` and `parallel_all` are reserved globals.
 
 **Example**:
@@ -584,7 +585,9 @@ Configuration (in-code defaults in `Exhub.MCP.Hub.CodeMode`, overridable under `
 | `max_call_depth` | `200` | Lua call-depth cap |
 | `max_heap_size` | `268_435_456` | Sandbox process heap cap (bytes) |
 | `max_string_bytes` | `8_388_608` | Max Lua string size (bytes) |
-| `max_output_chars` | `12_000` | Result truncation, to bound context |
+| `max_output_chars` | `24_000` | Result truncation, to bound context; overflow is spilled to a file |
+| `spill_truncated` | `true` | Write the full result to a temp file when truncation occurs |
+| `spill_dir` | `nil` | Directory for spilled results (`nil` → `System.tmp_dir!()`) |
 | `max_concurrency` | `8` | Max concurrent calls in a `parallel`/`parallel_all` fan-out |
 | `raise_on_tool_error` | `true` | Raise on MCP results with `isError = true` (instead of returning them as data) |
 | `exclude_servers` | `["mcp-hub"]` | Servers not bridged into the sandbox |

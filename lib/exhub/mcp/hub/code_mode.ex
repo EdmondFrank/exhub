@@ -52,8 +52,8 @@ defmodule Exhub.MCP.Hub.CodeMode do
   on the first failure:
 
       local r = parallel({
-        {server = "time",      tool = "get_current_time", args = {timezone = "UTC"}},
-        {server = "web-tools", tool = "fetch",            args = {url = "…"}}
+        {server = "desktop", tool = "read_file",       args = {path = "/etc/hosts"}},
+        {server = "desktop", tool = "execute_command", args = {command = "uname -a"}}
       })
       return r[1].content[1].text .. r[2].content[1].text
 
@@ -69,6 +69,12 @@ defmodule Exhub.MCP.Hub.CodeMode do
   loops and allocation bombs die in this process — the caller is never linked
   to it (`spawn_monitor/1`). Concurrency inside a snippet is bounded by the
   `max_concurrency` config.
+
+  The formatted result is capped at `max_output_chars` (default `24_000`) to
+  bound context; when it is longer, the full text is written to a temp file and
+  its path is returned alongside the truncated prefix, so the caller can read it
+  back with `desktop.read_file`. Set `spill_truncated: false` to disable this,
+  or `spill_dir` to choose the directory, under `config :exhub, :code_mode`.
 
   `print`, `parallel` and `parallel_all` are reserved globals; a server whose
   name sanitizes onto one of them is only bridged through the flat `tools`
@@ -88,7 +94,9 @@ defmodule Exhub.MCP.Hub.CodeMode do
     max_call_depth: 200,
     max_heap_size: 268_435_456,
     max_string_bytes: 8_388_608,
-    max_output_chars: 12_000,
+    max_output_chars: 24_000,
+    spill_truncated: true,
+    spill_dir: nil,
     max_concurrency: 8,
     raise_on_tool_error: true,
     exclude_servers: ["mcp-hub"]
@@ -97,6 +105,13 @@ defmodule Exhub.MCP.Hub.CodeMode do
   # Globals the sandbox owns; a server whose sanitized name lands on one of
   # these is only reachable through the flat `tools` table.
   @reserved_globals ~w(print parallel parallel_all)
+
+  # Truncated results are spilled to a temp file the caller can read back
+  # later; files matching this prefix/suffix are swept once older than the max
+  # age so the temp directory does not grow without bound.
+  @spill_prefix "code_mode-"
+  @spill_suffix ".txt"
+  @spill_max_age_seconds 24 * 60 * 60
 
   @type tool :: map()
   @type run_result :: {:ok, String.t()} | {:error, String.t()}
@@ -153,7 +168,14 @@ defmodule Exhub.MCP.Hub.CodeMode do
   def run(code, tools, opts) when is_binary(code) and is_list(tools) do
     cfg =
       config()
-      |> Keyword.merge(Keyword.take(opts, [:raise_on_tool_error, :max_concurrency]))
+      |> Keyword.merge(
+        Keyword.take(opts, [
+          :raise_on_tool_error,
+          :max_concurrency,
+          :spill_truncated,
+          :spill_dir
+        ])
+      )
 
     timeout = Keyword.get(opts, :timeout_ms, cfg[:timeout_ms])
     max_chars = Keyword.get(opts, :max_output_chars, cfg[:max_output_chars])
@@ -180,7 +202,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
           {:error, "Execution timed out after #{ms} ms"}
       end
 
-    truncate_result(result, max_chars)
+    truncate_result(result, max_chars, cfg)
   end
 
   def run(code, _tools, _opts) when not is_binary(code),
@@ -532,15 +554,82 @@ defmodule Exhub.MCP.Hub.CodeMode do
 
   defp cap_heap(_), do: :ok
 
-  defp truncate_result({:ok, text}, max), do: {:ok, truncate(text, max)}
-  defp truncate_result({:error, text}, max), do: {:error, truncate(text, max)}
-  defp truncate_result(other, _max), do: other
+  defp truncate_result({:ok, text}, max, cfg), do: {:ok, truncate(text, max, cfg)}
+  defp truncate_result({:error, text}, max, cfg), do: {:error, truncate(text, max, cfg)}
+  defp truncate_result(other, _max, _cfg), do: other
 
-  defp truncate(text, max) when is_integer(max) and max > 0 and byte_size(text) > max do
-    utf8_prefix(text, max) <> "\n... (truncated; #{byte_size(text)} bytes total)"
+  defp truncate(text, max, cfg) when is_integer(max) and max > 0 and byte_size(text) > max do
+    notice = "\n... (truncated; #{byte_size(text)} bytes total)"
+
+    case spill(text, cfg) do
+      nil ->
+        utf8_prefix(text, max) <> notice
+
+      path ->
+        utf8_prefix(text, max) <>
+          notice <>
+          "\nFull output saved to: #{path}\n" <>
+          "Read it back with desktop.read_file({path = #{inspect(path)}})."
+    end
   end
 
-  defp truncate(text, _max), do: text
+  defp truncate(text, _max, _cfg), do: text
+
+  # Persists the full, untruncated result so the caller can read it back after
+  # receiving only the prefix. Best-effort: `spill_truncated: false`, or any
+  # filesystem error, yields `nil` and the plain truncation notice.
+  defp spill(text, cfg) do
+    if cfg[:spill_truncated] == false do
+      nil
+    else
+      dir = cfg[:spill_dir] || System.tmp_dir!()
+      path = Path.join(dir, "code_mode-#{rand_hex()}.txt")
+
+      case File.write(path, text) do
+        :ok ->
+          prune_spills(dir)
+          path
+
+        {:error, _reason} ->
+          nil
+      end
+    end
+  rescue
+    _ -> nil
+  end
+
+  # Temp files outlive the request on purpose (the caller may read them later);
+  # sweep stale ones so the temp directory does not grow without bound.
+  defp prune_spills(dir) do
+    cutoff = System.os_time(:second) - @spill_max_age_seconds
+
+    case File.ls(dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(&spill_file?/1)
+        |> Enum.each(fn entry ->
+          path = Path.join(dir, entry)
+
+          with {:ok, %File.Stat{mtime: mtime}} <- File.stat(path, time: :posix),
+               true <- mtime < cutoff do
+            File.rm(path)
+          end
+        end)
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp spill_file?(name) do
+    String.starts_with?(name, @spill_prefix) and String.ends_with?(name, @spill_suffix)
+  end
+
+  defp rand_hex do
+    :crypto.strong_rand_bytes(6) |> Base.encode16(case: :lower)
+  end
 
   # `binary_part/3` counts bytes and can split a multibyte UTF-8 codepoint,
   # producing an invalid binary for the JSON encoder downstream. Back off over

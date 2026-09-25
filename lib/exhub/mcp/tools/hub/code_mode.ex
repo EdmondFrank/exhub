@@ -33,8 +33,25 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
     discovering again — write one script that fetches, filters, loops and returns
     the distilled answer:
 
-        local r = desktop.read_file({path = "/etc/hosts"})
-        return r.content[1].text
+        -- Read, bulk-edit and rebuild in a single round trip.
+        local edits = {{"OldName", "NewName"}, {"old_flag", "new_flag"}}
+        for _, file in ipairs({"/repo/lib/a.ex", "/repo/lib/b.ex"}) do
+          local src = desktop.read_file({path = file}).content[1].text
+          for _, e in ipairs(edits) do
+            src = src:gsub(e[1], e[2])
+          end
+          desktop.write_file({path = file, content = src})
+        end
+
+        return desktop.execute_command({
+          command = "mix compile --warnings-as-errors",
+          working_dir = "/repo"
+        }).content[1].text
+
+    **This lets you:**
+    - call many tools from a single turn, in sequence or in parallel;
+    - filter, reshape and join results before they reach context;
+    - loop, branch and compute over tool output in a real language.
 
     **Calling tools** (both forms work):
     - Nested by server: `desktop.read_file(args)`, `web_tools.web_fetch(args)`
@@ -42,27 +59,34 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
 
     **Parallel calls** (one round trip, many tools at once):
         local r = parallel({
-          {server = "time",      tool = "get_current_time", args = {timezone = "UTC"}},
-          {server = "web-tools", tool = "fetch",            args = {url = "https://…"}}
+          {server = "desktop", tool = "read_file",       args = {path = "/etc/hosts"}},
+          {server = "desktop", tool = "execute_command", args = {command = "uname -a"}}
         })
         return r[1].content[1].text .. r[2].content[1].text
-    `parallel` raises on the first failing call and returns results index-aligned
-    with the input; `parallel_all` never raises, returning one
+    `parallel` fans the calls out concurrently, returns results index-aligned
+    with the input (assign to `local r`, then index `r[1]`, `r[2]`) and raises on
+    the first failure; `parallel_all` never raises, returning one
     `{ok = true, result = …}` / `{ok = false, error = …}` per call.
 
     **Rules**
     - Arguments are a Lua table with named keys, e.g.
-      `{path = "/x", pattern = "*.ex", search_type = "content"}`.
+      `{path = "/x", pattern = "*.ex", search_type = "content"}`. A positional
+      table (`{"a", "b"}`) is rejected — omit the argument to pass `{}`.
     - Results are Lua tables; most tools return their text payload under
       `r.content[1].text`.
     - A failing call raises a Lua error — both hub/transport errors and MCP
       results carrying `isError = true`. Catch it with
-      `local ok, r = pcall(desktop.read_file, {path = "/nope"})`.
+      `local ok, r = pcall(desktop.read_file, {path = "/nope"})`; note `pcall`
+      yields only the message string, not the structured payload.
     - `print(...)` output is collected and returned above your `return` value.
     - Return a table/string/number to send it back; returning nothing sends
       "Execution completed with no return value."
+    - When the result exceeds the output cap, the returned text is truncated and
+      the full output is written to a temp file whose path is included — read it
+      back with `desktop.read_file`.
     - The sandbox blocks io/os/require/filesystem — the only way out is the
-      tools. Loops are bounded by an instruction, timeout and memory budget.
+      tools. Loops are bounded by an instruction, a wall-clock timeout
+      (default #{@default_timeout_s}s) and a memory budget.
 
     Available namespaces: #{namespaces_hint()}.
     """

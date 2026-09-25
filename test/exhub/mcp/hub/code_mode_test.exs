@@ -12,6 +12,8 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
 
   @mcp_error %{"content" => [%{"type" => "text", "text" => "nope"}], "isError" => true}
 
+  @big_output ~s|local t = {} for i = 1, 5000 do t[i] = "abcdefghij" end return table.concat(t)|
+
   defp runner(fun), do: fn server, tool, args -> fun.(server, tool, args) end
 
   defp echo_runner do
@@ -19,6 +21,11 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
       Process.sleep(120)
       {:ok, %{"content" => [%{"type" => "text", "text" => args["tag"] || ""}]}}
     end)
+  end
+
+  defp spilled_path(text) do
+    [_, path] = Regex.run(~r/Full output saved to: (\S+)/, text)
+    path
   end
 
   describe "configuration" do
@@ -154,12 +161,46 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
       assert message =~ "timed out"
     end
 
-    test "truncates oversized output" do
-      code = ~s|local t = {} for i = 1, 5000 do t[i] = "abcdefghij" end return table.concat(t)|
-
-      assert {:ok, text} = CodeMode.run(code, [], max_output_chars: 100)
+    test "truncates oversized output and spills the full text to a temp file" do
+      assert {:ok, text} = CodeMode.run(@big_output, [], max_output_chars: 100)
       assert String.starts_with?(text, "abcdefghij")
       assert text =~ "(truncated"
+
+      path = spilled_path(text)
+      on_exit(fn -> File.rm(path) end)
+
+      assert File.exists?(path)
+      full = File.read!(path)
+      assert byte_size(full) == 50_000
+      assert String.starts_with?(full, "abcdefghij")
+    end
+
+    test "does not spill when the output fits within the limit" do
+      assert {:ok, text} = CodeMode.run(~s|return "small"|, [], max_output_chars: 100)
+      assert text == "small"
+      refute text =~ "Full output saved"
+    end
+
+    test "spill_truncated: false keeps the plain truncation notice" do
+      assert {:ok, text} =
+               CodeMode.run(@big_output, [], max_output_chars: 100, spill_truncated: false)
+
+      assert text =~ "(truncated"
+      refute text =~ "Full output saved"
+    end
+
+    test "successive spills use distinct files" do
+      assert {:ok, first} = CodeMode.run(@big_output, [], max_output_chars: 100)
+      assert {:ok, second} = CodeMode.run(@big_output, [], max_output_chars: 100)
+
+      first_path = spilled_path(first)
+      second_path = spilled_path(second)
+      on_exit(fn -> File.rm(first_path) end)
+      on_exit(fn -> File.rm(second_path) end)
+
+      refute first_path == second_path
+      assert File.exists?(first_path)
+      assert File.exists?(second_path)
     end
   end
 

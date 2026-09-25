@@ -42,7 +42,13 @@ config :exhub, :code_mode,
   max_call_depth: 200,
   max_heap_size: 268_435_456,
   max_string_bytes: 8_388_608,
-  max_output_chars: 12_000,
+  # When a result exceeds `max_output_chars`, the full output is written to a
+  # temp file and its path returned alongside the truncated prefix, so the
+  # caller can read it back later. Set `spill_truncated: false` to disable, or
+  # `spill_dir` to choose the directory (nil → `System.tmp_dir!()`).
+  max_output_chars: 24_000,
+  spill_truncated: true,
+  spill_dir: nil,
   max_concurrency: 8,
   raise_on_tool_error: true,
   exclude_servers: ["mcp-hub"]
