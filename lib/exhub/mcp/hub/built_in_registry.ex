@@ -28,6 +28,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "web-tools" => Exhub.MCP.WebToolsServer,
     "archery" => Exhub.MCP.ArcheryServer,
     "browser-use" => Exhub.MCP.BrowserUseServer,
+    "browser-agent" => Exhub.MCP.BrowserAgentServer,
     "image-gen" => Exhub.MCP.ImageGenServer,
     "doc-extract" => Exhub.MCP.DocExtractServer,
     "look" => Exhub.MCP.LookServer,

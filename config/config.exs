@@ -159,6 +159,22 @@ config :exhub, Exhub.MCP.Hub.ToolRelevance,
   exclude_servers: ["mcp-hub"],
   fallback: true
 
+# Browser Agent — Jev-style loop over kuri (observation/interaction) and
+# Smart Decide (operation + target policy).
+#   - `backend`: `:http` drives the ExHub-managed kuri daemon, whose HTTP API
+#     keeps accessibility refs server-side so CLICK/TYPE_TEXT resolve; `:cli`
+#     shells out to `kuri-agent`, which assigns refs per process and therefore
+#     cannot act on a ref printed by an earlier snapshot.
+#   - `endpoint`/`model`: the OpenAI-compatible chat model used to write
+#     TYPE_TEXT field values; uses the shared :giteeai_api_key
+# In-code defaults in `Exhub.BrowserAgent.TextHelper` apply for any missing key.
+config :exhub, Exhub.BrowserAgent,
+  backend: :http
+
+config :exhub, Exhub.BrowserAgent.TextHelper,
+  endpoint: "https://api.moark.com/v1/chat/completions",
+  model: "deepseek-v4.1-flash"
+
 # Web tools: Smart Decide (System One) relevance filter applied to the web
 # search result pages returned by `web_search`.
 #   - `enabled`: master switch (per-call override via `web_search.filter`)

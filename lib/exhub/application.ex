@@ -64,6 +64,13 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # Browser Agent Store — session state for the Jev-style browser loop
+      {Exhub.BrowserAgent.Store, name: Exhub.BrowserAgent.Store},
+      # MCP Browser Agent Server (kuri-agent observation + Smart Decide policy)
+      {Exhub.MCP.BrowserAgentServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       # MCP Image Generation Server
       {Exhub.MCP.ImageGenServer,
        transport: :streamable_http,

@@ -915,6 +915,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
       %{name: "web-tools", route: "/web-tools/mcp"},
       %{name: "archery", route: "/archery/mcp"},
       %{name: "browser-use", route: "/browser-use/mcp"},
+      %{name: "browser-agent", route: "/browser-agent/mcp"},
       %{name: "image-gen", route: "/image-gen/mcp"},
       %{name: "doc-extract", route: "/doc-extract/mcp"},
       %{name: "look", route: "/look/mcp"},
