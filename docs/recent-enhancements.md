@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## MCP Hub — Non-Blocking Built-in Tool Dispatch in `ClientManager`
+
+- **Problem**: `ClientManager.handle_call({:call_tool, …})` ran built-in tools inline (`BuiltInRegistry.call_tool/3`) inside the GenServer, which had two consequences: (1) one slow built-in call — a long `execute_command`, a blocking subprocess, an outbound HTTP call — stalled **every** other hub request (measured: 19,075 ms of queue wait behind a 20 s call); and (2) a built-in call that recursed back into `ClientManager` (e.g. an `rpc` shell command invoking `ClientManager.list_all_tools/0`) self-deadlocked until the caller's 60 s timeout.
+- **Solution**: the built-in branch now mirrors the upstream branch — `Task.Supervisor.async_nolink/2` under `Exhub.MCP.Hub.TaskSupervisor`, registration in `state.pending_tool_calls`, a `{:noreply, state}` return, and `GenServer.reply/2` from the existing `handle_info({ref, result}, …)` clause. Reply shape is unchanged, and a task that dies without replying is answered from the `{:DOWN, …}` clause with `{:error, {:task_crashed, reason}}`.
+- **Side benefits**: built-in calls now report a **real** duration (the old branch hardcoded `duration = 0`), and a raising tool degrades to a tool error instead of stalling the hub.
+- **Verified live** (zero-downtime: release + 300/300 modules hot-reloaded, VM never restarted): two built-in calls dispatched in the **same millisecond**, the short one completing in 249 ms while a 20 s call was still in flight, with a recursive `ClientManager.list_all_tools/0` returning in 981 µs inside that window.
+- **Modified Files**:
+  - `lib/exhub/mcp/hub/client_manager.ex` — built-in branch of `handle_call({:call_tool, …})` executes in a `Task`
+  - `docs/modules/mcp-hub.md` — new "Tool-Call Dispatch (non-blocking)" section; built-in execution note
+  - `docs/modules/metrics.md` — `:mcp_tool_call` recording paths
+  - `docs/modules/probe.md` — corrected the stale "`ClientManager` would serialize the search" rationale
+  - `AGENTS.md` — hot-reload caveat for `ClientManager`; Exile env-dump known issue
+
+---
+
 ## Exhub Probe — WebSocket Code-Search Frontend
 
 - **New Feature**: `exhub-probe`, an Emacs code-search frontend that runs ExHub's `search_files` tool over the existing WebSocket connection instead of a subprocess. It keeps probe.el's UX shape (per-query+directory buffers, file collapse, syntax highlighting, `RET` to jump) while replacing its transport.

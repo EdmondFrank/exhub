@@ -99,6 +99,18 @@ code immediately.
    `bin/exhub rpc "Exhub.Router.Config.reload_from_scr()"`.
 4. Verify with `exhub_get_status` / `exhub_get_version` or
    `curl localhost:9069`.
+5. Reloading `ClientManager` itself is the one case that needs care:
+   `Exhub.HotReload.reload/0` does `:code.soft_purge/1` + `:code.load_abs/1`, and
+   the load fails with `:not_purged` while any process still runs that module's
+   *old* code — surfaced as a `✗ Exhub.MCP.Hub.ClientManager` line and a non-zero
+   `errors` count, with the module keeping its old code. A hub tool call used to
+   hold `ClientManager.handle_call/3` on the stack for its whole duration, so a
+   reload triggered *by* a hub tool call could not reload `ClientManager`. Built-in
+   calls now execute in `Task`s (see "Tool-Call Dispatch" in
+   `docs/modules/mcp-hub.md`), so the GenServer is idle between calls and this no
+   longer bites; keep the detach trick for emergencies:
+   `nohup sh -c 'sleep 5; bin/exhub rpc "IO.puts(Exhub.HotReload.reload_and_summarize())"' > /tmp/exhub_reload.log 2>&1 &`
+   then read `/tmp/exhub_reload.log` (expect `N reloaded, 0 errors`).
 
 ### Activating new supervision-tree children without restart
 
@@ -183,6 +195,22 @@ including ANSI escapes). Through the MCP hub upstream `emacs`:
 
 Related buffers: `*exhub-reload*` and `*exhub-release*` (build output),
 `*Messages*`. Use `emacs_list_buffers` to discover them.
+
+### Known issue: the Exile error path logs the child's whole environment
+
+When an Exile-managed process is killed you get
+`GenServer … terminating ** (stop) :kill_timeout`, often preceded by
+`[exile] failed to send signal: No such process`. That `:error` log line inspects
+`%Exile.Process.State{}`, whose `env:` field carries the child's **full
+environment** — `SECRET_VAULT_PASSWORD`, `COTP_PASS` and the provider API keys —
+into the `*exhub*` buffer. So:
+
+- treat `*exhub*` (and anything derived from it) as **sensitive** when sharing
+  logs; and
+- prefer the `desktop__start_process` tool over a shell `&`/`nohup` background
+  job — backgrounding a command inside `execute_command` is a reliable way to
+  trigger that kill path (`start_process` returns immediately and leaves nothing
+  for the exit sequence to reap).
 
 ## Test layout
 

@@ -172,7 +172,7 @@ The Hub automatically registers all **built-in MCP servers** that run in the sam
 
 1. **Auto-registration**: On startup, `ClientManager` merges built-in configs (from `builtin_server_configs/0`) with external configs from `~/.config/exhub/mcp_servers.json` (or `$EXHUB_MCP_SERVERS_CONFIG`). External configs take precedence if names collide.
 
-2. **Zero-latency execution**: Built-in servers start with status `:connected` immediately — no HTTP handshake or tool discovery is needed. Tool calls are routed directly to the server module via `BuiltInRegistry.call_tool/3`.
+2. **Zero-latency execution**: Built-in servers start with status `:connected` immediately — no HTTP handshake or tool discovery is needed. Tool calls are routed directly to the server module via `BuiltInRegistry.call_tool/3`, executed in a supervised `Task` so a slow tool cannot stall the hub — see [Tool-Call Dispatch](#tool-call-dispatch-non-blocking).
 
 3. **Tool aggregation**: Built-in server tools are included in both `list_all_tools` and `search_tools` responses, merged with upstream tools.
 
@@ -700,6 +700,40 @@ The ClientManager uses a **non-blocking startup** pattern to avoid delaying the 
 - If the `DynamicSupervisor` crashes, it is recreated and a reconnect is scheduled after 30 seconds.
 - Failed/error clients are periodically reconnected via `:reconnect_failed_clients` messages.
 - Upstream server failures **do not crash** the main Exhub application.
+
+### Tool-Call Dispatch (non-blocking)
+
+`handle_call({:call_tool, server, tool, args}, from, state)` never runs a tool
+inside the GenServer process. Both branches execute the call in a
+`Task.Supervisor.async_nolink(Exhub.MCP.Hub.TaskSupervisor, …)` task, register
+`task.ref → {from, server, tool, start_time}` in `state.pending_tool_calls`, and
+return `{:noreply, state}`. The task result arrives in
+`handle_info({ref, result}, …)`, which `GenServer.reply/2`s to the caller; a task
+that dies without replying is answered from the `{:DOWN, …}` clause with
+`{:error, {:task_crashed, reason}}`.
+
+| Tool source     | Work done in the task                            |
+|-----------------|--------------------------------------------------|
+| Built-in server | `BuiltInRegistry.call_tool/3` (in-VM, no HTTP)   |
+| Upstream server | `Anubis.Client.call_tool/4` (HTTP)               |
+
+Consequences:
+
+- **Concurrency**: a slow built-in tool — a long `execute_command`, a blocking
+  subprocess, an outbound HTTP call — no longer stalls every other hub request.
+  Before this change the built-in branch ran `BuiltInRegistry.call_tool/3`
+  inline: concurrent calls were serialized (measured 19,075 ms of queue wait
+  behind a 20 s call) and a built-in call that recursed back into
+  `ClientManager` (e.g. an `rpc` shell command calling
+  `ClientManager.list_all_tools/0`) self-deadlocked until the caller's timeout.
+- **Real durations**: built-in calls previously recorded a hardcoded
+  `duration = 0`; they now record the task's wall-clock time.
+- **Crash safety**: a raising tool is caught inside the task
+  (`rescue`/`catch` → `{:error, reason}`), so it degrades to a tool error
+  instead of blocking the hub.
+
+Calls are still *dispatched* through the single `ClientManager` GenServer, so its
+mailbox remains the front door — now O(1) per call instead of O(tool runtime).
 
 ---
 

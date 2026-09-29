@@ -244,10 +244,11 @@ All LLM proxy routes record `:llm_proxy` metrics after forwarding the upstream r
 
 ### MCP Hub Tool Calls
 
-- `Exhub.MCP.Hub.ClientManager` — records `:mcp_tool_call` metrics in three paths:
-  1. Async tool call success (`Task` result received)
-  2. Async tool call crash (`Task` DOWN with non-normal reason)
-  3. Synchronous tool call (built-in server direct call)
+- `Exhub.MCP.Hub.ClientManager` — every tool call, built-in or upstream, runs in a `Task`, so metrics are recorded in two paths:
+  1. Tool call success (`Task` result received) — the duration is the task's wall-clock time
+  2. Tool call crash (`Task` DOWN with a non-normal reason), recorded with `status: :error`
+
+  (The former third path — a synchronous built-in call that recorded a hardcoded `duration = 0` — no longer exists; see [Tool-Call Dispatch](mcp-hub.md#tool-call-dispatch-non-blocking).)
 - `Exhub.MCP.Hub.Server` — records `:mcp_tool_call` metrics in the `do_handle_tool_call` handler
 
 Tool name format: `"{server_name}__{tool_name}"` (e.g., `"desktop__execute_command"`).

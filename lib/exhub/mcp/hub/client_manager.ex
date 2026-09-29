@@ -554,21 +554,41 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
     Logger.info("[MCP Hub] Calling tool on #{server_name}: #{tool_name}")
 
-    # Check if this is a built-in server first (direct execution, no HTTP)
+    # Check if this is a built-in server first (direct execution, no HTTP).
+    #
+    # Built-in tools run in-process and some are long-running (shell commands,
+    # subprocess calls, outbound HTTP...). Execute them in a supervised Task and
+    # reply from `handle_info/2` so the GenServer stays responsive: a blocking
+    # built-in tool must not stall every other hub call, and a built-in tool that
+    # calls back into ClientManager (e.g. list_all_tools/1) must not self-deadlock.
     if Exhub.MCP.Hub.BuiltInRegistry.built_in?(server_name) do
-      result =
-        case Exhub.MCP.Hub.BuiltInRegistry.call_tool(server_name, tool_name, arguments) do
-          {:ok, result} -> {:reply, {:ok, result}, state}
-          {:error, reason} -> {:reply, {:error, reason}, state}
-        end
+      start_time = System.monotonic_time(:millisecond)
 
-      duration = 0
-      Logger.info("[MCP Hub] Tool call completed: #{server_name}:#{tool_name} in #{duration}ms")
-      Exhub.Metrics.PerformanceTracker.record_mcp_tool_call(
-        "#{server_name}__#{tool_name}",
-        duration
-      )
-      result
+      task =
+        Task.Supervisor.async_nolink(
+          Exhub.MCP.Hub.TaskSupervisor,
+          fn ->
+            result =
+              try do
+                Exhub.MCP.Hub.BuiltInRegistry.call_tool(server_name, tool_name, arguments)
+              rescue
+                e -> {:error, {:exception, inspect(e)}}
+              catch
+                kind, reason -> {:error, {kind, reason}}
+              end
+
+            {server_name, tool_name, start_time, result}
+          end
+        )
+
+      new_pending =
+        Map.put(
+          state.pending_tool_calls,
+          task.ref,
+          {from, server_name, tool_name, start_time}
+        )
+
+      {:noreply, %{state | pending_tool_calls: new_pending}}
     else
       case Map.get(state.clients, server_name) do
         %{status: :connecting} ->

@@ -12,7 +12,7 @@ Instead of spawning a search process from Emacs, the frontend sends a WebSocket 
 - `Exhub.ResponseHandlers.ExhubSearch` calls `BuiltInRegistry.call_tool("desktop", "search_files", PARAMS)` — the built-in `desktop` MCP server in the same VM (no HTTP loop or session handshake).
 - The result is pushed back as evaluable elisp: `(exhub-probe--receive REQ-ID IS-ERROR JSON)`.
 
-The registry call runs inside the handler `Task` started by `Exhub.SocketHandler`, so a multi-second probe run never blocks the Cowboy process. `Exhub.MCP.Hub.ClientManager` is deliberately not used: it is a GenServer that would serialize the whole search behind one call.
+The registry call runs inside the handler `Task` started by `Exhub.SocketHandler`, so a multi-second probe run never blocks the Cowboy process. `Exhub.MCP.Hub.ClientManager` is deliberately not used: it no longer serializes tool execution (built-in calls now run in `Task`s — see [Tool-Call Dispatch](mcp-hub.md#tool-call-dispatch-non-blocking)), but routing through it would still add a GenServer round-trip to a latency-sensitive push path and couple the search to the hub's connection state.
 
 ## Components
 
