@@ -41,6 +41,7 @@ defmodule Exhub.Router do
   - `POST /browser-use/mcp` - MCP browser automation server endpoint
   - `POST /browser-agent/mcp` - MCP Jev-style browser agent (kuri-agent + Smart Decide)
   - `POST /image-gen/mcp` - MCP image generation server endpoint
+  - `POST /video-gen/mcp` - MCP video generation server endpoint (MiniMax-H3 via Gitee AI / moark.com)
   - `POST /todo/mcp` - MCP multi-tenant todo list server endpoint
   - `POST /desktop/mcp` - MCP desktop commander server endpoint (filesystem, process, search)
   - `POST /mac-use/mcp` - MCP macOS native app automation (accessibility, screenshots via axcli)
@@ -535,6 +536,11 @@ defmodule Exhub.Router do
   forward("/image-gen/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.ImageGenServer, request_timeout: 600_000]
+  )
+
+  forward("/video-gen/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.VideoGenServer, request_timeout: 600_000]
   )
 
   forward("/todo/mcp",

@@ -30,6 +30,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "browser-use" => Exhub.MCP.BrowserUseServer,
     "browser-agent" => Exhub.MCP.BrowserAgentServer,
     "image-gen" => Exhub.MCP.ImageGenServer,
+    "video-gen" => Exhub.MCP.VideoGenServer,
     "doc-extract" => Exhub.MCP.DocExtractServer,
     "look" => Exhub.MCP.LookServer,
     "todo" => Exhub.MCP.TodoServer,
