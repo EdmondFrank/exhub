@@ -127,6 +127,26 @@ defmodule Exhub.MCP.Tools.ImageGen do
 
   def name, do: "image_gen"
 
+  # ---------------------------------------------------------------------------
+  # Shared model metadata (used by Exhub.MCP.Tools.I2I)
+  # ---------------------------------------------------------------------------
+
+  @doc "All models accepted by the `image_gen` / `i2i` tools."
+  @spec valid_models() :: [String.t()]
+  def valid_models, do: @valid_models
+
+  @doc "Per-model default `extra_body` params (`%{}` when the model has none)."
+  @spec model_defaults(String.t()) :: map()
+  def model_defaults(model), do: Map.get(@model_defaults, model, %{})
+
+  @doc "`extra_body` params supported by `model` (empty when the model has none)."
+  @spec supported_params(String.t()) :: [atom()]
+  def supported_params(model), do: Map.get(@supported_params, model, [])
+
+  @doc "Default quality-improvement negative prompt."
+  @spec default_negative_prompt() :: String.t()
+  def default_negative_prompt, do: @default_negative_prompt
+
   @impl true
   def description do
     """
@@ -205,7 +225,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
         "Elements to avoid in the generated image. Not supported by Kolors. Defaults to a standard quality-improvement negative prompt."
     )
 
-    field(:guidance_scale, :number,
+    field(:guidance_scale, {:either, {:integer, :float}},
       description:
         "How closely the model follows the prompt (float). Not supported by qwen-image-2.0, qwen-image-2.0-pro, Qwen-Image, Qwen-Image-2512, Qwen-Image-Layered. Model defaults: wan2.7=7.5, Kolors=7.5, GLM-Image=1.5, flux-1-schnell=0.0, FLUX.1-dev=3.5, FLUX.2-dev=7.5, FLUX.2-klein=3.5, SD-XL=7.5, SD-3.5-turbo=1.0, SD-3-medium=7.0, CogView4=7.5, HiDream=7.0, z-image-turbo=3.5, Z-Image=5.0, LongCat=5.0"
     )
@@ -432,7 +452,16 @@ defmodule Exhub.MCP.Tools.ImageGen do
     end
   end
 
-  defp handle_success(resp_body, model, size, prompt, extra_body, frame) do
+  @doc """
+  Builds the tool reply from a successful image API response.
+
+  Shared with `Exhub.MCP.Tools.I2I` so both tools return the same shape:
+  a JSON object with `image_type`, `image_url`, `image_b64`, `model`, `size`,
+  `prompt` and `params`.
+  """
+  @spec handle_success(String.t(), String.t(), String.t() | nil, String.t(), map(), term()) ::
+          {:reply, term(), term()}
+  def handle_success(resp_body, model, size, prompt, extra_body, frame) do
     case Jason.decode(resp_body) do
       {:ok, %{"data" => [first | _]}} when is_map(first) ->
         {type, value} =
@@ -485,7 +514,14 @@ defmodule Exhub.MCP.Tools.ImageGen do
     end
   end
 
-  defp build_extra_body(model, params) do
+  @doc """
+  Builds the `extra_body` map for `model` from the given params.
+
+  Shared with `Exhub.MCP.Tools.I2I`; only params the model supports are kept,
+  falling back to the model defaults.
+  """
+  @spec build_extra_body(String.t(), map()) :: map()
+  def build_extra_body(model, params) do
     allowed = Map.get(@supported_params, model, [])
     defaults = Map.get(@model_defaults, model, %{})
 
@@ -519,12 +555,18 @@ defmodule Exhub.MCP.Tools.ImageGen do
     end
   end
 
-  # qwen-image models use "*" as size separator (e.g. "1024*1024")
-  defp normalize_size(size, "qwen-image-2.0"), do: String.replace(size, "x", "*")
-  defp normalize_size(size, "qwen-image-2.0-pro"), do: String.replace(size, "x", "*")
+  @doc """
+  Normalizes a `size` string for `model`.
+
+  qwen-image models use `*` as the size separator (e.g. `1024*1024`) and WAN
+  models take the `1K`/`2K`/`4K` aliases; other models are returned unchanged.
+  """
+  @spec normalize_size(String.t(), String.t()) :: String.t()
+  def normalize_size(size, "qwen-image-2.0"), do: String.replace(size, "x", "*")
+  def normalize_size(size, "qwen-image-2.0-pro"), do: String.replace(size, "x", "*")
 
   # WAN models accept 1K/2K/4K aliases; convert pixel sizes to the nearest alias
-  defp normalize_size(size, model) when model in @wan_models do
+  def normalize_size(size, model) when model in @wan_models do
     if size in @wan_sizes do
       size
     else
@@ -532,7 +574,7 @@ defmodule Exhub.MCP.Tools.ImageGen do
     end
   end
 
-  defp normalize_size(size, _model), do: size
+  def normalize_size(size, _model), do: size
 
   # Map a "WxH" pixel size to the nearest WAN K alias based on the max dimension
   defp pixel_size_to_wan(size) do

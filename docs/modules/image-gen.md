@@ -164,3 +164,82 @@ Display the image with markdown: `![Generated Image](image_url)`
 | Image is oversaturated or distorted  | Decrease `guidance_scale`                     |
 | Need a specific aspect ratio         | Choose the appropriate `size`                 |
 | Want to avoid specific elements      | Use `negative_prompt` (where supported)       |
+## Tool: `i2i`
+
+Generate a new image guided by one or more existing images plus a text prompt
+(image-to-image / image editing). Mirrors the GenClaw `i2i` tool
+(`Exhub.Genclaw.Tools.I2I`) but is exposed as a standalone MCP tool on this
+server, so it shares the `image_gen` model set, tuning params and response shape.
+
+### Parameters
+
+| Parameter               | Type            | Required | Default                          | Description                                                                  |
+|-------------------------|-----------------|----------|----------------------------------|------------------------------------------------------------------------------|
+| `image_path`            | string          | ✓        | —                                | Primary/source image. URL, base64 `data:` URI, or absolute / `~` file path.  |
+| `prompt`                | string          | ✓        | —                                | Guidance for the resulting image.                                            |
+| `reference_image_paths` | array of string |          | `[]`                             | Extra reference images for multi-image guidance (do not repeat `image_path`).|
+| `model`                 | string          |          | `qwen-image-2.0`                 | Model to use (see below).                                                    |
+| `size`                  | string          |          | `1024x1024`                      | Output image size (not sent for `qwen-image-2.0-pro`).                       |
+| `negative_prompt`       | string          |          | Standard quality negative prompt | Elements to avoid.                                                           |
+| `guidance_scale`        | float           |          | Model default                    | How closely the model follows the prompt.                                    |
+| `num_inference_steps`   | integer         |          | Model default                    | Denoising steps.                                                             |
+| `seed`                  | integer         |          | —                                | Random seed for reproducible generation.                                     |
+| `quality`               | string          |          | —                                | Reserved. Currently has no effect.                                           |
+
+### Image sources
+
+`image_path` and every entry of `reference_image_paths` accept:
+
+- a URL (`https://…`) — passed through (downloaded for the edits endpoint);
+- a base64 `data:` URI — passed through;
+- an absolute path or `~` shorthand — read and encoded (files over 2 MB are
+  downscaled to 1280 px first).
+
+### Models
+
+| Model                        | Guidance                                                          |
+|------------------------------|-------------------------------------------------------------------|
+| `qwen-image-2.0` *(default)* | Multi-image guidance via `images: [...]` on `/v1/images/generations`. |
+| `qwen-image-2.0-pro`         | Multi-image guidance.                                             |
+| any other `image_gen` model  | Single-image edit via `/v1/images/edits` (primary image only).    |
+
+Notes:
+
+- `qwen-image-2.0-pro` rejects the `size` param on the generations endpoint
+  (HTTP 400 `参数无效 'size'`), so `size` is omitted for it and the server
+  default is used.
+- Not every model supports the edits endpoint: Gitee AI currently accepts
+  `gpt-image-2` and `FLUX.1-Kontext-dev` there; other models answer HTTP 400
+  `暂不支持该接口`.
+
+### Response format
+
+Identical to `image_gen`:
+
+```json
+{
+  "image_type": "url",
+  "image_url": "https://moark.com/...",
+  "image_b64": null,
+  "model": "qwen-image-2.0",
+  "size": "1024*1024",
+  "prompt": "...",
+  "params": {
+    "negative_prompt": "...",
+    "num_inference_steps": 30
+  }
+}
+```
+
+### Usage example
+
+Transfer the outfit from a reference onto a subject:
+
+```json
+{
+  "image_path": "/Users/me/Downloads/subject.png",
+  "reference_image_paths": ["/Users/me/Downloads/outfit.png"],
+  "prompt": "Keep the person and pose from the first image; dress them in the outfit from the second image; plain white studio background; photorealistic.",
+  "model": "qwen-image-2.0"
+}
+```

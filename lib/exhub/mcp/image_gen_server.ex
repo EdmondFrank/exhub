@@ -3,6 +3,7 @@ defmodule Exhub.MCP.ImageGenServer do
   MCP Server for AI image generation via Gitee AI.
 
   Exposes the `image_gen` tool which generates images from text descriptions
+  and the `i2i` tool which generates images guided by existing image(s), both
   using the Gitee AI image generation API (OpenAI-compatible).
 
   Supported models: Qwen-Image, Kolors, GLM-Image, FLUX.2-dev,
@@ -17,6 +18,7 @@ defmodule Exhub.MCP.ImageGenServer do
     capabilities: [:tools]
 
   component(Exhub.MCP.Tools.ImageGen)
+  component(Exhub.MCP.Tools.I2I)
 
   @impl true
   def init(client_info, frame) do
