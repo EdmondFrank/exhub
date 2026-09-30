@@ -105,6 +105,42 @@ config :exhub, :memory,
     filter: true
   ]
 
+# Toonflow — native AI short-drama pipeline (novel → script → storyboard →
+# image → video → export). Projects live under `root_dir` (default
+# ~/.config/exhub/toonflow). See docs/modules/toonflow.md and
+# docs/plans/2026-09-30-toonflow-design.md.
+config :exhub, :toonflow, %{
+  "root_dir" => nil,
+  "agents" => %{
+    "script" => "kimi-k2.6",
+    "director" => "kimi-k2.6",
+    "qa" => "kimi-k2.6"
+  },
+  "media" => %{
+    "image_model" => "qwen-image-2.0",
+    "video_model" => "MiniMax-H3",
+    "tts_model" => "CosyVoice2",
+    "tts_voice" => "alloy"
+  },
+  "memory" => %{
+    "enabled" => true,
+    "index_path" => nil,
+    "embedding_model" => "text-embedding-3-small",
+    "dim" => 1536
+  },
+  "assembly" => %{
+    "ffmpeg_path" => "ffmpeg",
+    "subtitles" => true
+  },
+  "ui" => %{
+    "enabled" => true,
+    "tick_ms" => 5000,
+    # Mutating REST endpoints (create project / run pipeline) are loopback-only
+    # by default — the app is also reachable over the VPN.
+    "require_local" => true
+  }
+}
+
 # Brain RAG (semantic/vector search) configuration.
 # Provider is "openai" (default) or "gitee_ai" (moark endpoint).
 # - For "openai", the API key comes from :exhub -> :openai_api_key.
@@ -192,8 +228,7 @@ config :exhub, Exhub.MCP.Hub.ToolRelevance,
 #   - `endpoint`/`model`: the OpenAI-compatible chat model used to write
 #     TYPE_TEXT field values; uses the shared :giteeai_api_key
 # In-code defaults in `Exhub.BrowserAgent.TextHelper` apply for any missing key.
-config :exhub, Exhub.BrowserAgent,
-  backend: :http
+config :exhub, Exhub.BrowserAgent, backend: :http
 
 config :exhub, Exhub.BrowserAgent.TextHelper,
   endpoint: "https://api.moark.com/v1/chat/completions",

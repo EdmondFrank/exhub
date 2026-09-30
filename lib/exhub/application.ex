@@ -11,6 +11,9 @@ defmodule Exhub.Application do
 
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
+      # Toonflow progress fan-out — duplicate keys so many browser sockets may
+      # subscribe to the same project. See Exhub.Toonflow.Progress.
+      {Registry, keys: :duplicate, name: Exhub.Toonflow.Progress.Registry},
       # Finch HTTP pool used by the Anubis MCP client transports. anubis_mcp
       # 1.14+ no longer ships an OTP application module (its own app was
       # removed upstream), so the host application must start the named Finch
@@ -96,7 +99,7 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
-      # MCP Speak Server (text-to-speech via Qwen3-TTS on Gitee AI / moark.com)
+      # MCP Speak Server (text-to-speech: CosyVoice2 sync / Qwen3-TTS async on Gitee AI / moark.com)
       {Exhub.MCP.SpeakServer,
        transport: :streamable_http,
        request_timeout: 600_000,
@@ -138,6 +141,15 @@ defmodule Exhub.Application do
        session_idle_timeout: 86_400_000 * 365},
       # MCP Memory Server (Beacon-style memory layer on the Brain vault)
       {Exhub.MCP.MemoryServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
+      # Toonflow — native AI short-drama pipeline core: project registry store
+      {Exhub.Toonflow.Store, name: Exhub.Toonflow.Store},
+      # Toonflow — semantic memory index (SQLite + sqlite-vec), Phase 4
+      {Exhub.Toonflow.Memory.Index, name: Exhub.Toonflow.Memory.Index},
+      # MCP Toonflow Server (project management; pipeline tools land in later phases)
+      {Exhub.MCP.ToonflowServer,
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},

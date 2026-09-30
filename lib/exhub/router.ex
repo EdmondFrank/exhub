@@ -53,6 +53,7 @@ defmodule Exhub.Router do
   - `POST /brain/mcp` - MCP brain server endpoint (Obsidian vault as second brain)
   - `POST /memory/mcp` - MCP memory server endpoint (Beacon-style memory layer on the vault)
   - `POST /emacs/mcp` - MCP Emacs buffer operations server endpoint
+  - `POST /toonflow/mcp` - MCP Toonflow server endpoint (AI short-drama pipeline)
   """
 
   use Plug.Router
@@ -64,6 +65,7 @@ defmodule Exhub.Router do
   alias Exhub.Router.Config, as: RouterConfig
   alias Exhub.Router.DashboardView
   alias Exhub.Router.Helpers
+  alias Exhub.Router.ToonflowView
   alias Exhub.Converters.Anthropic, as: AnthropicConverter
   alias Exhub.Llm.LlmConfigServer
   alias Exhub.LLMModels
@@ -78,6 +80,12 @@ defmodule Exhub.Router do
 
   socket("/exhub", Exhub.SocketHandler,
     websocket: [timeout: RouterConfig.get_timeout(), recv_timeout: RouterConfig.get_timeout()],
+    longpoll: false
+  )
+
+  # Toonflow canvas live-progress websocket (Phase 5)
+  socket("/toonflow/ws", Exhub.Toonflow.SocketHandler,
+    websocket: [timeout: 1_800_000, recv_timeout: 1_800_000],
     longpoll: false
   )
 
@@ -609,6 +617,102 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.EmacsServer, request_timeout: 600_000]
   )
 
+  forward("/toonflow/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.ToonflowServer, request_timeout: 600_000]
+  )
+
+  # ============================================================================
+  # Toonflow UI — canvas web view + live progress (see docs/modules/toonflow.md)
+  # ============================================================================
+
+  get "/toonflow" do
+    projects =
+      case Exhub.Toonflow.Snapshot.project_list() do
+        {:ok, projects} -> projects
+        _ -> []
+      end
+
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(200, ToonflowView.render_index(projects))
+  end
+
+  get "/toonflow/projects/:name" do
+    name = conn.params["name"]
+
+    if Exhub.Toonflow.Workspace.valid_name?(name) do
+      conn
+      |> put_resp_content_type("text/html")
+      |> send_resp(200, ToonflowView.render_project(name))
+    else
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(404, Jason.encode!(%{error: "invalid project name"}))
+    end
+  end
+
+  get "/toonflow/api/projects" do
+    case Exhub.Toonflow.Snapshot.project_list() do
+      {:ok, projects} -> toonflow_json(conn, 200, %{projects: projects})
+      {:error, reason} -> toonflow_json(conn, 500, %{error: toonflow_reason(reason)})
+    end
+  end
+
+  post "/toonflow/api/projects" do
+    if toonflow_writable?(conn) do
+      name = conn.body_params["name"]
+      description = conn.body_params["description"] || ""
+
+      case Exhub.Toonflow.Store.create_project(name, description: description) do
+        {:ok, project} -> toonflow_json(conn, 200, %{project: project})
+        {:error, reason} -> toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
+      end
+    else
+      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+    end
+  end
+
+  get "/toonflow/api/projects/:name" do
+    case Exhub.Toonflow.Snapshot.build(name) do
+      {:ok, snapshot} -> toonflow_json(conn, 200, snapshot)
+      {:error, reason} -> toonflow_json(conn, 404, %{error: toonflow_reason(reason)})
+    end
+  end
+
+  post "/toonflow/api/projects/:name/run" do
+    if toonflow_writable?(conn) do
+      params = conn.body_params
+      opts = toonflow_run_opts(params)
+
+      result =
+        if params["resume"] == true,
+          do: Exhub.Toonflow.Pipeline.resume(name, opts),
+          else: Exhub.Toonflow.Pipeline.run(name, opts)
+
+      case result do
+        {:ok, report} -> toonflow_json(conn, 200, Map.put(report, "success", true))
+        {:error, report} -> toonflow_json(conn, 200, Map.put(report, "success", false))
+      end
+    else
+      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+    end
+  end
+
+  get "/toonflow/media/:name/*path" do
+    name = conn.params["name"]
+
+    with true <- Exhub.Toonflow.Workspace.valid_name?(name),
+         {:ok, file} <-
+           Exhub.Toonflow.Snapshot.resolve_media(name, toonflow_join_path(conn.params["path"])) do
+      conn
+      |> put_resp_header("cache-control", "private, max-age=60")
+      |> send_file(200, file)
+    else
+      _ -> conn |> send_resp(404, "not found")
+    end
+  end
+
   # ============================================================================
   # Agent Hub UI Pages
   # ============================================================================
@@ -1018,6 +1122,55 @@ defmodule Exhub.Router do
       "<html><head></head><body>Connect to WS endpoint at \"/exhub\"</body></html>"
     )
   end
+
+  # ============================================================================
+  # Private Functions - Toonflow UI helpers
+  # ============================================================================
+
+  defp toonflow_json(conn, status, payload) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(status, Jason.encode!(payload))
+  end
+
+  defp toonflow_reason(reason) when is_binary(reason), do: reason
+  defp toonflow_reason(reason), do: inspect(reason)
+
+  defp toonflow_join_path(path) when is_list(path), do: Enum.join(path, "/")
+  defp toonflow_join_path(path) when is_binary(path), do: path
+  defp toonflow_join_path(_), do: ""
+
+  defp toonflow_run_opts(params) do
+    stages =
+      case params["stages"] do
+        list when is_list(list) and list != [] -> list
+        _ -> nil
+      end
+
+    [
+      stages: stages,
+      path: params["path"],
+      text: params["text"],
+      title: params["title"],
+      from: params["from"],
+      continue_on_error: params["continue_on_error"] == true,
+      mix_audio: params["mix_audio"] == true,
+      subtitles: params["subtitles"]
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  # Mutating Toonflow endpoints are loopback-only by default (`ui.require_local`).
+  defp toonflow_writable?(conn) do
+    case Exhub.Toonflow.Config.get("ui") do
+      %{"require_local" => false} -> true
+      _ -> toonflow_local_ip?(conn.remote_ip)
+    end
+  end
+
+  defp toonflow_local_ip?({127, _, _, _}), do: true
+  defp toonflow_local_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  defp toonflow_local_ip?(_), do: false
 
   # ============================================================================
   # Private Functions - Request Handlers

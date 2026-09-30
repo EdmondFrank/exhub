@@ -39,6 +39,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "brain" => Exhub.MCP.BrainServer,
     "memory" => Exhub.MCP.MemoryServer,
     "exhub" => Exhub.MCP.ExhubServer,
+    "toonflow" => Exhub.MCP.ToonflowServer,
     "mac-use" => Exhub.MCP.MacUseServer,
     "emacs" => Exhub.MCP.EmacsServer,
     "listen" => Exhub.MCP.ListenServer,
