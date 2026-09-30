@@ -81,6 +81,30 @@ config :exhub, :brain_search, %{
   "policies" => %{}
 }
 
+# Memory layer — a Beacon-style, review-gated memory loop built on the Brain
+# vault (notes under `vault_folder`) and Smart Decide (System One).
+#   - `vault_folder`/`skill_folder`: where memories and promoted skills live,
+#     relative to the Obsidian vault.
+#   - `kinds`/`statuses`: allowed lifecycle values.
+#   - `evaluator`: System One question gate (never approves anything itself).
+#   - `recall`: default recall limit and Smart Decide relevance pass.
+config :exhub, :memory,
+  vault_folder: "memory",
+  skill_folder: "memory/skills",
+  kinds: ~w(workflow correction debugging_pattern gotcha convention),
+  statuses: ~w(candidate approved rejected superseded),
+  evaluator: [
+    enabled: true,
+    model: "APUS-OpenJev-v1-9B",
+    task_success_min: 0.50,
+    mean_min: 0.60,
+    state_char_limit: 16_000
+  ],
+  recall: [
+    limit: 5,
+    filter: true
+  ]
+
 # Brain RAG (semantic/vector search) configuration.
 # Provider is "openai" (default) or "gitee_ai" (moark endpoint).
 # - For "openai", the API key comes from :exhub -> :openai_api_key.

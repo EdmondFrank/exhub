@@ -51,6 +51,7 @@ defmodule Exhub.Router do
   - `POST /smart-decide/mcp` - MCP System One structured decision server endpoint (Bespoke Nimble / Jev via Gitee AI)
   - `POST /agent/mcp` - MCP agent control server endpoint (ACP bridge for coding agents)
   - `POST /brain/mcp` - MCP brain server endpoint (Obsidian vault as second brain)
+  - `POST /memory/mcp` - MCP memory server endpoint (Beacon-style memory layer on the vault)
   - `POST /emacs/mcp` - MCP Emacs buffer operations server endpoint
   """
 
@@ -581,6 +582,11 @@ defmodule Exhub.Router do
   forward("/brain/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 600_000]
+  )
+
+  forward("/memory/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.MemoryServer, request_timeout: 600_000]
   )
 
   forward("/exhub/mcp",

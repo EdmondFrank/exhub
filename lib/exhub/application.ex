@@ -131,6 +131,11 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # MCP Memory Server (Beacon-style memory layer on the Brain vault)
+      {Exhub.MCP.MemoryServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       # MCP Exhub Self-Management Server (compile, reload, restart, status)
       {Exhub.MCP.ExhubServer,
        transport: :streamable_http,
