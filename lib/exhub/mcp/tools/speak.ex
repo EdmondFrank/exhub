@@ -1,38 +1,41 @@
 defmodule Exhub.MCP.Tools.Speak do
   @moduledoc """
-  MCP Tool for text-to-speech synthesis via Gitee AI / moark.com Qwen3-TTS.
+  MCP Tool for text-to-speech synthesis via Gitee AI / moark.com.
 
-  Qwen3-TTS on MoArk is asynchronous: the text is submitted to
-  `POST /v1/async/audio/speech`, which returns a `task_id`, and the generated
-  audio URL is then polled from `GET /v1/task/{task_id}` until the task
-  succeeds. The tool optionally downloads the resulting audio file to a local
-  path.
+  Two backends are available, chosen with the `provider` parameter:
 
-  The model caps each request at 150 characters, so longer text is split into
-  sentence-aligned segments; each segment is synthesized and, when a local
-  `output` path is given, the segments are concatenated into a single WAV file.
-
-  Two synthesis modes are supported, chosen per input segment:
-
-    * **Voice design** — a preset `speaker` plus an optional natural-language
-      `instruction` describing the voice (e.g. "撒娇稚嫩的萝莉女声").
-    * **Zero-shot voice clone** — a reference audio URL (`ref_audio`) plus its
-      transcript (`ref_text`).
+    * **`sync`** (default) — the OpenAI-compatible
+      `POST https://ai.gitee.com/v1/audio/speech` endpoint, which returns the
+      audio bytes directly. Driven by `Exhub.TTS.Sync`; default model
+      `CosyVoice2`. Voice-cloning models (`IndexTTS-2`, `GLM-TTS`) take a
+      `prompt_audio_url` reference clip.
+    * **`async`** — the legacy MoArk async `Qwen3-TTS` flow: the text is
+      submitted to `POST /v1/async/audio/speech`, which returns a `task_id`, and
+      the generated audio URL is then polled from `GET /v1/task/{task_id}`.
+      The model caps each request at 150 characters, so longer text is split
+      into sentence-aligned segments and (when a local `output` path is given)
+      the segments are concatenated into a single WAV file. Two modes are
+      supported per segment: **voice design** (preset `speaker` + optional
+      `instruction`) and **zero-shot voice clone** (`ref_audio` + `ref_text`).
 
   See `docs/modules/speak.md` for the tool reference.
   """
 
   alias Anubis.Server.Response
+  alias Exhub.TTS.Sync
 
   use Anubis.Server.Component, type: :tool
 
   @submit_url "https://api.moark.com/v1/async/audio/speech"
   @task_url "https://api.moark.com/v1/task"
 
-  @default_model "Qwen3-TTS"
-  @valid_models ~w(Qwen3-TTS)
+  @default_provider "sync"
+  @valid_providers ~w(sync async)
 
-  @default_speaker "Vivian"
+  # Async (MoArk) speech backend.
+  @async_default_model "Qwen3-TTS"
+  @async_valid_models ~w(Qwen3-TTS)
+  @async_default_speaker "Vivian"
 
   @default_output_format "mp3"
 
@@ -60,81 +63,108 @@ defmodule Exhub.MCP.Tools.Speak do
   @impl true
   def description do
     """
-    Synthesize speech from text using the Qwen3-TTS model on MoArk / Gitee AI.
+    Synthesize speech from text via Gitee AI / moark.com.
 
-    Qwen3-TTS is asynchronous: this tool submits the text, then polls until the
-    audio is ready, returning its URL (and optionally saving it to a local file).
-    Text longer than 150 characters is split into sentence-aligned segments
-    automatically; when `output` is set the segments are concatenated into one
-    file (the model emits WAV/PCM audio).
+    **Providers (chosen with `provider`):**
 
-    **Modes (chosen automatically):**
-    - Voice design — set `speaker` (and optionally `instruction`) for a preset voice.
-    - Zero-shot voice clone — set `ref_audio` (reference audio URL) together with
-      `ref_text` (its transcript) to clone that voice.
+    - `sync` (default) — OpenAI-compatible synchronous TTS. The audio bytes are
+      returned directly (no task/poll). Default model `CosyVoice2`
+      (Chinese/English). Other models: `ChatTTS`, `Step-Audio-TTS-3B`, and the
+      clone-only `IndexTTS-2` / `GLM-TTS` (which require `prompt_audio_url`).
+      `CosyVoice3` and `Qwen3-TTS` are NOT available here.
+    - `async` — legacy MoArk async `Qwen3-TTS`: submit, then poll until ready.
+      Text longer than 150 chars is split into sentence-aligned segments and,
+      when `output` is set, concatenated into one WAV file. Modes: **voice
+      design** (`speaker` + optional `instruction`) or **zero-shot clone**
+      (`ref_audio` + `ref_text`).
 
     **Parameters:**
-    - `text`: the text to synthesize (required). May be longer than 150 chars.
+    - `text`: the text to synthesize (required).
+    - `provider`: `sync` (default) or `async`.
+    - `voice`: preset voice for sync mode. Default: `alloy`.
+    - `prompt_audio_url`: reference audio URL for the sync clone models
+      (`IndexTTS-2`, `GLM-TTS`).
+    - `prompt_text`: transcript of `prompt_audio_url` (optional).
+    - `output`: absolute / `~` path to save the audio locally. The extension is
+      corrected to the detected container (e.g. `.wav` for CosyVoice2). When
+      omitted, no file is written.
+    - `model`: TTS model. Defaults: `CosyVoice2` (sync) / `Qwen3-TTS` (async).
+
+    **Async-only parameters:**
     - `speaker`: preset voice for voice-design mode. Default: `Vivian`.
     - `language`: language hint, e.g. `Chinese`, `English` (optional).
-    - `instruction`: natural-language description of the desired voice
-      (voice-design mode, optional).
-    - `ref_audio`: reference audio **URL** for zero-shot cloning (optional).
-    - `ref_text`: transcript of `ref_audio`; required when `ref_audio` is set.
+    - `instruction`: natural-language voice description (optional).
+    - `ref_audio` / `ref_text`: reference audio **URL** + its transcript for
+      zero-shot cloning.
     - `output_format`: only `mp3` is accepted by the API. Default `mp3`.
-    - `output`: absolute / `~` path to save the generated audio file locally.
-      When omitted, only the audio URL(s) are returned.
-    - `model`: only `Qwen3-TTS` is supported.
-    - `wait`: wait for the result (default true). Set `false` to submit and
-      return the `task_id`(s) immediately.
-    - `task_id`: poll an existing task instead of submitting a new one — useful
-      if a previous call timed out.
+    - `wait`: wait for the result (default true); `false` submits and returns
+      the `task_id`(s) immediately.
+    - `task_id`: poll an existing task instead of submitting a new one.
 
-    Returns JSON with `audio_url` (and all `audio_urls`), `saved_path`, `segments`,
-    `task_id`/`task_ids`, `status`, `model`, `speaker`, `output_format` and
-    `usage_info`.
+    Returns JSON with `saved_path`, `status`, `model` and `format` (sync); or
+    `audio_url`/`audio_urls`, `task_id`/`task_ids`, `segments`, `speaker`,
+    `output_format` and `usage_info` (async).
     """
   end
 
   schema do
     field(:text, {:required, :string}, description: "Text to synthesize into speech.")
 
-    field(:speaker, :string, description: "Preset voice for voice-design mode. Default: Vivian.")
+    field(:provider, :string,
+      description: "TTS backend: `sync` (default) or `async`. See the description."
+    )
 
-    field(:language, :string, description: "Language hint, e.g. Chinese, English. Optional.")
+    field(:model, :string,
+      description: "Speech synthesis model. Defaults: `CosyVoice2` (sync) / `Qwen3-TTS` (async)."
+    )
 
-    field(:instruction, :string,
+    field(:voice, :string, description: "Preset voice for sync mode. Default: alloy.")
+
+    field(:prompt_audio_url, :string,
       description:
-        "Natural-language description of the desired voice (voice-design mode). Optional."
+        "Reference audio URL for sync clone models (IndexTTS-2, GLM-TTS). Required by those models."
     )
 
-    field(:ref_audio, :string,
-      description:
-        "Reference audio URL for zero-shot voice cloning (http/https). Requires `ref_text`."
-    )
-
-    field(:ref_text, :string,
-      description: "Transcript of `ref_audio`; required when `ref_audio` is set."
-    )
-
-    field(:output_format, :string,
-      description: "Audio output format. Only `mp3` is accepted by the API."
+    field(:prompt_text, :string,
+      description: "Transcript of `prompt_audio_url` (sync clone mode). Optional."
     )
 
     field(:output, :string,
       description:
-        "Absolute path or ~ shorthand to save the generated audio file. Optional; when omitted only the URL is returned."
+        "Absolute path or ~ shorthand to save the generated audio file. The extension is corrected to the detected container. Optional."
     )
 
-    field(:model, :string, description: "Speech synthesis model. Only `Qwen3-TTS` is supported.")
+    field(:speaker, :string,
+      description: "Async only: preset voice for voice-design mode. Default: Vivian."
+    )
+
+    field(:language, :string, description: "Async only: language hint, e.g. Chinese, English.")
+
+    field(:instruction, :string,
+      description:
+        "Async only: natural-language description of the desired voice (voice-design mode)."
+    )
+
+    field(:ref_audio, :string,
+      description:
+        "Async only: reference audio URL for zero-shot voice cloning (http/https). Requires `ref_text`."
+    )
+
+    field(:ref_text, :string,
+      description: "Async only: transcript of `ref_audio`; required when `ref_audio` is set."
+    )
+
+    field(:output_format, :string,
+      description: "Async only: audio output format. Only `mp3` is accepted by the API."
+    )
 
     field(:wait, :boolean,
       description:
-        "Whether to wait for the result (default: true). When false, returns the task_id immediately."
+        "Async only: wait for the result (default: true). When false, returns the task_id immediately."
     )
 
     field(:task_id, :string,
-      description: "Existing task id to poll instead of submitting a new task."
+      description: "Async only: existing task id to poll instead of submitting a new task."
     )
   end
 
@@ -163,12 +193,83 @@ defmodule Exhub.MCP.Tools.Speak do
       true ->
         with {:ok, validated} <- validate_params(params),
              {:ok, output_path} <- resolve_output(Map.get(params, :output)) do
-          submit_and_reply(validated, Map.get(params, :wait, true), output_path, api_key, frame)
+          dispatch(validated, Map.get(params, :wait, true), output_path, api_key, frame)
         else
           {:error, reason} -> error(frame, reason)
         end
     end
   end
+
+  # Routes to the sync (default) or async backend.
+  defp dispatch(%{provider: "sync"} = validated, _wait, output_path, api_key, frame),
+    do: run_sync(validated, output_path, api_key, frame)
+
+  defp dispatch(%{provider: "async"} = validated, wait, output_path, api_key, frame),
+    do: submit_and_reply(validated, wait, output_path, api_key, frame)
+
+  # --- sync backend (Gitee AI /v1/audio/speech) ---
+
+  defp run_sync(validated, output_path, api_key, frame) do
+    opts = [
+      api_key: api_key,
+      model: validated.model,
+      voice: validated.voice,
+      prompt_audio_url: validated.prompt_audio_url,
+      prompt_text: validated.prompt_text
+    ]
+
+    case Sync.synthesize(validated.text, opts) do
+      {:ok, audio} ->
+        case save_sync(audio, output_path) do
+          {:ok, saved_path} ->
+            reply =
+              %{
+                "status" => "success",
+                "provider" => "sync",
+                "model" => audio.model,
+                "voice" => audio.voice,
+                "format" => audio.format,
+                "content_type" => audio.content_type,
+                "bytes" => byte_size(audio.body),
+                "saved_path" => saved_path
+              }
+              |> reject_nil()
+              |> Jason.encode!()
+
+            {:reply, Response.tool() |> Response.text(reply), frame}
+
+          {:error, reason} ->
+            error(frame, reason)
+        end
+
+      {:error, reason} ->
+        error(frame, sync_error(reason))
+    end
+  end
+
+  defp save_sync(_audio, nil), do: {:ok, nil}
+
+  defp save_sync(audio, path) do
+    final = Sync.with_format(path, audio.format)
+
+    with :ok <- File.mkdir_p(Path.dirname(final)),
+         :ok <- File.write(final, audio.body) do
+      {:ok, final}
+    else
+      {:error, reason} when is_atom(reason) ->
+        {:error, "Failed to write #{final}: #{inspect(reason)}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp sync_error(:missing_api_key), do: "Gitee AI API key not configured"
+
+  defp sync_error({:http, status, message}),
+    do: "Gitee AI speech API error (HTTP #{status}): #{message}"
+
+  defp sync_error(reason), do: "Speech request failed: #{inspect(reason)}"
 
   # ---------------------------------------------------------------------------
   # Public, pure helpers (unit-tested)
@@ -177,15 +278,62 @@ defmodule Exhub.MCP.Tools.Speak do
   @doc """
   Validates and normalizes `speak` params.
 
-  Returns `{:ok, validated}` with keys `:model`, `:text`, `:speaker`,
-  `:language`, `:instruction`, `:ref_audio`, `:ref_text`, `:output_format`,
-  or `{:error, message}`.
+  The `provider` (`sync` default, or `async`) selects the backend and which
+  fields apply. Returns `{:ok, validated}` or `{:error, message}`.
   """
   @spec validate_params(map()) :: {:ok, map()} | {:error, String.t()}
   def validate_params(params) when is_map(params) do
-    model = normalize_string(Map.get(params, :model), @default_model)
+    case normalize_string(Map.get(params, :provider), @default_provider) do
+      "sync" ->
+        validate_sync(params)
+
+      "async" ->
+        validate_async(params)
+
+      other ->
+        {:error,
+         "Invalid provider: #{other}. Valid providers: #{Enum.join(@valid_providers, ", ")}"}
+    end
+  end
+
+  defp validate_sync(params) do
+    model = normalize_string(Map.get(params, :model), Sync.default_model())
     text = Map.get(params, :text)
-    speaker = normalize_string(Map.get(params, :speaker), @default_speaker)
+    voice = normalize_string(Map.get(params, :voice), Sync.default_voice())
+    prompt_audio_url = Map.get(params, :prompt_audio_url)
+    prompt_text = Map.get(params, :prompt_text)
+
+    cond do
+      not is_binary(text) or String.trim(text) == "" ->
+        {:error, "`text` is required"}
+
+      not Sync.model?(model) ->
+        {:error,
+         "Invalid model: #{model}. Valid sync models: #{Enum.join(Sync.valid_models(), ", ")}"}
+
+      present?(prompt_audio_url) and not url?(prompt_audio_url) ->
+        {:error, "`prompt_audio_url` must be an http(s) URL: #{inspect(prompt_audio_url)}"}
+
+      Sync.clone_model?(model) and not present?(prompt_audio_url) ->
+        {:error, "Model #{model} requires `prompt_audio_url` (voice cloning)"}
+
+      true ->
+        {:ok,
+         %{
+           provider: "sync",
+           model: model,
+           text: text,
+           voice: voice,
+           prompt_audio_url: prompt_audio_url,
+           prompt_text: prompt_text
+         }}
+    end
+  end
+
+  defp validate_async(params) do
+    model = normalize_string(Map.get(params, :model), @async_default_model)
+    text = Map.get(params, :text)
+    speaker = normalize_string(Map.get(params, :speaker), @async_default_speaker)
     ref_audio = Map.get(params, :ref_audio)
     ref_text = Map.get(params, :ref_text)
     output_format = normalize_string(Map.get(params, :output_format), @default_output_format)
@@ -194,8 +342,9 @@ defmodule Exhub.MCP.Tools.Speak do
       not is_binary(text) or String.trim(text) == "" ->
         {:error, "`text` is required"}
 
-      model not in @valid_models ->
-        {:error, "Invalid model: #{model}. Valid models: #{Enum.join(@valid_models, ", ")}"}
+      model not in @async_valid_models ->
+        {:error,
+         "Invalid model: #{model}. Valid async models: #{Enum.join(@async_valid_models, ", ")}"}
 
       present?(ref_audio) and not url?(ref_audio) ->
         {:error,
@@ -208,6 +357,7 @@ defmodule Exhub.MCP.Tools.Speak do
       true ->
         {:ok,
          %{
+           provider: "async",
            model: model,
            text: text,
            speaker: speaker,
@@ -221,14 +371,24 @@ defmodule Exhub.MCP.Tools.Speak do
   end
 
   @doc """
-  Builds the submit request body from validated params.
+  Builds the request body from validated params.
 
-  Produces a single-element `inputs` list. In clone mode (when `ref_audio` is
-  set) the segment carries `prompt_text` / `prompt_audio_url`; otherwise it
-  carries `speaker` (and `instruction` when set).
+  `sync` → the OpenAI-compatible speech body (see `Exhub.TTS.Sync.build_body/2`);
+  `async` → the MoArk `inputs` list shape.
   """
   @spec build_body(map()) :: map()
-  def build_body(validated) do
+  def build_body(%{provider: "sync"} = validated) do
+    Sync.build_body(validated.text,
+      model: validated.model,
+      voice: validated.voice,
+      prompt_audio_url: validated.prompt_audio_url,
+      prompt_text: validated.prompt_text
+    )
+  end
+
+  def build_body(%{provider: "async"} = validated), do: async_body(validated)
+
+  defp async_body(validated) do
     item =
       %{"prompt" => validated.text}
       |> maybe_put("language", validated.language)
@@ -645,8 +805,8 @@ defmodule Exhub.MCP.Tools.Speak do
 
   defp context_from(params) do
     %{
-      model: normalize_string(Map.get(params, :model), @default_model),
-      speaker: normalize_string(Map.get(params, :speaker), @default_speaker),
+      model: normalize_string(Map.get(params, :model), @async_default_model),
+      speaker: normalize_string(Map.get(params, :speaker), @async_default_speaker),
       output_format: normalize_string(Map.get(params, :output_format), @default_output_format)
     }
   end

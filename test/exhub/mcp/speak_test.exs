@@ -11,23 +11,76 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       assert {:error, _} = Speak.validate_params(%{text: "   "})
     end
 
-    test "rejects an unknown model" do
+    test "rejects an unknown provider" do
+      assert {:error, msg} = Speak.validate_params(%{text: "hi", provider: "nope"})
+      assert msg =~ "Invalid provider"
+    end
+
+    test "defaults to the sync provider with CosyVoice2" do
+      assert {:ok, v} = Speak.validate_params(%{text: "hello"})
+      assert v.provider == "sync"
+      assert v.model == "CosyVoice2"
+      assert v.voice == "alloy"
+    end
+
+    test "rejects an unknown sync model" do
       assert {:error, msg} = Speak.validate_params(%{text: "hi", model: "nope"})
       assert msg =~ "Invalid model"
     end
 
-    test "applies defaults for voice-design mode" do
-      assert {:ok, v} = Speak.validate_params(%{text: "hello"})
+    test "accepts sync voice and clone params" do
+      assert {:ok, v} =
+               Speak.validate_params(%{
+                 text: "hi",
+                 model: "IndexTTS-2",
+                 voice: "serena",
+                 prompt_audio_url: "https://example.com/ref.wav",
+                 prompt_text: "reference words"
+               })
+
+      assert v.model == "IndexTTS-2"
+      assert v.voice == "serena"
+      assert v.prompt_audio_url == "https://example.com/ref.wav"
+      assert v.prompt_text == "reference words"
+    end
+
+    test "sync clone models require prompt_audio_url" do
+      assert {:error, msg} = Speak.validate_params(%{text: "hi", model: "IndexTTS-2"})
+      assert msg =~ "requires `prompt_audio_url`"
+    end
+
+    test "sync prompt_audio_url must be an http(s) URL" do
+      assert {:error, msg} =
+               Speak.validate_params(%{
+                 text: "hi",
+                 model: "GLM-TTS",
+                 prompt_audio_url: "/tmp/a.wav"
+               })
+
+      assert msg =~ "`prompt_audio_url` must be an http(s) URL"
+    end
+
+    test "async applies the legacy defaults" do
+      assert {:ok, v} = Speak.validate_params(%{text: "hello", provider: "async"})
+      assert v.provider == "async"
       assert v.model == "Qwen3-TTS"
       assert v.speaker == "Vivian"
       assert v.output_format == "mp3"
       assert v.ref_audio == nil
     end
 
-    test "accepts an explicit speaker, language and instruction" do
+    test "async rejects an unknown model" do
+      assert {:error, msg} =
+               Speak.validate_params(%{text: "hi", provider: "async", model: "nope"})
+
+      assert msg =~ "Invalid model"
+    end
+
+    test "async accepts an explicit speaker, language and instruction" do
       assert {:ok, v} =
                Speak.validate_params(%{
                  text: "hello",
+                 provider: "async",
                  speaker: "Serena",
                  language: "English",
                  instruction: "calm narrator"
@@ -38,22 +91,29 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       assert v.instruction == "calm narrator"
     end
 
-    test "requires ref_audio to be an http(s) URL" do
-      assert {:error, msg} = Speak.validate_params(%{text: "hi", ref_audio: "/tmp/a.wav"})
+    test "async requires ref_audio to be an http(s) URL" do
+      assert {:error, msg} =
+               Speak.validate_params(%{text: "hi", provider: "async", ref_audio: "/tmp/a.wav"})
+
       assert msg =~ "http(s) URL"
     end
 
-    test "requires ref_text alongside ref_audio" do
+    test "async requires ref_text alongside ref_audio" do
       assert {:error, msg} =
-               Speak.validate_params(%{text: "hi", ref_audio: "https://example.com/a.wav"})
+               Speak.validate_params(%{
+                 text: "hi",
+                 provider: "async",
+                 ref_audio: "https://example.com/a.wav"
+               })
 
       assert msg =~ "`ref_text` is required"
     end
 
-    test "accepts clone mode when ref_audio and ref_text are given" do
+    test "async accepts clone mode when ref_audio and ref_text are given" do
       assert {:ok, v} =
                Speak.validate_params(%{
                  text: "hi",
+                 provider: "async",
                  ref_audio: "https://example.com/a.wav",
                  ref_text: "reference words"
                })
@@ -69,8 +129,32 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       Speak.build_body(validated)
     end
 
-    test "design mode sends a single input with speaker" do
-      b = body(%{text: "hello", language: "Chinese"})
+    test "sync mode builds the OpenAI-compatible speech body" do
+      b = body(%{text: "hello"})
+      assert b == %{"model" => "CosyVoice2", "input" => "hello", "voice" => "alloy"}
+
+      b2 = body(%{text: "hi", model: "ChatTTS", voice: "serena"})
+      assert b2["model"] == "ChatTTS"
+      assert b2["voice"] == "serena"
+      refute Map.has_key?(b2, "prompt_audio_url")
+    end
+
+    test "sync clone mode adds prompt_audio_url / prompt_text only when set" do
+      b =
+        body(%{
+          text: "hi",
+          model: "IndexTTS-2",
+          prompt_audio_url: "https://example.com/ref.wav",
+          prompt_text: "reference words"
+        })
+
+      assert b["prompt_audio_url"] == "https://example.com/ref.wav"
+      assert b["prompt_text"] == "reference words"
+      refute Map.has_key?(b, "inputs")
+    end
+
+    test "async design mode sends a single input with speaker" do
+      b = body(%{text: "hello", provider: "async", language: "Chinese"})
 
       assert b["model"] == "Qwen3-TTS"
       assert b["output_format"] == "mp3"
@@ -81,19 +165,20 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       refute Map.has_key?(item, "prompt_audio_url")
     end
 
-    test "includes instruction in design mode only when set" do
-      b = body(%{text: "hello", instruction: "soft whisper"})
+    test "async includes instruction in design mode only when set" do
+      b = body(%{text: "hello", provider: "async", instruction: "soft whisper"})
       assert [%{"instruction" => "soft whisper"}] = b["inputs"]
 
-      b2 = body(%{text: "hello"})
+      b2 = body(%{text: "hello", provider: "async"})
       assert [item] = b2["inputs"]
       refute Map.has_key?(item, "instruction")
     end
 
-    test "clone mode sends prompt_text/prompt_audio_url and no speaker" do
+    test "async clone mode sends prompt_text/prompt_audio_url and no speaker" do
       b =
         body(%{
           text: "hello",
+          provider: "async",
           ref_audio: "https://example.com/a.wav",
           ref_text: "reference words"
         })
