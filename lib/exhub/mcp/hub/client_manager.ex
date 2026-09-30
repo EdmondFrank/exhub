@@ -448,7 +448,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
   def handle_info({:reconnect_client, server_name}, state) do
     case Map.get(state.clients, server_name) do
       %{config: %{enabled: true}, crash_count: count, status: status}
-          when count < @max_crashes and status in [:error, :disconnected] ->
+      when count < @max_crashes and status in [:error, :disconnected] ->
         {:ok, sup_pid} = new_dynamic_supervisor()
 
         task = spawn_client_task(sup_pid, state.clients[server_name].config)
@@ -948,6 +948,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
       %{name: "mac-use", route: "/mac-use/mcp"},
       %{name: "emacs", route: "/emacs/mcp"},
       %{name: "listen", route: "/listen/mcp"},
+      %{name: "speak", route: "/speak/mcp"},
       %{name: "smart-decide", route: "/smart-decide/mcp"},
       %{name: "agent-hub", route: "/agent-hub/mcp"}
     ]

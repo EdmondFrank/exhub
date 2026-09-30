@@ -162,6 +162,7 @@ The Hub automatically registers all **built-in MCP servers** that run in the sam
 | `image-gen`   | `Exhub.MCP.ImageGenServer`   | `/image-gen/mcp`   | AI image generation               |
 | `doc-extract` | `Exhub.MCP.DocExtractServer` | `/doc-extract/mcp` | Document text extraction          |
 | `look`        | `Exhub.MCP.LookServer`       | `/look/mcp`        | Image analysis via vision models  |
+| `speak`       | `Exhub.MCP.SpeakServer`      | `/speak/mcp`       | Text-to-speech via Qwen3-TTS      |
 | `todo`        | `Exhub.MCP.TodoServer`       | `/todo/mcp`        | Multi-tenant todo list management |
 | `desktop`     | `Exhub.MCP.DesktopServer`    | `/desktop/mcp`     | Filesystem and process management |
 | `agent`       | `Exhub.MCP.AgentServer`      | `/agent/mcp`       | ACP agent bridge                  |

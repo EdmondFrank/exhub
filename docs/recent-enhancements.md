@@ -359,7 +359,7 @@
 - **New Feature**: MCP Hub now auto-registers all 14 built-in MCP servers for direct in-process tool execution, bypassing HTTP loopback
 
 ### Built-in Server Registry (`Exhub.MCP.Hub.BuiltInRegistry`)
-- **Zero-latency execution**: Built-in servers (habit, time, think, web-tools, archery, browser-use, image-gen, doc-extract, look, listen, todo, desktop, agent, brain, exhub) are accessed directly via function calls — no HTTP handshake or Anubis.Client connection needed
+- **Zero-latency execution**: Built-in servers (habit, time, think, web-tools, archery, browser-use, image-gen, doc-extract, look, listen, speak, todo, desktop, agent, brain, exhub) are accessed directly via function calls — no HTTP handshake or Anubis.Client connection needed
 - **Auto-registration**: Built-in configs are merged with external configs from `~/.config/exhub/mcp_servers.json` (or `$EXHUB_MCP_SERVERS_CONFIG`) at startup; external configs take precedence on name collision
 - **Protection**: Built-in servers cannot be removed or toggled via the REST API (`:cannot_remove_builtin`, `:cannot_toggle_builtin`)
 - **Config persistence**: Built-in servers are excluded from the config file — always regenerated from the registry

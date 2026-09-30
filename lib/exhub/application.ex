@@ -96,6 +96,11 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # MCP Speak Server (text-to-speech via Qwen3-TTS on Gitee AI / moark.com)
+      {Exhub.MCP.SpeakServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       # MCP Smart Decide Server (System One structured decisions via Gitee AI / moark.com)
       {Exhub.MCP.SmartDecideServer,
        transport: :streamable_http,

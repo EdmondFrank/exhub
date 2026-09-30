@@ -569,6 +569,11 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.ListenServer, request_timeout: 600_000]
   )
 
+  forward("/speak/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.SpeakServer, request_timeout: 600_000]
+  )
+
   forward("/smart-decide/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.SmartDecideServer, request_timeout: 600_000]
