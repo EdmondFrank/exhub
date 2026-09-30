@@ -46,3 +46,9 @@ keys.txt
 # MCP servers config (now stored in ~/.config/exhub/)
 /priv/mcp_servers.json
 /.pi
+
+# Local runtime artifacts (never commit)
+debug.log
+/mcp_servers.json
+/priv/secret_vault/
+.codedbignore
