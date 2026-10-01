@@ -9,8 +9,9 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
   candidate is judged by a single `noul` (yes/no) System One question and only
   the tools the model considers relevant are kept.
 
-  Each candidate is sent as one request on its own — the model has a ~8k-token
-  context, so a single tool description is all the state it receives. Judgments
+  Each candidate is sent as one request on its own — a single tool description
+  is all the state it receives, kept within the model's context (the default
+  `Intern-Decision-4B` has 8K; `APUS-*`/`SemIf` offer 128K). Judgments
   run concurrently (`Task.async_stream`) and the pass degrades gracefully:
 
     * a per-tool failure is treated as *relevant* (fail-open, preserving recall)
@@ -33,6 +34,7 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
 
   @defaults [
     enabled: true,
+    model: nil,
     candidate_limit: 30,
     max_concurrency: 8,
     threshold: 0.5,
@@ -77,6 +79,9 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
     * `:decider` — `(state, questions, opts -> {:ok, result} | {:error, msg})`,
       defaults to `&Exhub.MCP.Tools.SmartDecide.decide/3`. Injectable so tests
       can avoid network calls.
+    * `:model` — System One model id for this pass, overriding the Smart Decide
+      default (`Intern-Decision-4B`). e.g. `laya-multilingual` for multilingual
+      content, `APUS-OpenJev-v1-9B` for long states (128K).
     * `:threshold` — minimum `noul` probability to keep a tool (`0.5`)
     * `:max_concurrency` — concurrent System One requests (`8`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
@@ -163,6 +168,7 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
 
   defp judge_all(candidates, query, opts) do
     decider = Keyword.get(opts, :decider, &SmartDecide.decide/3)
+    decide_opts = decide_opts(Keyword.get(opts, :model) || Keyword.get(config(), :model))
     threshold = Keyword.get(opts, :threshold, Keyword.fetch!(@defaults, :threshold))
 
     max_concurrency =
@@ -180,7 +186,7 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
 
     candidates
     |> Task.async_stream(
-      fn tool -> judge(tool, instructions, state_limit, threshold, decider) end,
+      fn tool -> judge(tool, instructions, state_limit, threshold, decider, decide_opts) end,
       max_concurrency: max_concurrency,
       timeout: timeout,
       on_timeout: :kill_task,
@@ -193,11 +199,11 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
     end)
   end
 
-  defp judge(tool, instructions, state_limit, threshold, decider) do
+  defp judge(tool, instructions, state_limit, threshold, decider, decide_opts) do
     state = build_state(tool, state_limit)
     questions = %{"relevant" => %{"type" => "noul", "instructions" => instructions}}
 
-    case safe_decide(decider, state, questions) do
+    case safe_decide(decider, state, questions, decide_opts) do
       {:ok, result} ->
         if relevant?(result, threshold), do: {tool, :keep, nil}, else: {tool, :drop, nil}
 
@@ -206,8 +212,8 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
     end
   end
 
-  defp safe_decide(decider, state, questions) do
-    case decider.(state, questions, []) do
+  defp safe_decide(decider, state, questions, decide_opts) do
+    case decider.(state, questions, decide_opts) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:unexpected_decider_result, other}}
@@ -249,6 +255,17 @@ defmodule Exhub.MCP.Hub.ToolRelevance do
   end
 
   defp noul_probability(_answer), do: 1.0
+
+  # Pass the configured System One model to the decider. `nil`/blank means the
+  # SmartDecide default (Intern-Decision-4B).
+  defp decide_opts(model) when is_binary(model) do
+    case String.trim(model) do
+      "" -> []
+      trimmed -> [model: trimmed]
+    end
+  end
+
+  defp decide_opts(_model), do: []
 
   defp truncate(text, limit) when is_integer(limit) and limit > 0 do
     if String.length(text) > limit, do: String.slice(text, 0, limit) <> "…", else: text

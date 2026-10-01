@@ -182,8 +182,10 @@ config :exhub, Exhub.BrainIndexRefresh,
 #   - `candidate_limit`: ranked pool judged when filtering (>= the policy's `top_n`)
 #   - `max_concurrency`: concurrent System One requests (one note per request)
 #   - `threshold`: minimum `noul` probability to keep a note
-#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~8k-token
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the model's
 #     input budget (~3 chars/token for code, ~4.3 for prose)
+#   - `model`: System One model id (default Intern-Decision-4B; e.g.
+#     laya-multilingual, APUS-OpenJev-v1-9B)
 #   - `fallback`: return the ranked pool when nothing is judged relevant
 # In-code defaults in `Exhub.MCP.Brain.Search.Relevance` apply for any missing key.
 config :exhub, Exhub.MCP.Brain.Search.Relevance,
@@ -202,10 +204,12 @@ config :exhub, Exhub.MCP.Brain.Search.Relevance,
 #   - `candidate_limit`: TF-IDF pool judged when filtering (>= the tool's `limit`)
 #   - `max_concurrency`: concurrent System One requests (one tool per request)
 #   - `threshold`: minimum `noul` probability to keep a tool
-#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~8k-token
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the model's
 #     input budget (~3 chars/token for code, ~4.3 for prose)
 #   - `exclude_servers`: servers never offered as candidates (the hub's own
 #     search tools); `smart-decide` is left in so it stays discoverable
+#   - `model`: System One model id (default Intern-Decision-4B; e.g.
+#     laya-multilingual, APUS-OpenJev-v1-9B)
 #   - `fallback`: return the TF-IDF pool when nothing is judged relevant
 # In-code defaults in `Exhub.MCP.Hub.ToolRelevance` apply for any missing key.
 config :exhub, Exhub.MCP.Hub.ToolRelevance,
@@ -243,8 +247,9 @@ config :exhub, Exhub.BrowserAgent.TextHelper,
 #     judgments are strongly bimodal (relevant >= 0.95, irrelevant <= 0.27),
 #     so 0.7 sits inside that gap and discards the instruction's "unsure -> yes"
 #     borderline band without dropping on-topic results.
-#   - `state_char_limit`/`query_char_limit`: truncation to fit the ~8k-token
+#   - `state_char_limit`/`query_char_limit`: truncation to fit the model's
 #     input budget (~3 chars/token for code, ~4.3 for prose)
+#   - `model`: System One model id (default Intern-Decision-4B; e.g. APUS-OpenJev-v1-9B for 128K)
 #   - `fallback`: return the raw search results when nothing is judged relevant
 # In-code defaults in `Exhub.MCP.WebTools.Relevance` apply for any missing key.
 config :exhub, Exhub.MCP.WebTools.Relevance,
@@ -268,6 +273,7 @@ config :exhub, Exhub.MCP.WebTools.Relevance,
 #   - `max_judgeable_chars`: a candidate whose state exceeds this is kept unjudged
 #     rather than judged on truncated code
 #   - `query_char_limit`: max characters of the task embedded in the question
+#   - `model`: System One model id (default Intern-Decision-4B; e.g. APUS-OpenJev-v1-9B for 128K)
 #   - `fallback`: return the ranked pool when nothing is judged relevant
 # In-code defaults in `Exhub.MCP.Desktop.Search.Relevance` apply for any missing key.
 config :exhub, Exhub.MCP.Desktop.Search.Relevance,

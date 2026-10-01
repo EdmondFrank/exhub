@@ -5,8 +5,11 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   Evaluates a `state` (the content to judge) against a flat set of typed
   `questions` and returns one structured answer per question. Backed by the
   OpenAI-style `POST /v1/systemone` endpoint, compatible with the TypeSafe
-  System One / Jev contract; served by the `APUS-OpenJev-v1-9B` model (8k-token
-  context) with `Bespoke-Nimble-9B` (2k context) still available.
+  System One / Jev contract; served by the `Intern-Decision-4B` model (8K
+  context) by default. The same endpoint serves the rest of the decision-model
+  family — `APUS-OpenJev-v1-9B`/`APUS-OpenJev-v1-4B` (128K), `SemIf-OpenJev-4B`,
+  `NeoHorse-Jev-4B`, `laya-multilingual`, `DiffusionGemma-26B-A4B-it-Jev`, and
+  the older `Bespoke-Nimble-9B` (2k context) — selectable via the `model` field.
 
   No free-form text is generated: the model scores the allowed answer tokens
   directly and returns the chosen answer plus calibrated probabilities.
@@ -25,7 +28,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   use Anubis.Server.Component, type: :tool
 
   @api_url "https://api.moark.com/v1/systemone"
-  @default_model "APUS-OpenJev-v1-9B"
+  @default_model "Intern-Decision-4B"
   @request_timeout 120_000
   @valid_types ~w(noul choice score)
 
@@ -35,7 +38,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   def description do
     """
     Make fast, typed decisions about a piece of content ("state") using the
-    System One decision model (APUS-OpenJev-v1-9B) via Gitee AI.
+    System One decision model (Intern-Decision-4B) via Gitee AI.
 
     This tool generates no reasoning or free-form text: it scores the allowed
     answer tokens directly and returns the chosen answer with its calibrated
@@ -72,7 +75,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
 
     field(:model, :string,
       description:
-        "System One model. Default: APUS-OpenJev-v1-9B (8k context); Bespoke-Nimble-9B (2k context) also available"
+        "System One model. Default: Intern-Decision-4B (8K context). Also served: APUS-OpenJev-v1-9B, APUS-OpenJev-v1-4B, SemIf-OpenJev-4B (128K), NeoHorse-Jev-4B (32K), laya-multilingual (8K), DiffusionGemma-26B-A4B-it-Jev (64K), Bespoke-Nimble-9B (2k)"
     )
 
     field(:compact, :boolean,

@@ -44,6 +44,7 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
 
   @defaults [
     enabled: true,
+    model: nil,
     threshold: 0.5,
     timeout: 30_000,
     cache_ttl_ms: 60_000,
@@ -97,6 +98,8 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
       defaults to `&Exhub.MCP.Tools.SmartDecide.decide/3`. Injectable so tests
       can avoid network calls; providing it also disables the cache unless
       `:cache` is set explicitly.
+    * `:model` — System One model id for this decision, overriding the Smart
+      Decide default (`Intern-Decision-4B`)
     * `:threshold` — minimum `noul` probability to require a `working_dir` (`0.5`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
     * `:cache` — cache this verdict (`true`; off when a `:decider` is injected)
@@ -199,9 +202,10 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
 
   defp decide(command, opts) do
     decider = Keyword.get(opts, :decider, &SmartDecide.decide/3)
+    decide_opts = decide_opts(opt(opts, :model))
     questions = %{"needs_working_dir" => %{"type" => "noul", "instructions" => instructions()}}
 
-    task = Task.async(fn -> safe_decider(decider, command, questions) end)
+    task = Task.async(fn -> safe_decider(decider, command, questions, decide_opts) end)
 
     case Task.yield(task, opt(opts, :timeout)) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
@@ -209,8 +213,8 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
     end
   end
 
-  defp safe_decider(decider, state, questions) do
-    case decider.(state, questions, []) do
+  defp safe_decider(decider, state, questions, decide_opts) do
+    case decider.(state, questions, decide_opts) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:unexpected_decider_result, other}}
@@ -233,6 +237,17 @@ defmodule Exhub.MCP.Desktop.WorkingDir do
       "directory (`echo hello`, `node --version`, `docker ps`). " <>
       "When unsure, answer yes."
   end
+
+  # Pass the configured System One model to the decider. `nil`/blank means the
+  # SmartDecide default (Intern-Decision-4B).
+  defp decide_opts(model) when is_binary(model) do
+    case String.trim(model) do
+      "" -> []
+      trimmed -> [model: trimmed]
+    end
+  end
+
+  defp decide_opts(_model), do: []
 
   defp noul_probability(answer) when is_map(answer) do
     probabilities = Map.get(answer, "probabilities", %{})

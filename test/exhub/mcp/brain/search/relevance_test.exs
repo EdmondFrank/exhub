@@ -226,6 +226,32 @@ defmodule Exhub.MCP.Brain.Search.RelevanceTest do
       assert state =~ "Semantic match: hello"
       refute state =~ "first match line"
     end
+
+    test "forwards the configured model to the decider" do
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      decider = fn _state, _questions, opts ->
+        Agent.update(agent, fn _ -> opts end)
+        noul(0.9)
+      end
+
+      Relevance.filter("q", [note("a.md")], decider: decider, model: "laya-multilingual")
+
+      assert Agent.get(agent, & &1) == [model: "laya-multilingual"]
+    end
+
+    test "omits the model opt when none is configured" do
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      decider = fn _state, _questions, opts ->
+        Agent.update(agent, fn _ -> opts end)
+        noul(0.9)
+      end
+
+      Relevance.filter("q", [note("a.md")], decider: decider)
+
+      assert Agent.get(agent, & &1) == []
+    end
   end
 
   describe "relevant?/2" do

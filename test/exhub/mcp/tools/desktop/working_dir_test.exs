@@ -110,6 +110,19 @@ defmodule Exhub.MCP.Tools.Desktop.WorkingDirTest do
       assert i =~ "git clone"
       assert i =~ "without writing files"
     end
+
+    test "forwards the configured model to the decider" do
+      parent = self()
+
+      decider = fn _state, _questions, opts ->
+        send(parent, {:opts, opts})
+        noul(0.9)
+      end
+
+      WorkingDir.needs_working_dir?("git status", decider: decider, model: "laya-multilingual")
+
+      assert_received {:opts, [model: "laya-multilingual"]}
+    end
   end
 
   describe "needs_working_dir?/1 fallback" do

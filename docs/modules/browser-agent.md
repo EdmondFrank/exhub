@@ -85,7 +85,7 @@ Built-in hub server name: `browser-agent`.
 | `url`        | string  |          | Navigate before the first observation |
 | `session_id` | string  |          | Session id from `start` (required for `step`/`status`/`stop`) |
 | `max_steps`  | integer |          | Decision-cycle budget for `run` (default 15) |
-| `model`      | string  |          | System One model override (default `APUS-OpenJev-v1-9B`) |
+| `model`      | string  |          | System One model override (default `Intern-Decision-4B`) |
 
 - `run` — runs the loop synchronously and returns the full trace.
 - `start` / `step` / `status` / `stop` — interactive control; state lives in

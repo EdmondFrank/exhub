@@ -75,7 +75,10 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
 
     field(:max_steps, :integer, description: "Maximum decision cycles for `run` (default 15)")
 
-    field(:model, :string, description: "System One model override (default APUS-OpenJev-v1-9B)")
+    field(:model, :string,
+      description:
+        "System One model override (default Intern-Decision-4B); e.g. APUS-OpenJev-v1-9B for wide pages (128K) or NeoHorse-Jev-4B"
+    )
   end
 
   @impl true

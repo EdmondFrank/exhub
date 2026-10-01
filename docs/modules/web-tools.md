@@ -78,7 +78,7 @@ under `config :exhub, Exhub.MCP.WebTools.Relevance` in `config/config.exs`):
 | `max_concurrency` | `8` | Concurrent System One requests (one result per request) |
 | `threshold` | `0.5` | Minimum `noul` probability to keep a result |
 | `timeout` | `30_000` | Per-request timeout in ms |
-| `state_char_limit` | `18000` | Result text truncation, to stay within the ~8k context |
+| `state_char_limit` | `18000` | Result text truncation, to stay within the model's context |
 | `query_char_limit` | `3200` | Query truncation in the question |
 | `fallback` | `true` | Return the raw results when nothing is judged relevant |
 

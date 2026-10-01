@@ -245,6 +245,32 @@ defmodule Exhub.MCP.Hub.ToolRelevanceTest do
       assert String.length(state) == 101
       assert String.ends_with?(state, "…")
     end
+
+    test "forwards the configured model to the decider" do
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      decider = fn _state, _questions, opts ->
+        Agent.update(agent, fn _ -> opts end)
+        noul(0.9)
+      end
+
+      ToolRelevance.filter("q", [tool("a", "A")], decider: decider, model: "NeoHorse-Jev-4B")
+
+      assert Agent.get(agent, & &1) == [model: "NeoHorse-Jev-4B"]
+    end
+
+    test "omits the model opt when none is configured" do
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      decider = fn _state, _questions, opts ->
+        Agent.update(agent, fn _ -> opts end)
+        noul(0.9)
+      end
+
+      ToolRelevance.filter("q", [tool("a", "A")], decider: decider)
+
+      assert Agent.get(agent, & &1) == []
+    end
   end
 
   describe "relevant?/2" do
