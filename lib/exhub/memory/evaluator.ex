@@ -19,7 +19,7 @@ defmodule Exhub.Memory.Evaluator do
 
   @defaults [
     enabled: true,
-    model: "APUS-OpenJev-v1-9B",
+    model: "Intern-Decision-4B",
     task_success_min: 0.50,
     mean_min: 0.60,
     state_char_limit: 16_000

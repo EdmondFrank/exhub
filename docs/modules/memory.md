@@ -65,7 +65,7 @@ project: exhub
 tags: [project/exhub, area/browser]
 source: session:abc123
 evidence: [{"session":"abc123","events":[14,19]}]
-evaluation: {"model":"APUS-OpenJev-v1-9B","promoted":true,"mean":0.82,"probabilities":{"task_success":0.9,"reusable":0.8,"evidence_supported":0.76}}
+evaluation: {"model":"Intern-Decision-4B","promoted":true,"mean":0.82,"probabilities":{"task_success":0.9,"reusable":0.8,"evidence_supported":0.76}}
 created_at: 2026-09-30T10:00:00Z
 updated_at: 2026-09-30T10:05:00Z
 ---
@@ -93,7 +93,7 @@ config :exhub, :memory,
   statuses: ~w(candidate approved rejected superseded),
   evaluator: [
     enabled: true,
-    model: "APUS-OpenJev-v1-9B",
+    model: "Intern-Decision-4B",
     task_success_min: 0.50,
     mean_min: 0.60,
     state_char_limit: 16_000

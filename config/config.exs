@@ -95,7 +95,7 @@ config :exhub, :memory,
   statuses: ~w(candidate approved rejected superseded),
   evaluator: [
     enabled: true,
-    model: "APUS-OpenJev-v1-9B",
+    model: "Intern-Decision-4B",
     task_success_min: 0.50,
     mean_min: 0.60,
     state_char_limit: 16_000
