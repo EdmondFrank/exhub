@@ -484,9 +484,9 @@ config :exhub, :toonflow, %{
   # nil => ~/.config/exhub/toonflow
   "root_dir" => nil,
   "agents" => %{
-    "script" => "kimi-k2.6",
-    "director" => "kimi-k2.6",
-    "qa" => "kimi-k2.6"
+    "script" => "deepseek-v4.1-flash",
+    "director" => "deepseek-v4.1-flash",
+    "qa" => "deepseek-v4.1-flash"
   },
   "media" => %{
     "image_model" => "qwen-image-2.0",
