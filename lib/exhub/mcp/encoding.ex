@@ -14,10 +14,12 @@ defmodule Exhub.MCP.Encoding do
 
   @replacement <<0xEF, 0xBF, 0xBD>>
 
-  # Tails longer than this are assumed to be non-UTF-8 overall (e.g. a whole
-  # latin1/GBK file); replacing every non-ASCII byte there is linear and cheap,
-  # whereas byte-by-byte re-decoding would be quadratic.
-  @salvage_window 256
+  # How many un-decodable bytes `salvage/2` drops one at a time, re-decoding the
+  # tail after each. A stray byte is usually isolated (e.g. a slice cut in the
+  # middle of a multibyte codepoint), so the valid UTF-8 that follows it is
+  # kept. A whole latin1/GBK payload would need one repair per byte, so past
+  # this budget the tail goes through the linear `replace_non_ascii/1` instead.
+  @salvage_repairs 32
 
   @doc """
   Recursively ensures every string in `data` is valid UTF-8.
@@ -56,36 +58,44 @@ defmodule Exhub.MCP.Encoding do
 
   def sanitize_utf8(data), do: data
 
-  defp sanitize_string(binary) do
+  defp sanitize_string(binary), do: sanitize_string(binary, @salvage_repairs)
+
+  defp sanitize_string(binary, repairs) do
     case :unicode.characters_to_binary(binary, :utf8, :utf8) do
       {:ok, result} -> result
       result when is_binary(result) -> result
-      {:error, good, bad} -> good <> salvage(bad)
-      {:incomplete, good, rest} -> good <> salvage(rest)
+      {:error, good, bad} -> good <> salvage(bad, repairs)
+      {:incomplete, good, rest} -> good <> salvage(rest, repairs)
     end
   end
 
   # `bad`/`rest` starts at the first byte that could not be decoded. Drop that
-  # byte and re-decode from the next one so ASCII and valid UTF-8 sequences
-  # following it are preserved. Long non-UTF-8 tails fall back to linear
-  # per-byte replacement (preserving ASCII) to avoid quadratic re-decoding.
-  defp salvage(<<_byte, rest::binary>>) when byte_size(rest) > @salvage_window do
+  # byte and re-decode from the next one so ASCII *and* valid multibyte
+  # sequences following it are preserved — a single stray byte must not discard
+  # the rest of an otherwise well-formed payload. Re-decoding is bounded by
+  # `repairs`; once that budget runs out the tail is treated as non-UTF-8
+  # throughout and salvaged byte by byte, which stays linear.
+  defp salvage(<<>>, _repairs), do: <<>>
+
+  defp salvage(<<_byte, rest::binary>>, repairs) when repairs > 0 do
+    @replacement <> sanitize_string(rest, repairs - 1)
+  end
+
+  defp salvage(<<_byte, rest::binary>>, _repairs) do
     @replacement <> replace_non_ascii(rest)
   end
 
-  defp salvage(<<_byte, rest::binary>>) do
-    @replacement <> sanitize_string(rest)
+  # Accumulates an iolist rather than folding `<>` on the right, which would
+  # copy the whole remaining tail at every byte.
+  defp replace_non_ascii(binary), do: binary |> replace_non_ascii([]) |> IO.iodata_to_binary()
+
+  defp replace_non_ascii(<<byte, rest::binary>>, acc) when byte < 0x80 do
+    replace_non_ascii(rest, [<<byte>> | acc])
   end
 
-  defp salvage(<<>>), do: <<>>
-
-  defp replace_non_ascii(<<byte, rest::binary>>) when byte < 0x80 do
-    <<byte>> <> replace_non_ascii(rest)
+  defp replace_non_ascii(<<_byte, rest::binary>>, acc) do
+    replace_non_ascii(rest, [@replacement | acc])
   end
 
-  defp replace_non_ascii(<<_byte, rest::binary>>) do
-    @replacement <> replace_non_ascii(rest)
-  end
-
-  defp replace_non_ascii(<<>>), do: <<>>
+  defp replace_non_ascii(<<>>, acc), do: Enum.reverse(acc)
 end

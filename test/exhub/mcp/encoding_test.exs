@@ -47,6 +47,32 @@ defmodule Exhub.MCP.EncodingTest do
       assert byte_size(result) == 1_000 * 3 + 3
     end
 
+    # Regression: a byte-offset slice (Lua's `string.sub`, `binary_part/3`) can
+    # begin inside a multibyte codepoint. The one stray continuation byte used
+    # to fail `String.valid?/1` and then discard every non-ASCII byte after it,
+    # turning an entire page of CJK into U+FFFD.
+    test "keeps a long valid UTF-8 tail that follows a single stray byte" do
+      tail = String.duplicate("云顶之弈羁绊效果一览", 200)
+
+      result = Encoding.sanitize_utf8(<<0x9F>> <> tail)
+
+      assert String.valid?(result)
+      assert result == @replacement <> tail
+      assert byte_size(result) == 3 + byte_size(tail)
+    end
+
+    test "keeps multibyte sequences following the invalid byte" do
+      assert Encoding.sanitize_utf8(<<0xBD, "山海绘卷", 0xFE, "剪纸仙灵">>) ==
+               @replacement <> "山海绘卷" <> @replacement <> "剪纸仙灵"
+    end
+
+    test "repairs each stray byte up to the budget, keeping the UTF-8 between them" do
+      payload = for _ <- 1..10, into: <<>>, do: <<0x80>> <> "云顶"
+
+      assert Encoding.sanitize_utf8(payload) ==
+               for(_ <- 1..10, into: <<>>, do: @replacement <> "云顶")
+    end
+
     test "recurses into maps, sanitizing keys and values" do
       data = %{"stdout" => <<186, 77>>, "nested" => %{"stderr" => <<255>>}}
 
