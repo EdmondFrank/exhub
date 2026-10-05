@@ -1,0 +1,8 @@
+{
+  "default": "vscode-html-language-server",
+  "completion": ["vscode-html-language-server", "angular-ls", "emmet-ls"],
+  "completion_item_resolve": ["vscode-html-language-server", "angular-ls", "emmet-ls"],
+  "diagnostics": ["vscode-html-language-server", "angular-ls", "emmet-ls"],
+  "code_action": ["vscode-html-language-server", "angular-ls", "emmet-ls"],
+  "execute_command": ["vscode-html-language-server", "angular-ls", "emmet-ls"]
+}

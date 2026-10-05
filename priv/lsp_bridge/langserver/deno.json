@@ -1,0 +1,15 @@
+{
+  "name": "deno",
+  "languageId": "typescript",
+  "command": [
+    "deno",
+    "lsp"
+  ],
+  "settings": {
+    "deno": {
+      "enable": true,
+      "lint": true,
+      "unstable": true
+    }
+  }
+}

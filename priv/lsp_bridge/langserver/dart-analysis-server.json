@@ -1,0 +1,18 @@
+{
+  "name": "dart-analysis-server",
+  "languageId": "dart",
+  "command": [
+    "dart",
+    "language-server",
+    "--client-id",
+    "emacs.lsp-bridge"
+  ],
+  "settings": {
+		"dart": {
+			"completeFunctionCalls": true
+		}
+	},
+  "initializationOptions": {
+    "closingLabels": true
+  }
+}

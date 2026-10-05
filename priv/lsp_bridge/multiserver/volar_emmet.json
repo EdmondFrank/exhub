@@ -1,0 +1,8 @@
+{
+  "default": "volar",
+  "completion": ["volar", "emmet-ls"],
+  "completion_item_resolve": ["volar", "emmet-ls"],
+  "diagnostics": ["volar", "emmet-ls"],
+  "code_action": ["volar", "emmet-ls"],
+  "execute_command": ["volar", "emmet-ls"]
+}

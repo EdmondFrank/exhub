@@ -1,0 +1,7 @@
+{
+  "default": "basedpyright",
+  "diagnostics": ["basedpyright", "ruff"],
+  "code_action": ["basedpyright", "ruff"],
+  "execute_command": ["basedpyright", "ruff"],
+  "formatting": "ruff"
+}

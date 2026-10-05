@@ -1,0 +1,23 @@
+{
+  "name": "pyright",
+  "languageId": "python",
+  "command": [
+    "pyright-langserver",
+    "--stdio"
+  ],
+  "settings": {
+    "python.analysis": {
+      "autoImportCompletions": true,
+      "typeshedPaths": [],
+      "stubPath": "",
+      "useLibraryCodeForTypes": true,
+      "diagnosticMode": "openFilesOnly",
+      "typeCheckingMode": "basic",
+      "logLevel": "verbose",
+      "autoSearchPaths": true,
+      "extraPaths": []
+    },
+    "pythonPath": "python",
+    "venvPath": ""
+  }
+}

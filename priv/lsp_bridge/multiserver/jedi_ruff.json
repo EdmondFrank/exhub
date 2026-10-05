@@ -1,0 +1,7 @@
+{
+  "default": "jedi",
+  "diagnostics": ["jedi", "ruff"],
+  "code_action": ["jedi", "ruff"],
+  "execute_command": ["jedi", "ruff"],
+  "formatting": "ruff"
+}

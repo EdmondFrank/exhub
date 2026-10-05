@@ -10,6 +10,7 @@ defmodule Exhub.DefaultResponseHandler do
   alias Exhub.ResponseHandlers.ExhubBlinkSearch
   alias Exhub.ResponseHandlers.ExhubFim
   alias Exhub.ResponseHandlers.ExhubSearch
+  alias Exhub.ResponseHandlers.ExhubLspBridge
 
   require Logger
 
@@ -30,6 +31,7 @@ defmodule Exhub.DefaultResponseHandler do
               "blink-search" -> ExhubBlinkSearch.call(args)
               "exhub-search" -> ExhubSearch.call(args)
               "exhub-fim" -> ExhubFim.call(args)
+              "lsp-bridge" -> ExhubLspBridge.call(args)
               action -> Logger.debug("Unknown action: #{action}, data: #{inspect(data)}")
             end
 

@@ -1,0 +1,18 @@
+{
+  "name": "elixirLS",
+  "languageId": "elixir",
+  "command": ["language_server.bat"],
+  "support-single-file": false,
+  "projectFiles": ["mix.exs"],
+  "settings": {
+    "elixirLS": {
+      "dialyzerEnabled": true,
+      "dialyzerWarnOpts": [],
+      "dialyzerFormat": "dialyxir_short",
+      "fetchDeps": true,
+      "suggestSpecs": true,
+      "signatureAfterComplete": true,
+      "enableTestLenses": false
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "default": "pylsp",
+  "diagnostics": ["pylsp", "ruff"],
+  "code_action": ["pylsp", "ruff"],
+  "execute_command": ["pylsp", "ruff"],
+  "formatting": "ruff"
+}

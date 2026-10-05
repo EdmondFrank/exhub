@@ -1,0 +1,11 @@
+{
+  "name": "move-analyzer",
+  "languageId": "move",
+  "command": ["move-analyzer"],
+  "settings": {},
+  "initializationOptions": {
+    "autoImports": true,
+    "inlayHintsType": true,
+    "inlayHintsParam": true
+  }
+}

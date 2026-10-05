@@ -1,0 +1,10 @@
+{
+  "name": "intelephense",
+  "languageId": "php",
+  "command": [
+    "intelephense",
+    "--stdio"
+  ],
+  "projectFiles": ["composer.json"],
+  "settings": {}
+}

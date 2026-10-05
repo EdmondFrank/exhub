@@ -1,0 +1,7 @@
+{
+  "default": "ty",
+  "diagnostics": ["ty", "ruff"],
+  "code_action": ["ty", "ruff"],
+  "execute_command": ["ty", "ruff"],
+  "formatting": "ruff"
+}

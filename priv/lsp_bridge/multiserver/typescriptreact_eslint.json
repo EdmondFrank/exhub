@@ -1,0 +1,6 @@
+{
+  "default": "typescriptreact",
+  "diagnostics": ["typescriptreact", "vscode-eslint-language-server"],
+  "code_action": ["typescriptreact", "vscode-eslint-language-server"],
+  "execute_command": ["typescriptreact", "vscode-eslint-language-server"]
+}

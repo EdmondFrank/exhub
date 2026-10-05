@@ -1,0 +1,7 @@
+{
+  "default": "python-ms",
+  "diagnostics": ["python-ms", "ruff"],
+  "code_action": ["python-ms", "ruff"],
+  "execute_command": ["python-ms", "ruff"],
+  "formatting": "ruff"
+}

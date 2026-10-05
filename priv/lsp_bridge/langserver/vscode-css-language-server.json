@@ -1,0 +1,18 @@
+{
+  "name": "vscode-css-language-server",
+  "languageId": "css",
+  "languageIds": {
+    "less": "less",
+    "sass": "scss"
+  },
+  "command": [
+    "vscode-css-language-server",
+    "--stdio"
+  ],
+  "settings": {
+    "validate": true,
+    "lint": {
+      "validProperties": []
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "default": "typescript",
+  "completion": ["typescript", "angular-ls"],
+  "completion_item_resolve": ["typescript", "angular-ls"],
+  "diagnostics": ["typescript", "angular-ls"],
+  "code_action": ["typescript", "angular-ls"],
+  "execute_command": ["typescript", "angular-ls"]
+}

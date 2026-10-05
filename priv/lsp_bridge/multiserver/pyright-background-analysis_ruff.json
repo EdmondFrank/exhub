@@ -1,0 +1,7 @@
+{
+  "default": "pyright-background-analysis",
+  "diagnostics": ["pyright-background-analysis", "ruff"],
+  "code_action": ["pyright-background-analysis", "ruff"],
+  "execute_command": ["pyright-background-analysis", "ruff"],
+  "formatting": "ruff"
+}

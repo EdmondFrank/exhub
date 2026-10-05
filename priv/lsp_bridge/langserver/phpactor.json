@@ -1,0 +1,10 @@
+{
+  "name": "phpactor",
+  "languageId": "php",
+  "command": [
+    "phpactor",
+    "language-server"
+  ],
+  "projectFiles": ["composer.json"],
+  "settings": {}
+}

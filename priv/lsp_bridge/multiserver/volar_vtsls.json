@@ -1,0 +1,9 @@
+{
+  "default": "vtsls",
+  "servers": ["volar", "vtsls"],
+  "completion": ["volar", "vtsls"],
+  "completion_item_resolve": ["volar", "vtsls"],
+  "diagnostics": ["volar", "vtsls"],
+  "code_action": ["volar", "vtsls"],
+  "hover": "volar"
+}

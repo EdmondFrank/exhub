@@ -1,0 +1,8 @@
+{
+  "default": "vscode-css-language-server",
+  "completion": ["tailwindcss", "vscode-css-language-server"],
+  "completion_item_resolve": ["tailwindcss", "vscode-css-language-server"],
+  "diagnostics": ["vscode-css-language-server", "tailwindcss"],
+  "code_action": ["vscode-css-language-server", "tailwindcss"],
+  "execute_command": ["vscode-css-language-server", "tailwindcss"]
+}

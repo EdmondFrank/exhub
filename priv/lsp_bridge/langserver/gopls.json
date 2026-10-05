@@ -1,0 +1,17 @@
+{
+  "name": "gopls",
+  "languageId": "go",
+  "command": [
+    "gopls",
+    "-remote=auto"
+  ],
+  "support-single-file": false,
+  "projectFiles": ["go.mod"],
+  "settings":{
+    "gopls": {
+      "usePlaceholders": true,
+      "completeUnimported": true,
+      "staticcheck": true
+    }
+  }
+}

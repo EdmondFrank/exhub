@@ -1,0 +1,6 @@
+{
+  "default": "typescript",
+  "diagnostics": ["typescript", "vscode-eslint-language-server"],
+  "code_action": ["typescript", "vscode-eslint-language-server"],
+  "execute_command": ["typescript", "vscode-eslint-language-server"]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "文",
+  "languageId": "文",
+  "command": ["wenls"],
+  "settings": {},
+  "prefixStyle": "ascii",
+  "displayNewText": true
+}
