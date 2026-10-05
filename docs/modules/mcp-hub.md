@@ -553,6 +553,8 @@ A call may also be given as `{name = "server__tool", args = {…}}`.
 
 - Arguments are a Lua table with named keys, decoded to a JSON object; a call without a table passes `{}`. A positional table (`{"a", "b"}`) is rejected — MCP arguments must be named objects.
 - Results are Lua tables — most tools expose their text payload at `r.content[1].text`.
+- Returned values are UTF-8-repaired before they are formatted. A byte-offset slice (`s:sub(1, n)`) can end inside a multibyte codepoint, and a single dangling byte made `Jason` reject the whole value; the `inspect/2` fallback then dumped every byte of that binary numerically (`<<231, 148, 169, …>>`) — unreadable and ~4x the size of the text it replaced. `Exhub.MCP.Encoding.sanitize_utf8/1` now runs first, so tables stay JSON (one U+FFFD per dangling byte) and the result is valid UTF-8 for truncation and spill.
+- The `lua` lexer takes **ASCII source only**: a non-ASCII literal in the snippet fails to compile (`Unexpected character: 云 (U+4E91)`). Build CJK strings from data (`string.char(0xE7, 0x94, 0xA9)`, `"\231\148\169"`) and slice on codepoint boundaries with `utf8.offset` rather than raw byte counts.
 - A failing call raises a Lua error, catchable with `pcall`:
   `local ok, r = pcall(desktop.read_file, {path = "/nope"})` (note `pcall` yields only the message string, not the structured payload). Both failure sources raise: hub/transport errors, and MCP results carrying `isError = true`. Set config `raise_on_tool_error: false` to return `isError` payloads as ordinary data instead (then check `r.isError`).
 - `print(...)` output is collected and returned above the snippet's `return` value.

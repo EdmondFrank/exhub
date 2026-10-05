@@ -83,6 +83,8 @@ defmodule Exhub.MCP.Hub.CodeMode do
 
   require Logger
 
+  alias Exhub.MCP.Encoding
+
   # `timeout_ms` matches the Hub server's `request_timeout` (600s, see
   # `application.ex` / `router.ex`): the sandbox must hit its own wall-clock
   # limit before the transport hard-kills the `tools/call` Task, so it can
@@ -410,7 +412,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
           end)
           |> Enum.join("\n")
 
-        if text == "", do: encode_fallback(result), else: text
+        if text == "", do: encode_fallback(result), else: Encoding.sanitize_utf8(text)
 
       _ ->
         encode_fallback(result)
@@ -418,10 +420,21 @@ defmodule Exhub.MCP.Hub.CodeMode do
   end
 
   defp encode_fallback(result) do
+    result = Encoding.sanitize_utf8(result)
+
     case Jason.encode(result) do
       {:ok, json} -> json
-      {:error, _} -> inspect(result, limit: :infinity)
+      {:error, reason} -> inspect_unencodable(result, reason, [])
     end
+  end
+
+  # Last resort for terms JSON cannot hold at all. `value` is already sanitized,
+  # so `inspect/2` sees valid UTF-8 and prints text as text instead of a numeric
+  # byte dump; the encoder's complaint is appended so the fallback is diagnosable
+  # rather than a silent change of format.
+  defp inspect_unencodable(value, reason, opts) do
+    inspect(value, Keyword.put(opts, :limit, :infinity)) <>
+      "\n(not JSON-encodable: #{inspect(reason, limit: :infinity)})"
   end
 
   defp print_fun do
@@ -490,7 +503,15 @@ defmodule Exhub.MCP.Hub.CodeMode do
   end
 
   defp render_value(value) do
-    case lua_to_elixir(value) do
+    # Sanitize before encoding. A Lua `string.sub` — or any byte-offset slice —
+    # can end inside a multibyte codepoint, and a single invalid byte makes Jason
+    # reject the whole tree. Rendering that failure with `inspect/2` dumped every
+    # byte of the affected binary numerically (`<<231, 148, 169, ...>>`): unreadable,
+    # and ~4x the size of the text it replaced, which then tripped the output cap.
+    # Repairing first keeps the JSON path (one U+FFFD per dangling byte) and leaves
+    # the result valid UTF-8 for truncation and spill. The dispatcher still
+    # sanitizes downstream as a net for everything else.
+    case lua_to_elixir(value) |> Encoding.sanitize_utf8() do
       value when is_binary(value) ->
         value
 
@@ -500,15 +521,15 @@ defmodule Exhub.MCP.Hub.CodeMode do
       value ->
         case Jason.encode(value, pretty: true) do
           {:ok, json} -> json
-          {:error, _} -> inspect(value, pretty: true, limit: :infinity)
+          {:error, reason} -> inspect_unencodable(value, reason, pretty: true)
         end
     end
   end
 
   defp stringify(value) do
-    case lua_to_elixir(value) do
+    case lua_to_elixir(value) |> Encoding.sanitize_utf8() do
       value when is_binary(value) -> value
-      value -> inspect(value)
+      value -> inspect(value, limit: :infinity)
     end
   end
 

@@ -65,6 +65,66 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
     end
   end
 
+  describe "invalid UTF-8 in results" do
+    # Regression: a byte-offset slice (`string.sub`) can end inside a multibyte
+    # codepoint. One invalid byte made Jason reject the whole value, and the
+    # `inspect/2` fallback then dumped every byte of the affected binary
+    # numerically (`<<231, 148, 169, ...>>`) — an unreadable wall of numbers at
+    # roughly 4x the size of the text it replaced, which also tripped the output
+    # cap. The lua VM rejects non-ASCII *source* literals, so these snippets build
+    # their CJK text with `string.char/0` instead.
+    @cjk <<0xE7, 0x94, 0xA9>>
+    @replacement "\uFFFD"
+    @repaired String.duplicate(@cjk, 299) <> @replacement <> @replacement
+    @cjk_lua "string.char(0xE7, 0x94, 0xA9)"
+    @cut_table "local s = string.rep(" <>
+                 @cjk_lua <> ", 300) return {a = s:sub(1, 899), b = \"ascii\"}"
+    @cut_string "local s = string.rep(" <> @cjk_lua <> ", 300) return s:sub(1, 899)"
+    @cut_print "local s = string.rep(" <>
+                 @cjk_lua <> ", 300) print({a = s:sub(1, 899)}); return \"done\""
+
+    test "a table whose value ends mid-codepoint still renders as JSON" do
+      assert {:ok, text} = CodeMode.run(@cut_table, [])
+      assert String.valid?(text)
+      refute text =~ "<<"
+      assert Jason.decode!(text) == %{"a" => @repaired, "b" => "ascii"}
+    end
+
+    test "a bare string ending mid-codepoint is repaired, not re-encoded" do
+      assert {:ok, text} = CodeMode.run(@cut_string, [])
+      assert text == @repaired
+    end
+
+    test "print output keeps text as text" do
+      assert {:ok, text} = CodeMode.run(@cut_print, [])
+      assert text =~ "print output:"
+      assert text =~ "done"
+      refute text =~ "<<"
+      assert String.valid?(text)
+    end
+
+    test "tool-error text is sanitized before it reaches a lua error message" do
+      call =
+        runner(fn _s, _t, _a ->
+          {:ok,
+           %{
+             "isError" => true,
+             "content" => [%{"type" => "text", "text" => "bad " <> <<0xE7, 0x94>>}]
+           }}
+        end)
+
+      assert {:error, message} = CodeMode.run("return demo.echo({x = 1})", @tools, call_fun: call)
+      assert String.valid?(message)
+      refute message =~ "<<"
+      assert message =~ "bad " <> @replacement <> @replacement
+    end
+
+    test "valid results are unchanged" do
+      assert {:ok, json} = CodeMode.run(~s|return {a = "ok", b = {1, 2}}|, [])
+      assert Jason.decode!(json) == %{"a" => "ok", "b" => [1, 2]}
+    end
+  end
+
   describe "tool bridging" do
     test "calls a tool nested by server and decodes args to a JSON object" do
       parent = self()
