@@ -20,3 +20,9 @@ config :exhub, Exhub.MCP.Desktop.Search.Relevance, enabled: false
 # offline and deterministic. The gate is exercised directly (with an injected
 # decider) in test/exhub/mcp/tools/desktop/working_dir_test.exs.
 config :exhub, Exhub.MCP.Desktop.WorkingDir, enabled: false
+
+# Same reasoning for the proxy-env gate: `execute_command`/`start_process` tests
+# must stay offline and deterministic, so no retry and no TCP probe happen by
+# default. Exercised directly (with injected decider/probe) in
+# test/exhub/mcp/tools/desktop/proxy_env_test.exs.
+config :exhub, Exhub.MCP.Desktop.ProxyEnv, enabled: false, target_probe: false

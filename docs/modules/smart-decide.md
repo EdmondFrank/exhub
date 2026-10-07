@@ -204,6 +204,29 @@ overridden per scenario via the module's config (`:model` under
 - The model is selected by name; the API serves `Intern-Decision-4B` (default)
   and the rest of the family listed above.
 
+### Answers are bound to the evidence in `state` and `instructions`
+
+The model sorts the evidence you give it; it cannot supply facts that are not
+there. Both halves of the prompt move the answer, which matters when a decision
+depends on environment rather than on the text of the task:
+
+- Measured on the mainland-China proxy question (`Exhub.MCP.Desktop.ProxyEnv`):
+  a real `curl https://www.google.com` timeout scored `needs_proxy` **0.033**
+  with plain instructions, and **0.992** once `instructions` stated the premise
+  that this host sits behind the Great Firewall — same evidence, same command.
+- Confidence then tracks the *facts*: with the premise but no measurement of the
+  target, a domestic `www.baidu.com` timeout over-scored at 0.958; adding the
+  measured direct TCP probe of the target host moved it to 0.182 while the
+  genuinely blocked case held at 0.9998.
+- Prose is not a constraint. Told that an endpoint is listed in `NO_PROXY`, the
+  model proxied it anyway (0.706) — so treat policy statements in the prompt as
+  advisory and enforce what must hold in code.
+
+Practical consequence: put the assumptions that decide the answer into
+`instructions`, feed the observable facts into `state`, and never let a
+high-probability answer stand in for a measurement you could have taken.
+See `docs/modules/desktop.md` ("Why the wording of the prompt is load-bearing").
+
 ## Endpoint
 
 MCP endpoint: `/smart-decide/mcp` (built-in server name `smart-decide`).

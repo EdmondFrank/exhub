@@ -306,4 +306,54 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir,
   cache_ttl_ms: 60_000,
   cache_limit: 2000
 
+# Network counterpart of the working-dir gate: after a failed outbound command,
+# `Exhub.MCP.Desktop.ProxyEnv` decides whether to retry it with HTTP(S) proxy
+# variables in the child's environment only (never persisted).
+#   - `enabled`: master switch (off ⇒ the tool never retries or touches env)
+#   - `mode`: `:on_fail` (default; judge only after a proxy-shaped failure) or
+#     `:pre` (also pre-inject for `start_process`, which cannot observe output)
+#   - `proxy_url`: the candidate proxy; when unset, an exported HTTPS_PROXY is
+#     used, then `fallback_proxies` (a live local proxy such as Clash)
+#   - `fallback_proxies`: loopback candidates, each TCP-probed before use
+#   - `no_proxy`: extra always-direct domains, merged with existing NO_PROXY
+#   - `min_confidence`: below this `needs_proxy` probability the model is
+#     treated as abstaining and nothing is injected
+#   - `max_leak_risk`: `leak_risk` score (0–3) above which injection is refused
+#   - `probe_timeout_ms`: TCP reachability probe budget per candidate
+# In-code defaults in `Exhub.MCP.Desktop.ProxyEnv` apply for any missing key.
+config :exhub, Exhub.MCP.Desktop.ProxyEnv,
+  enabled: true,
+  mode: :on_fail,
+  proxy_url: nil,
+  # Mechanical bypass only: a proxy env with no loopback exemption breaks local
+  # sockets (Docker, dev servers, health checks). Domain-specific bypass is NOT
+  # configured here — the operator's proxy inventory is passed to the model as
+  # advisory notes below, because a `no_proxy` list is reference information,
+  # not a policy the judge has to obey.
+  no_proxy: [],
+  # Default premise in every question: mainland-China egress, overseas blocked
+  # directly, a local proxy is the intended path. Measured: without it a genuine
+  # `curl https://www.google.com` timeout scored needs_proxy 0.033; with it, 0.992.
+  # The sentence lives in `@mainland_premise` (proxy_env.ex) so it stays the
+  # default; set `network_premise:` here to reword it, or to nil on a host with
+  # unrestricted egress.
+  # network_premise: nil,
+  # knowledge-base/ci-proxy-usage-guide.md + preferences/network-proxy.md, as
+  # facts the model may weigh (HTTPS_PROXY/HTTP_PROXY are set to the chosen
+  # candidate anyway).
+  network_notes:
+    "Clash listens on 127.0.0.1:7890 (personal overseas egress); the CI box has an " <>
+      "HTTPS CONNECT proxy at hj.runjs.cn:31443 (port 31443, not 443). Historically a " <>
+      "proxy broke TLS to *.runjs.cn and api.moark.com/ai.gitee.com were reachable " <>
+      "directly, so those were previously bypassed — treat that as history, judge from " <>
+      "the measured probe.",
+  target_probe: true,
+  target_probe_timeout_ms: 1_500,
+  min_confidence: 0.6,
+  max_leak_risk: 2.0,
+  timeout: 30_000,
+  probe_timeout_ms: 50,
+  cache_ttl_ms: 600_000,
+  cache_limit: 2000
+
 import_config "#{config_env()}.exs"

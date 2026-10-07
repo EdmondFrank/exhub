@@ -120,6 +120,8 @@ defmodule Exhub.Application do
       # Owns the working-dir verdict cache ETS table (must start before the
       # Desktop server, so the table outlives the per-request tool tasks)
       {Exhub.MCP.Desktop.WorkingDir, []},
+      # Owns the proxy-env verdict cache ETS table (same reasoning as above)
+      {Exhub.MCP.Desktop.ProxyEnv, []},
       {Exhub.MCP.DesktopServer,
        transport: :streamable_http,
        request_timeout: 600_000,

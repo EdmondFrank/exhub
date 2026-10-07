@@ -31,6 +31,20 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert {:config, 0} in functions
     end
 
+    test "ProxyEnv module exists" do
+      assert is_atom(Exhub.MCP.Desktop.ProxyEnv)
+      functions = Exhub.MCP.Desktop.ProxyEnv.__info__(:functions)
+      assert {:judge, 2} in functions
+      assert {:judge, 3} in functions
+      assert {:interpret, 2} in functions
+      assert {:retry_candidate?, 2} in functions
+      assert {:cached_additions, 1} in functions
+      assert {:apply_to_env, 2} in functions
+      assert {:build_env, 1} in functions
+      assert {:enabled?, 0} in functions
+      assert {:config, 0} in functions
+    end
+
     test "ProcessStore module exists" do
       assert is_atom(Exhub.MCP.Desktop.ProcessStore)
       functions = Exhub.MCP.Desktop.ProcessStore.__info__(:functions)

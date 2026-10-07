@@ -9,6 +9,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.ProxyEnv
   alias Exhub.MCP.Desktop.WorkingDir
 
   use Anubis.Server.Component, type: :tool
@@ -68,7 +69,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
       true ->
         with {:ok, working_dir} <- Helpers.validate_absolute_path(working_dir) do
-          case run_command(command, timeout_ms, working_dir) do
+          case run_with_proxy_fallback(command, timeout_ms, working_dir) do
             {:ok, result} ->
               resp =
                 Response.tool()
@@ -97,9 +98,9 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   # is where the hang is most likely to become visible.
   @timeout_output_limit 8_000
 
-  defp run_command(command, timeout_ms, working_dir) do
+  defp run_command(command, timeout_ms, working_dir, env \\ nil) do
     argv = Helpers.shell_command_args(command)
-    opts = build_opts(working_dir)
+    opts = build_opts(working_dir, env)
     parent = self()
 
     task =
@@ -192,8 +193,60 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     end
   end
 
-  defp build_opts(working_dir) do
-    base_opts = [stderr: :consume, env: Helpers.clean_env()]
+  # `:on_fail` proxy fallback: run the command untouched, and only if it fails
+  # the way a blocked outbound request fails, ask `ProxyEnv` whether a proxy is
+  # the better fix and retry once with the variables injected into *this
+  # command's* environment. Nothing is persisted, the command string is never
+  # rewritten, and a command that reported success is never re-run.
+  defp run_with_proxy_fallback(command, timeout_ms, working_dir) do
+    first = run_command(command, timeout_ms, working_dir)
+
+    if ProxyEnv.retry_candidate?(command, first) do
+      case ProxyEnv.judge(command, first) do
+        {:inject, additions, detail} ->
+          env = ProxyEnv.apply_to_env(Helpers.clean_env(), additions)
+
+          case run_command(command, timeout_ms, working_dir, env) do
+            {:ok, retried} -> {:ok, annotate_proxy(retried, additions, detail, nil)}
+            {:timeout, retried} -> {:timeout, annotate_proxy(retried, additions, detail, nil)}
+            # The retry could not run: report the original failure, annotated.
+            {:error, reason} -> tag_with_note(first, additions, detail, inspect(reason))
+          end
+
+        {:noop, _reason, _detail} ->
+          first
+      end
+    else
+      first
+    end
+  end
+
+  defp tag_with_note({tag, payload}, additions, detail, retry_error) do
+    {tag, annotate_proxy(payload, additions, detail, retry_error)}
+  end
+
+  defp tag_with_note(other, _additions, _detail, _retry_error), do: other
+
+  # Surfaces what was injected and why, so the caller can see the retry instead
+  # of receiving an unexplained second run of the same command.
+  defp annotate_proxy(payload, additions, detail, retry_error) when is_map(payload) do
+    note = %{
+      "proxy_url" => Map.get(detail, "proxy_url"),
+      "injected" => additions |> Enum.map(fn {key, _} -> key end) |> Enum.uniq(),
+      "needs_proxy" => Map.get(detail, "needs_proxy"),
+      "mechanism" => Map.get(detail, "mechanism"),
+      "leak_risk" => Map.get(detail, "leak_risk"),
+      "attempt" => 2
+    }
+
+    note = if retry_error, do: Map.put(note, "retry_error", retry_error), else: note
+    Map.put(payload, "proxy_env", note)
+  end
+
+  defp annotate_proxy(payload, _additions, _detail, _retry_error), do: payload
+
+  defp build_opts(working_dir, env) do
+    base_opts = [stderr: :consume, env: env]
 
     if working_dir do
       Keyword.put(base_opts, :cd, working_dir)

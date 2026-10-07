@@ -7,6 +7,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
+  alias Exhub.MCP.Desktop.ProxyEnv
   alias Exhub.MCP.Desktop.WorkingDir
   alias Exhub.MCP.Desktop.ExecListener
   alias Exhub.MCP.Desktop.PortListener
@@ -169,6 +170,15 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
         port_opts
       end
 
+    port_opts =
+      case ProxyEnv.cached_additions(command) do
+        [] ->
+          port_opts
+
+        additions ->
+          [{:env, port_env(ProxyEnv.apply_to_env(Helpers.clean_env(), additions))} | port_opts]
+      end
+
     # Start the listener process FIRST - it will own the port
     listener_pid = spawn_port_listener(process_id)
 
@@ -270,6 +280,14 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     end
   end
 
+  # An Erlang port replaces the whole environment, so pass the merged list and
+  # in its charlist form.
+  defp port_env(env) do
+    Enum.map(env, fn {key, value} ->
+      {to_charlist(to_string(key)), to_charlist(to_string(value))}
+    end)
+  end
+
   defp spawn_port_listener(process_id) do
     spawn(fn ->
       PortListener.loop(process_id, nil)
@@ -277,7 +295,7 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   end
 
   defp start_streaming_process(process_id, command, working_dir) do
-    opts = build_opts(working_dir)
+    opts = build_opts(working_dir, command)
 
     # Register the process FIRST so append_output calls don't get dropped
     entry_attrs = %{
@@ -368,8 +386,13 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     end
   end
 
-  defp build_opts(working_dir) do
-    base_opts = [stderr: :consume, env: Helpers.clean_env()]
+  # A background process produces no observable failure for this tool (it
+  # returns before the child has run), so there is nothing to judge: reuse the
+  # verdict `execute_command` already recorded for this exact command, and
+  # otherwise inherit the environment untouched.
+  defp build_opts(working_dir, command) do
+    env = ProxyEnv.apply_to_env(Helpers.clean_env(), ProxyEnv.cached_additions(command))
+    base_opts = [stderr: :consume, env: env]
 
     if working_dir do
       Keyword.put(base_opts, :cd, working_dir)
