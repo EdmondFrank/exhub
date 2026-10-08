@@ -537,7 +537,7 @@ Execute a Lua 5.3 snippet in a sandbox with every visible hub tool bridged in as
 - Nested by server: `desktop.read_file({path = "/etc/hosts"})`, `web_tools.web_fetch({url = "…"})` (every non-alphanumeric character in the server and tool names becomes `_`).
 - Flat lookup: `tools["desktop__read_file"]({path = "/etc/hosts"})` — the exact `server__tool` name returned by `retrieve_tools`, kept **verbatim** (a hyphenated server keeps its dash, e.g. `tools["browser-use__browser_navigate"]`).
 
-**Parallel calls** — `parallel({…})` is the `Promise.all` analog: it fans the calls out concurrently, returns results index-aligned with the input, and raises on the first failure. `parallel_all({…})` is the all-settled analog (never raises; returns one `{ok = true, result = …}` / `{ok = false, error = …}` per call).
+**Parallel calls** — `parallel({…})` is the `Promise.all` analog: it fans the calls out concurrently and returns results index-aligned with the input. It still aborts on the first failure, but every call has already settled, so the abort reports each call (descriptor + outcome) and — when at least one call succeeded — the report comes back as an **ordinary result** rather than an error, so one bad call cannot replace the successes; a batch in which every call failed stays an error. `pcall(parallel, {…})` in the script still catches the abort as a string. `parallel_all({…})` is the all-settled analog (never raises; returns one `{ok = true, result = …}` / `{ok = false, error = …}` per call).
 
 ```lua
 local r = parallel({
@@ -588,7 +588,7 @@ Configuration (in-code defaults in `Exhub.MCP.Hub.CodeMode`, overridable under `
 | `max_call_depth` | `200` | Lua call-depth cap |
 | `max_heap_size` | `268_435_456` | Sandbox process heap cap (bytes) |
 | `max_string_bytes` | `8_388_608` | Max Lua string size (bytes) |
-| `max_output_chars` | `24_000` | Result truncation, to bound context; overflow is spilled to a file |
+| `max_output_chars` | `100_000` | Result truncation, to bound context; overflow is spilled to a file |
 | `spill_truncated` | `true` | Write the full result to a temp file when truncation occurs |
 | `spill_dir` | `nil` | Directory for spilled results (`nil` → `System.tmp_dir!()`) |
 | `max_concurrency` | `8` | Max concurrent calls in a `parallel`/`parallel_all` fan-out |

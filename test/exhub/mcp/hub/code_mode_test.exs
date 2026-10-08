@@ -317,7 +317,7 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
       assert elapsed_us < 400_000
     end
 
-    test "parallel raises on the first failing call" do
+    test "a failed call still returns the settled successes as a normal result" do
       call =
         runner(fn
           _s, _t, %{"fail" => true} -> {:error, :boom}
@@ -326,15 +326,77 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
 
       code = """
       local r = parallel({
-        {server = "demo", tool = "echo", args = {tag = "ok"}},
+        {server = "demo", tool = "echo", args = {tag = "kept"}},
         {server = "demo", tool = "echo", args = {fail = true}}
       })
       return "unexpected"
       """
 
+      # The failure no longer replaces the whole batch: the settled success
+      # (tag "kept") is preserved alongside the failing call, and the response is
+      # an ordinary result rather than an isError.
+      assert {:ok, report} = CodeMode.run(code, @tools, call_fun: call)
+      assert report =~ "parallel: 1 of 2 calls failed"
+      assert report =~ "[1] demo.echo ok:"
+      assert report =~ "kept"
+      assert report =~ "[2] demo.echo error: :boom"
+      refute report =~ "unexpected"
+    end
+
+    test "an all-failed batch is still reported as an error" do
+      call = runner(fn _s, _t, _a -> {:error, :boom} end)
+
+      code = """
+      parallel({
+        {server = "demo", tool = "echo", args = {}}
+      })
+      return "unexpected"
+      """
+
       assert {:error, message} = CodeMode.run(code, @tools, call_fun: call)
-      assert message =~ "parallel call 2 failed"
-      assert message =~ "boom"
+      assert message =~ "parallel: 1 of 1 calls failed"
+      assert message =~ "error: :boom"
+    end
+
+    test "pcall still catches the parallel abort as a readable string" do
+      call =
+        runner(fn
+          _s, _t, %{"fail" => true} -> {:error, :boom}
+          _s, _t, args -> {:ok, %{"content" => [%{"type" => "text", "text" => args["tag"]}]}}
+        end)
+
+      code = """
+      local ok, err = pcall(parallel, {
+        {server = "demo", tool = "echo", args = {tag = "kept"}},
+        {server = "demo", tool = "echo", args = {fail = true}}
+      })
+      if ok then return "unexpected" end
+      return type(err) .. "|" .. err
+      """
+
+      assert {:ok, text} = CodeMode.run(code, @tools, call_fun: call)
+      assert text =~ "string|"
+      assert text =~ "parallel: 1 of 2 calls failed"
+    end
+
+    test "a parallel error swallowed by pcall does not leak into a later, unrelated error" do
+      call =
+        runner(fn
+          _s, _t, %{"fail" => true} -> {:error, :boom}
+          _s, _t, args -> {:ok, %{"content" => [%{"type" => "text", "text" => args["tag"]}]}}
+        end)
+
+      code = """
+      local ok = pcall(parallel, {
+        {server = "demo", tool = "echo", args = {tag = "kept"}},
+        {server = "demo", tool = "echo", args = {fail = true}}
+      })
+      error("a different problem")
+      """
+
+      assert {:error, message} = CodeMode.run(code, @tools, call_fun: call)
+      assert message =~ "a different problem"
+      refute message =~ "parallel: 1 of 2 calls failed"
     end
 
     test "parallel_all returns per-call ok/error without raising" do

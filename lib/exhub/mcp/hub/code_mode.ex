@@ -48,8 +48,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
   ## Parallelism
 
   `parallel({…})` fans a list of tool calls out concurrently — the `Promise.all`
-  analog. Results come back index-aligned with the input, and the call raises
-  on the first failure:
+  analog. Results come back index-aligned with the input:
 
       local r = parallel({
         {server = "desktop", tool = "read_file",       args = {path = "/etc/hosts"}},
@@ -58,6 +57,15 @@ defmodule Exhub.MCP.Hub.CodeMode do
       return r[1].content[1].text .. r[2].content[1].text
 
   A call may also be given as `{name = "server__tool", args = {…}}`.
+
+  `parallel` still aborts on the first failure, but it does not discard the
+  batch: `run_parallel/3` has already waited for every call, so the abort
+  carries a report of each call — descriptor plus outcome. When at least one
+  call succeeded that report is returned as an **ordinary result**, not an
+  error, so a single bad call cannot replace the successes; only a batch in
+  which *every* call failed comes back as an error. A `pcall(parallel, {…})`
+  inside the script still catches the abort, and receives the same report as a
+  string.
 
   `parallel_all({…})` is the all-settled analog: it never raises, returning one
   `{ok = true, result = …}` or `{ok = false, error = …}` per call.
@@ -70,7 +78,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
   to it (`spawn_monitor/1`). Concurrency inside a snippet is bounded by the
   `max_concurrency` config.
 
-  The formatted result is capped at `max_output_chars` (default `24_000`) to
+  The formatted result is capped at `max_output_chars` (default `100_000`) to
   bound context; when it is longer, the full text is written to a temp file and
   its path is returned alongside the truncated prefix, so the caller can read it
   back with `desktop.read_file`. Set `spill_truncated: false` to disable this,
@@ -96,7 +104,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
     max_call_depth: 200,
     max_heap_size: 268_435_456,
     max_string_bytes: 8_388_608,
-    max_output_chars: 24_000,
+    max_output_chars: 100_000,
     spill_truncated: true,
     spill_dir: nil,
     max_concurrency: 8,
@@ -193,6 +201,9 @@ defmodule Exhub.MCP.Hub.CodeMode do
         {:ok, {:ok, results, logs}} ->
           {:ok, format_result(results, logs)}
 
+        {:ok, {:partial, report, logs}} ->
+          {:ok, format_result(report, logs)}
+
         {:ok, {:lua_error, message}} ->
           {:error, message}
 
@@ -220,7 +231,24 @@ defmodule Exhub.MCP.Hub.CodeMode do
     {:ok, results, Process.get(:code_mode_log, [])}
   rescue
     error in [Lua.RuntimeException, Lua.CompilerException] ->
-      {:lua_error, Exception.message(error)}
+      message = Exception.message(error)
+
+      # A strict `parallel` batch that aborts with at least one settled success
+      # stashes its full report before raising (see `render_strict/3`). Surface
+      # that report as an ordinary result rather than an error, so one bad call
+      # cannot replace the successes with a failure. `String.contains?` (not
+      # `=~`, which would treat the report as a regex) keeps a script that
+      # swallowed the parallel error via `pcall` and then raised something else
+      # on the normal error path — its new message won't embed the report.
+      case Process.get(:code_mode_partial) do
+        report when is_binary(report) ->
+          if String.contains?(message, report),
+            do: {:partial, report, Process.get(:code_mode_log, [])},
+            else: {:lua_error, message}
+
+        _ ->
+          {:lua_error, message}
+      end
   end
 
   @doc """
@@ -311,7 +339,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
       results = run_parallel(descriptors, call_fun, cfg)
 
       case mode do
-        :strict -> render_strict(results, lua)
+        :strict -> render_strict(descriptors, results, lua)
         :soft -> render_soft(results, lua)
       end
     end
@@ -339,16 +367,53 @@ defmodule Exhub.MCP.Hub.CodeMode do
     end)
   end
 
-  defp render_strict(results, lua) do
-    case results |> Enum.with_index(1) |> Enum.find(fn {r, _i} -> match?({:error, _}, r) end) do
-      {{:error, message}, index} ->
-        {:error, "parallel call #{index} failed: #{message}", lua}
+  # Strict `parallel` is the `Promise.all` analog: it aborts on the first
+  # failure. But `run_parallel/3` has already settled every call, so the abort
+  # carries the whole batch — each call's descriptor and result — instead of
+  # discarding it. When at least one call succeeded the report is stashed for
+  # `eval/4`, which returns it as an ordinary result so the successes survive
+  # the failure; a batch in which every call failed stays a plain error.
+  defp render_strict(descriptors, results, lua) do
+    if Enum.any?(results, &match?({:error, _}, &1)) do
+      report = parallel_report(descriptors, results)
 
-      nil ->
-        values = Enum.map(results, fn {:ok, value} -> value end)
-        Lua.encode!(lua, values)
+      if Enum.any?(results, &match?({:ok, _}, &1)) do
+        Process.put(:code_mode_partial, report)
+      end
+
+      {:error, report, lua}
+    else
+      values = Enum.map(results, fn {:ok, value} -> value end)
+      Lua.encode!(lua, values)
     end
   end
+
+  defp parallel_report(descriptors, results) do
+    failures = Enum.count(results, &match?({:error, _}, &1))
+    total = length(results)
+
+    lines =
+      descriptors
+      |> Enum.zip(results)
+      |> Enum.with_index(1)
+      |> Enum.map(fn {{descriptor, result}, index} ->
+        "[#{index}] #{call_label(descriptor)} #{settled_line(result)}"
+      end)
+
+    Enum.join(["parallel: #{failures} of #{total} calls failed" | lines], "\n")
+  end
+
+  defp call_label(%{server: server, tool: tool}) when is_binary(server) and is_binary(tool),
+    do: "#{server}.#{tool}"
+
+  defp call_label(_descriptor), do: "(invalid call)"
+
+  # Results here are raw Elixir terms from `ClientManager`, not Lua-decoded
+  # values, so encode them with the JSON fallback used for error payloads
+  # (`render_value/1` assumes Lua's `{key, value}`-pair shape and blows up on a
+  # plain list of maps).
+  defp settled_line({:ok, value}), do: "ok: #{encode_fallback(value)}"
+  defp settled_line({:error, message}), do: "error: #{message}"
 
   defp render_soft(results, lua) do
     payload =

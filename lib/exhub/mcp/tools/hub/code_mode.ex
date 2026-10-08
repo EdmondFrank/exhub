@@ -63,9 +63,12 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
           {server = "desktop", tool = "execute_command", args = {command = "uname -a"}}
         })
         return r[1].content[1].text .. r[2].content[1].text
-    `parallel` fans the calls out concurrently, returns results index-aligned
-    with the input (assign to `local r`, then index `r[1]`, `r[2]`) and raises on
-    the first failure; `parallel_all` never raises, returning one
+    `parallel` fans the calls out concurrently and returns results index-aligned
+    with the input (assign to `local r`, then index `r[1]`, `r[2]`). It still
+    aborts on the first failure, but every call has already settled, so the abort
+    reports each call and — when at least one succeeded — is returned as an
+    ordinary result rather than an error, preserving the successes; a batch where
+    every call failed stays an error. `parallel_all` never raises, returning one
     `{ok = true, result = …}` / `{ok = false, error = …}` per call.
 
     **Rules**
