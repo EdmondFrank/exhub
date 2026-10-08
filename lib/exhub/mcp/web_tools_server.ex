@@ -16,9 +16,19 @@ defmodule Exhub.MCP.WebToolsServer do
   `web_search.filter: false` disables it). See
   `Exhub.MCP.WebTools.Relevance`.
 
+  ## Proxy decision
+
+  `web_fetch` does not attach the configured `:exhub, :proxy` to every request.
+  It starts direct, and a failure shaped like a blocked route is escalated to
+  one Smart Decide call that may approve a single retry through a proxy it
+  judged reachable and worth the leak risk — the same gate the Desktop shell
+  tools use, so the verdict cache is shared. See `Exhub.MCP.WebTools.Proxy`.
+
   ## See Also
   - `Exhub.MCP.WebTools.Relevance` — Smart Decide relevance filter over
     web search results
+  - `Exhub.MCP.WebTools.Proxy` — Smart Decide proxy decision for outbound
+    `web_fetch` requests (`Exhub.MCP.Desktop.ProxyEnv` does the judging)
   - `docs/modules/web-tools.md` — full user-facing documentation
   """
 

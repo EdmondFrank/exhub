@@ -808,6 +808,31 @@ convention.
 a failure: it reuses the verdict `execute_command` already recorded for the
 same command (`cached_additions/1`), or inherits the environment untouched.
 
+### The HTTP counterpart — `Exhub.MCP.WebTools.Proxy`
+
+`web_fetch` has no child process to give an environment to, so it cannot use
+this module directly — but it uses the same judgment.
+`Exhub.MCP.WebTools.Proxy` renders the request as a `curl -fsSL -X GET <url>`
+evidence line, hands the transport-shaped failure to `judge/3`, and turns the
+resulting verdict into hackney's `proxy:` option for one retry. It reuses this
+module's candidate list, target probe, thresholds and **verdict cache**, so a
+proxy already approved for a URL (by a shell command or an earlier fetch) is
+applied without a second model call — and a proxy that a command found
+unreachable is not offered again.
+
+Two differences are worth naming. First, hackney left to itself honours an
+exported `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` — a route no decision approved —
+so `web_fetch` passes `no_proxy_env: true` and expresses the verdict as a
+request option (`proxy:`) rather than an env injection; only an approved proxy
+is ever set. Second, the `NO_PROXY`/loopback exemption is *enforced* on the HTTP
+path rather than offered as advice: for a shell command the bypass rides in the
+same `NO_PROXY` variable being injected, so the model can overrule it, whereas
+the only way to honour it for `web_fetch` is not to set `proxy:` at all.
+`Exhub.MCP.WebTools.Proxy` therefore short-circuits an exempt host on every
+branch, the judged one included (`judge/4` takes `respect_bypass: false` to put
+such a host in front of the model deliberately). See
+[`web-tools.md`](web-tools.md) → *Proxy decision (Smart Decide)*.
+
 ### Configuration
 
 ```elixir

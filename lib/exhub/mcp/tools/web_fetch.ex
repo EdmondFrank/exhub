@@ -4,9 +4,19 @@ defmodule Exhub.MCP.Tools.WebFetch do
 
   This tool allows fetching content from a URL and returning the page content
   as simplified text after parsing HTML.
+
+  ## Egress
+
+  Outbound HTTP requests go direct unless Smart Decide says otherwise, the same
+  rule the Desktop shell tools follow: `Exhub.MCP.WebTools.Proxy` escalates a
+  failure that looks like a blocked route to one System One call, which may
+  approve a single retry through a proxy it judged reachable and worth the leak
+  risk. `Application.get_env(:exhub, :proxy)` is that call's first candidate,
+  not an unconditional injection.
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.WebTools.Proxy
 
   use Anubis.Server.Component, type: :tool
 
@@ -29,6 +39,12 @@ defmodule Exhub.MCP.Tools.WebFetch do
 
     Set render_js to true to render JavaScript-heavy pages via headless Chrome (KuriDaemon).
     This is useful for SPAs, dynamically loaded content, or pages that require JS execution.
+
+    Plain HTTP requests start direct: only a transport-layer failure (timeout,
+    refused/reset connection, DNS or TLS breakage) is escalated to Smart Decide,
+    which may approve one retry through a proxy it judged reachable and safe.
+    A successful structured response that went through a proxy carries a
+    "proxy" field explaining the verdict.
     """
   end
 
@@ -43,8 +59,7 @@ defmodule Exhub.MCP.Tools.WebFetch do
     field(:body, :string, description: "Optional request body for POST requests")
 
     field(:render_js, :boolean,
-      description:
-        "Render JavaScript via headless Chrome before extracting text. Default false."
+      description: "Render JavaScript via headless Chrome before extracting text. Default false."
     )
   end
 
@@ -71,6 +86,13 @@ defmodule Exhub.MCP.Tools.WebFetch do
   end
 
   # Private functions
+
+  # `web_fetch` does not let hackney follow redirects: hackney 1.23.0 returns a
+  # bare `:badarg` (or a `transport_scheme/1` FunctionClauseError) when it
+  # follows a redirect — with or without a proxy — which HTTPoison surfaces as a
+  # `CaseClauseError`. We follow the Location chain here instead, bounded by
+  # this budget.
+  @max_redirects 5
 
   defp valid_url?(url) do
     case URI.parse(url) do
@@ -313,38 +335,36 @@ defmodule Exhub.MCP.Tools.WebFetch do
     end
   end
 
+  # Direct by default — see `Exhub.MCP.WebTools.Proxy`. A transport-shaped
+  # failure is escalated to Smart Decide, which may approve exactly one retry
+  # through a proxy it judged reachable and worth the leak risk. Nothing is
+  # injected the decision did not approve, and an HTTP status is never a
+  # proxy candidate.
   defp do_fetch_http(url, method, headers, body, frame) do
-    proxy = Application.get_env(:exhub, :proxy, "")
+    command = Proxy.evidence_command(method, url)
 
-    http_options =
-      [
-        hackney: [
-          follow_redirect: true,
-          max_redirect: 5,
-          timeout: 30_000,
-          recv_timeout: 30_000
-        ]
-      ]
-      |> maybe_add_proxy(proxy)
+    case Proxy.route(command) do
+      {:proxy, proxy_url, meta} ->
+        fetch_via(command, url, method, headers, body, proxy_url, meta, 1, @max_redirects, frame)
 
-    http_headers = Map.to_list(headers)
+      {:direct, meta} ->
+        fetch_via(command, url, method, headers, body, nil, meta, 1, @max_redirects, frame)
+    end
+  end
 
-    result =
-      case method do
-        "GET" ->
-          HTTPoison.get(url, http_headers, http_options)
-
-        "POST" ->
-          HTTPoison.post(url, body || "", http_headers, http_options)
-
-        "HEAD" ->
-          HTTPoison.head(url, http_headers, http_options)
-
-        _ ->
-          {:error, "Unsupported HTTP method: #{method}"}
-      end
-
-    case result do
+  defp fetch_via(
+         command,
+         url,
+         method,
+         headers,
+         body,
+         proxy_url,
+         meta,
+         attempt,
+         redirects_left,
+         frame
+       ) do
+    case http_request(method, url, headers, body, proxy_url) do
       {:ok,
        %HTTPoison.Response{
          status_code: status_code,
@@ -359,43 +379,362 @@ defmodule Exhub.MCP.Tools.WebFetch do
             parse_html_content(response_body)
           end
 
-        resp =
-          Response.tool()
-          |> Response.structured(%{
-            "success" => true,
-            "url" => url,
-            "status_code" => status_code,
-            "content" => content
-          })
+        data = %{
+          "success" => true,
+          "url" => url,
+          "status_code" => status_code,
+          "content" => content
+        }
 
-        {:reply, resp, frame}
+        data =
+          if proxy_url do
+            Map.put(data, "proxy", Proxy.annotate(proxy_url, meta, attempt))
+          else
+            data
+          end
+
+        {:reply, Response.tool() |> Response.structured(data), frame}
+
+      {:ok, %HTTPoison.Response{status_code: status_code, headers: response_headers}}
+      when status_code in 300..399 ->
+        follow_redirect(
+          command,
+          url,
+          method,
+          headers,
+          body,
+          proxy_url,
+          meta,
+          attempt,
+          redirects_left,
+          status_code,
+          response_headers,
+          frame
+        )
 
       {:ok, %HTTPoison.Response{status_code: status_code}} ->
+        # The peer answered: the failure is application-layer, a proxy changes
+        # nothing here, so no decision is consulted.
         resp =
           Response.tool()
           |> Response.error("HTTP error: status code #{status_code}")
 
         {:reply, resp, frame}
 
+      {:error, {:unsupported_method, unsupported}} ->
+        resp =
+          Response.tool()
+          |> Response.error("Unsupported HTTP method: #{unsupported}")
+
+        {:reply, resp, frame}
+
       {:error, %HTTPoison.Error{reason: reason}} ->
+        handle_transport_failure(
+          command,
+          url,
+          method,
+          headers,
+          body,
+          proxy_url,
+          meta,
+          attempt,
+          reason,
+          frame
+        )
+
+      {:error, {:exception, exception}} ->
+        # Defence in depth: `http_request/5` already keeps hackney off its
+        # redirect path, but a dependency crash must never surface as a bare
+        # `%CaseClauseError{}` — report it like any other failure.
+        resp =
+          Response.tool()
+          |> Response.error("HTTP request failed: #{describe_exception(exception)}")
+
+        {:reply, resp, frame}
+
+      {:error, reason} ->
         resp =
           Response.tool()
           |> Response.error("HTTP request failed: #{inspect(reason)}")
 
         {:reply, resp, frame}
-
-      {:error, reason} when is_binary(reason) ->
-        resp = Response.tool() |> Response.error(reason)
-        {:reply, resp, frame}
     end
   end
 
-  defp maybe_add_proxy(options, ""), do: options
+  # Follows one redirect hackney did not follow itself (a proxied request, or a
+  # non-GET/HEAD redirect hackney hands back). The Location chain is walked
+  # here, up to `@max_redirects`, instead of inside hackney.
+  defp follow_redirect(
+         command,
+         url,
+         method,
+         headers,
+         body,
+         proxy_url,
+         meta,
+         attempt,
+         redirects_left,
+         status,
+         response_headers,
+         frame
+       ) do
+    new_url = resolve_redirect(url, redirect_location(response_headers))
 
-  defp maybe_add_proxy(options, proxy) do
-    Keyword.update(options, :hackney, [proxy: proxy], fn hackney_opts ->
-      Keyword.put(hackney_opts, :proxy, proxy)
+    cond do
+      redirects_left <= 0 ->
+        resp =
+          Response.tool()
+          |> Response.error(
+            "HTTP request failed: too many redirects (more than #{@max_redirects})"
+          )
+
+        {:reply, resp, frame}
+
+      is_nil(new_url) ->
+        resp = Response.tool() |> Response.error("HTTP error: status code #{status}")
+        {:reply, resp, frame}
+
+      true ->
+        {new_method, new_body} = redirected_request(status, method, body)
+        new_headers = maybe_strip_credentials(headers, url, new_url)
+
+        # A redirect can point at a bypassed host (loopback/NO_PROXY); the proxy
+        # that carried the first hop must not be reused for it.
+        next_proxy =
+          if Proxy.bypassed?(Proxy.evidence_command(new_method, new_url)),
+            do: nil,
+            else: proxy_url
+
+        fetch_via(
+          command,
+          new_url,
+          new_method,
+          new_headers,
+          new_body,
+          next_proxy,
+          meta,
+          attempt,
+          redirects_left - 1,
+          frame
+        )
+    end
+  end
+
+  @doc false
+  def redirect_location(headers) when is_list(headers) do
+    Enum.find_value(headers, fn {key, value} ->
+      if String.downcase(to_string(key)) == "location", do: to_string(value)
     end)
+  end
+
+  def redirect_location(_headers), do: nil
+
+  @doc false
+  def resolve_redirect(base, location) when is_binary(location) do
+    case URI.merge(base, location) do
+      %URI{scheme: scheme, host: host} = uri
+      when scheme in ["http", "https"] and is_binary(host) ->
+        URI.to_string(uri)
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  def resolve_redirect(_base, _location), do: nil
+
+  # 303 always becomes GET; a 301/302 POST becomes GET (browser behaviour);
+  # 307/308 keep the method and body; HEAD stays HEAD.
+  @doc false
+  def redirected_request(_status, "HEAD", _body), do: {"HEAD", nil}
+  def redirected_request(303, _method, _body), do: {"GET", nil}
+  def redirected_request(status, "POST", _body) when status in [301, 302], do: {"GET", nil}
+  def redirected_request(_status, method, body), do: {method, body}
+
+  # Credentials must not follow a redirect to another origin.
+  @doc false
+  def maybe_strip_credentials(headers, from, to) when is_map(headers) do
+    if same_origin?(from, to), do: headers, else: drop_sensitive_headers(headers)
+  end
+
+  def maybe_strip_credentials(headers, _from, _to), do: headers
+
+  defp same_origin?(from, to) do
+    a = URI.parse(from)
+    b = URI.parse(to)
+    {a.scheme, a.host, a.port} == {b.scheme, b.host, b.port}
+  end
+
+  defp drop_sensitive_headers(headers) do
+    Map.reject(headers, fn {key, _value} ->
+      String.downcase(to_string(key)) in ["authorization", "cookie", "proxy-authorization"]
+    end)
+  end
+
+  defp describe_exception(%{__struct__: _} = exception), do: Exception.message(exception)
+  defp describe_exception(exception), do: inspect(exception)
+
+  defp handle_transport_failure(
+         command,
+         url,
+         method,
+         headers,
+         body,
+         proxy_url,
+         meta,
+         attempt,
+         reason,
+         frame
+       ) do
+    failure = Proxy.transport_failure(reason)
+
+    cond do
+      is_nil(failure) ->
+        transport_error(reason, proxy_url, meta, attempt, nil, nil, frame)
+
+      attempt >= 2 ->
+        transport_error(reason, proxy_url, meta, attempt, :attempts_exhausted, meta, frame)
+
+      not Proxy.decision_enabled?() ->
+        transport_error(reason, proxy_url, meta, attempt, :decision_disabled, nil, frame)
+
+      true ->
+        decide_retry(
+          command,
+          url,
+          method,
+          headers,
+          body,
+          proxy_url,
+          meta,
+          attempt,
+          reason,
+          failure,
+          frame
+        )
+    end
+  end
+
+  defp decide_retry(
+         command,
+         url,
+         method,
+         headers,
+         body,
+         proxy_url,
+         meta,
+         attempt,
+         reason,
+         failure,
+         frame
+       ) do
+    case Proxy.judge(method, url, failure) do
+      {:proxy, retry_url, detail} ->
+        if retry_url == proxy_url do
+          transport_error(reason, proxy_url, meta, attempt, :already_proxied, detail, frame)
+        else
+          fetch_via(
+            command,
+            url,
+            method,
+            headers,
+            body,
+            retry_url,
+            Map.put(detail, "decision", "smart_decide"),
+            attempt + 1,
+            @max_redirects,
+            frame
+          )
+        end
+
+      {:noop, verdict, detail} ->
+        # The judged fix can be the opposite of the transport in use (the proxy
+        # is what is broken). That is still a Smart Decide verdict, so the
+        # direct retry is made on its advice only — never as a guess.
+        if proxy_url && Proxy.advises_direct?(verdict, detail) do
+          fetch_via(
+            command,
+            url,
+            method,
+            headers,
+            body,
+            nil,
+            %{"decision" => "direct", "mechanism" => "direct_no_proxy"},
+            attempt + 1,
+            @max_redirects,
+            frame
+          )
+        else
+          transport_error(reason, proxy_url, meta, attempt, verdict, detail, frame)
+        end
+    end
+  end
+
+  defp transport_error(reason, proxy_url, meta, attempt, verdict, detail, frame) do
+    note =
+      Proxy.failure_note(
+        proxy_url: proxy_url,
+        decision: Map.get(meta || %{}, "decision"),
+        verdict: verdict,
+        detail: detail
+      )
+
+    attempts = if attempt > 1, do: " (after #{attempt} attempts)", else: ""
+
+    resp =
+      Response.tool()
+      |> Response.error("HTTP request failed: #{inspect(reason)}#{note}#{attempts}")
+
+    {:reply, resp, frame}
+  end
+
+  @request_timeout_ms 30_000
+
+  defp http_request(method, url, headers, body, proxy_url) do
+    http_options =
+      [
+        hackney: [
+          # hackney's redirect follower returns a bare `:badarg`, so every
+          # request asks it not to follow and `follow_redirect/12` walks the
+          # Location chain itself.
+          follow_redirect: false,
+          max_redirect: @max_redirects,
+          timeout: @request_timeout_ms,
+          recv_timeout: @request_timeout_ms,
+          # Even a "direct" request must not silently pick up an exported
+          # HTTPS_PROXY/HTTP_PROXY/ALL_PROXY: hackney reads those by default.
+          # The explicit `proxy:` option — added only when the decision approves
+          # one — is the sole transport this tool uses.
+          no_proxy_env: true
+        ]
+      ]
+      |> Proxy.add_proxy(proxy_url)
+
+    http_headers = Map.to_list(headers)
+
+    try do
+      case method do
+        "GET" ->
+          HTTPoison.get(url, http_headers, http_options)
+
+        "POST" ->
+          HTTPoison.post(url, body || "", http_headers, http_options)
+
+        "HEAD" ->
+          HTTPoison.head(url, http_headers, http_options)
+
+        other ->
+          {:error, {:unsupported_method, other}}
+      end
+    rescue
+      exception ->
+        {:error, {:exception, exception}}
+    catch
+      kind, reason ->
+        {:error, {:exception, {kind, reason}}}
+    end
   end
 
   defp parse_html_content(html) when is_binary(html) do

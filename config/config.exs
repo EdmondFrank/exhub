@@ -356,4 +356,21 @@ config :exhub, Exhub.MCP.Desktop.ProxyEnv,
   cache_ttl_ms: 600_000,
   cache_limit: 2000
 
+# HTTP counterpart of the proxy-environment gate. `web_fetch` no longer attaches
+# `:exhub, :proxy` to every request: it starts direct, and `Exhub.MCP.WebTools.Proxy`
+# escalates a failure that looks like a blocked route (timeout, refused/reset,
+# DNS or TLS breakage) to one Smart Decide call that may approve a single retry
+# through a proxy it judged reachable. An HTTP status or a rejected certificate
+# is never a proxy candidate.
+#   - `enabled`: off ⇒ the legacy behaviour — the static `:exhub, :proxy` on
+#     every request, with no model call and no direct fallback
+#   - `shared_proxy_candidate`: offer `:exhub, :proxy` (the egress proxy the
+#     router's LLM routes use) as the first candidate to the decision. ProxyEnv
+#     does not read that key itself.
+# Mode (`:on_fail`/`:pre`), thresholds, the network premise and notes, probe
+# budgets and the shared verdict cache are inherited from ProxyEnv above.
+config :exhub, Exhub.MCP.WebTools.Proxy,
+  enabled: true,
+  shared_proxy_candidate: true
+
 import_config "#{config_env()}.exs"

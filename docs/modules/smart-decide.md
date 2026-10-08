@@ -135,8 +135,10 @@ and accepts `:model`, `:compact`, and `:api_key` options. The MCP Hub uses it to
 filter `retrieve_tools` candidates and the Brain server to filter
 `brain_search_vault` results (see [`docs/modules/mcp-hub.md`](mcp-hub.md) →
 *Smart Decide relevance filtering* and [`docs/modules/brain.md`](brain.md) →
-*Relevance filtering*).
-
+*Relevance filtering*). The Desktop shell tools use it to decide whether a failed
+outbound command should be retried through a proxy
+(`Exhub.MCP.Desktop.ProxyEnv`), and `web_fetch` reuses that same call and verdict
+cache for its own egress through `Exhub.MCP.WebTools.Proxy`.
 ```elixir
 {:ok, %{"answers" => %{"relevant" => %{"noul" => 0.93}}}} =
   Exhub.MCP.Tools.SmartDecide.decide(

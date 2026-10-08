@@ -10,6 +10,8 @@ The web tools server is built into the Exhub application and exposes an MCP endp
 
 - **Web Search**: Search the web using Gitee AI's web search API
 - **Web Fetch**: Fetch and parse content from URLs or local files
+- **Smart-decided egress**: `web_fetch` proxies only when Smart Decide judges a
+  blocked route — see *Proxy decision (Smart Decide)* below
 - **MCP Tools**: Two MCP tools are available:
   - `web_search`: Search the web with query, count, summary, and freshness options
   - `web_fetch`: Fetch content from URLs (http/https) or local files (file://)
@@ -89,6 +91,68 @@ under `config :exhub, Exhub.MCP.WebTools.Relevance` in `config/config.exs`):
 - `headers` (optional): HTTP headers as key-value pairs
 - `body` (optional): Request body for POST requests
 - `render_js` (optional): Render JavaScript via headless Chrome before extracting text (default: false)
+
+#### Proxy decision (Smart Decide)
+
+`web_fetch` does not attach the configured `:exhub, :proxy` to every request. It
+starts **direct**, and only a failure that looks like a blocked route is
+escalated to one Smart Decide call, which may approve exactly one retry through
+a proxy it judged reachable and worth the leak risk. This mirrors the Desktop
+shell tools: `Exhub.MCP.Desktop.ProxyEnv` does the judging and owns the verdict
+cache, so a retry already decided for the same URL is reused without a second
+model call. Layered and fail-closed:
+
+1. **Transport gate** — `Exhub.MCP.WebTools.Proxy.transport_failure/1` maps
+   hackney/HTTPoison errors onto the blocked-route vocabulary (`:timeout` →
+   `connection timed out`, `{:failed_connect, [... :econnrefused]}` →
+   `connection refused`, `{:tls_alert, {:handshake_failure, _}}` → `unable to
+   establish ssl connection`, …). A 4xx/5xx status, a rejected certificate or a
+   parse error is **not** a transport failure, so it never asks for a proxy.
+2. **Hard guards, before any API call** — a credential in the URL
+   (`https://user:pass@…`, `?token=…`) stops the decision outright; a loopback or
+   `NO_PROXY` target short-circuits to `{:noop, :bypassed, …}` on every path, the
+   judged one included (unlike the shell tools, where that list is advisory
+   evidence — here the only way to honour it is to not set `proxy:`); a candidate
+   that does not TCP-connect is never used. `judge/4` accepts
+   `respect_bypass: false` to put an exempt host in front of the model anyway.
+3. **Smart Decide** — the `needs_proxy` / `mechanism` / `leak_risk` questions in
+   one call, with the request rendered as `curl -fsSL -X GET <url>` evidence and
+   the measured direct probe of the target host (see
+   [`desktop.md`](desktop.md) → *Proxy-environment gate*).
+4. **Fail closed** — an abstention, a timeout or a model error leaves the request
+   exactly as it was, and the returned error names the verdict it reached.
+
+`mechanism == direct_no_proxy` is the one verdict that can *remove* a proxy: if
+the first attempt was already proxied (`:pre` mode, a cached verdict, or the
+legacy static proxy), that advice triggers the single direct retry.
+
+When a proxy was used, the structured response carries the decision:
+
+```json
+{"success": true, "url": "…", "status_code": 200, "content": "…",
+ "proxy": {"proxy_url": "http://127.0.0.1:7890", "decision": "smart_decide",
+           "needs_proxy": 0.9998, "mechanism": "proxy_env",
+           "leak_risk": 0.0, "attempt": 2}}
+```
+
+Configuration (`config :exhub, Exhub.MCP.WebTools.Proxy`; mode, thresholds,
+probe budgets, network premise/notes and the cache all come from
+`Exhub.MCP.Desktop.ProxyEnv`):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch. `false` restores the legacy behaviour: the static `:exhub, :proxy` on every request, with no model call and no direct fallback. |
+| `shared_proxy_candidate` | `true` | Offer `:exhub, :proxy` (the egress proxy the router's LLM routes use, which `ProxyEnv` does not read itself) as the first candidate to the decision. |
+
+A proxy candidate must be `http://` (or socks). hackney 1.23.0 cannot CONNECT an
+`https://` target through an `https://` proxy — it returns
+`:invalid_proxy_transport` — so keep `:exhub, :proxy`, `ProxyEnv`'s `proxy_url`
+and its `fallback_proxies` as `http://…`/socks URLs.
+
+Tests stay offline because `ProxyEnv` is disabled in `config/test.exs`: with the
+decision engine off, requests go direct and `judge/4` only ever abstains. The
+gate itself is exercised with an injected decider/probe in
+`test/exhub/mcp/web_tools/proxy_test.exs`.
 
 #### render_js mode
 

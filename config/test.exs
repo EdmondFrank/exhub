@@ -26,3 +26,11 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir, enabled: false
 # default. Exercised directly (with injected decider/probe) in
 # test/exhub/mcp/tools/desktop/proxy_env_test.exs.
 config :exhub, Exhub.MCP.Desktop.ProxyEnv, enabled: false, target_probe: false
+
+# The HTTP counterpart (`web_fetch`) inherits that disablement rather than
+# needing its own switch: with `ProxyEnv` off, `Exhub.MCP.WebTools.Proxy` sends
+# the request direct and never escalates a transport failure to the model, so
+# tool tests stay offline and deterministic (and `:exhub, :proxy` is unset here,
+# which keeps the disabled-legacy branch direct too). The gate is exercised
+# directly, with an injected decider/probe, in
+# test/exhub/mcp/web_tools/proxy_test.exs.
