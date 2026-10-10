@@ -96,8 +96,6 @@ defmodule Exhub.LLMModels do
     "qwen3.5-plus",
     "qwen3-235b-a22b",
     "qwen3-235b-a22b-instruct-2507",
-    "qwen3-next-80b-a3b-instruct",
-    "qwen3-next-80b-a3b-thinking",
     "qwen3-coder-next",
     "qwen3-coder-flash",
     "qwen3-coder-30b-a3b-instruct",
@@ -471,7 +469,7 @@ defmodule Exhub.LLMModels do
   This is used by `Exhub.Llm.LlmConfigServer` as the fallback default.
   """
   @spec default_llm_name() :: String.t()
-  def default_llm_name, do: "step-3.7-flash"
+  def default_llm_name, do: "openai/step-3.7-flash"
 
   @doc """
   Checks if a model name is known (exists in any model list).
