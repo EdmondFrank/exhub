@@ -8,6 +8,26 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
     %{"server" => "web-tools", "name" => "fetch", "description" => "", "inputSchema" => %{}}
   ]
 
+  # Tools with real schemas, for the discovery helpers (search + describe).
+  @rich_tools [
+    %{
+      "server" => "demo",
+      "name" => "echo",
+      "description" => "Echo a message back",
+      "inputSchema" => %{
+        "type" => "object",
+        "properties" => %{"msg" => %{"type" => "string", "description" => "the message"}},
+        "required" => ["msg"]
+      }
+    },
+    %{
+      "server" => "web-tools",
+      "name" => "fetch",
+      "description" => "Fetch a URL",
+      "inputSchema" => %{"type" => "object", "properties" => %{"url" => %{"type" => "string"}}}
+    }
+  ]
+
   @ok %{"content" => [%{"type" => "text", "text" => "hello"}]}
 
   @mcp_error %{"content" => [%{"type" => "text", "text" => "nope"}], "isError" => true}
@@ -435,6 +455,93 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
                )
 
       assert {:ok, "function"} = CodeMode.run(~s|return type(parallel)|, tools, call_fun: call)
+    end
+  end
+
+  describe "tool discovery" do
+    test "retrieve_tools searches by name/description" do
+      code = """
+      local r = retrieve_tools({query = "echo"})
+      return tostring(r.count) .. "|" .. r.tools[1].name
+      """
+
+      assert {:ok, "1|demo__echo"} = CodeMode.run(code, @rich_tools)
+    end
+
+    test "retrieve_tools browses all tools alphabetically with an empty query" do
+      code = """
+      local r = retrieve_tools({})
+      return tostring(r.count) .. "|" .. r.tools[1].name .. "|" .. r.tools[2].name
+      """
+
+      assert {:ok, "2|demo__echo|web-tools__fetch"} = CodeMode.run(code, @rich_tools)
+    end
+
+    test "retrieve_tools accepts a bare string query and includes a param summary" do
+      code = """
+      local r = retrieve_tools("echo")
+      return r.tools[1].params
+      """
+
+      assert {:ok, "msg: string (required)"} = CodeMode.run(code, @rich_tools)
+    end
+
+    test "describe_tool accepts nested and flat paths and returns the full schema" do
+      code = """
+      local d = describe_tool("demo.echo")
+      return d.description .. "|" .. d.input_schema.properties.msg.type
+      """
+
+      assert {:ok, "Echo a message back|string"} = CodeMode.run(code, @rich_tools)
+
+      assert {:ok, "web-tools__fetch"} =
+               CodeMode.run(~s|return describe_tool("web-tools__fetch").name|, @rich_tools)
+    end
+
+    test "describe_tool flags an unknown path" do
+      code = """
+      local d = describe_tool("nope__nope")
+      return d.error
+      """
+
+      assert {:ok, error} = CodeMode.run(code, @rich_tools)
+      assert error =~ "UnknownTool"
+    end
+  end
+
+  describe "structured diagnostics" do
+    test "UnknownTool for a call on a missing tool" do
+      call = runner(fn _s, _t, _a -> {:ok, @ok} end)
+
+      assert {:error, message} = CodeMode.run("return demo.reed({})", @tools, call_fun: call)
+      assert message =~ "UnknownTool: 'reed'"
+      assert message =~ "retrieve_tools"
+    end
+
+    test "UnknownTool for an unknown server" do
+      assert {:error, message} = CodeMode.run("return nosuch.echo({})", @tools)
+      assert message =~ "UnknownTool: 'nosuch'"
+    end
+
+    test "ToolFailure for a failing tool" do
+      call = runner(fn _s, _t, _a -> {:error, :boom} end)
+
+      assert {:error, message} = CodeMode.run("return demo.echo({})", @tools, call_fun: call)
+      assert message =~ "ToolFailure: demo.echo failed: :boom"
+    end
+
+    test "SyntaxError for code that does not compile" do
+      assert {:error, message} = CodeMode.run("return 2 +", [])
+      assert message =~ "SyntaxError"
+    end
+
+    test "TimeoutExceeded for a blocking call" do
+      call = runner(fn _s, _t, _a -> Process.sleep(5_000) && {:ok, @ok} end)
+
+      assert {:error, message} =
+               CodeMode.run("return demo.echo({})", @tools, call_fun: call, timeout_ms: 200)
+
+      assert message =~ "TimeoutExceeded"
     end
   end
 end

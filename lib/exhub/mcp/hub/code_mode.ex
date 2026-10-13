@@ -30,6 +30,21 @@ defmodule Exhub.MCP.Hub.CodeMode do
   object). `print(...)` output is collected and returned alongside the
   snippet's value.
 
+  ## Tool discovery
+
+  Two helpers let a snippet discover tools from inside the sandbox, without a
+  separate `retrieve_tools` round trip:
+
+    * `retrieve_tools({query = "…", limit = 10})` — the in-sandbox counterpart
+      of the hub's own `retrieve_tools`, backed by the same `ToolSearch` TF-IDF
+      ranking over the bridged tool set. Returns `{tools = {...}, count = n}`;
+      an empty query browses every tool alphabetically.
+    * `describe_tool("server__tool")` (or `"server.tool"`) — the full
+      `description` and `input_schema` of one tool, for the nested arguments a
+      compact param summary hides. Unknown paths return `{error = "…"}`.
+
+  Both are reserved globals (see below).
+
   ## Failure semantics
 
   A failing call raises a Lua error, catchable with `pcall`. Both failure
@@ -44,6 +59,11 @@ defmodule Exhub.MCP.Hub.CodeMode do
   option of the same name) to instead return the error payload as ordinary
   data — then check `r.isError`. Note that `pcall` yields the *message string*,
   so the structured payload is not recoverable once an error has raised.
+
+  An *uncaught* failure is returned as a categorised diagnostic: `SyntaxError`
+  (the snippet did not compile), `UnknownTool` (a call on a missing tool or
+  global, with a `retrieve_tools` hint), `ToolFailure` (`server.tool failed: …`),
+  or `TimeoutExceeded`.
 
   ## Parallelism
 
@@ -92,6 +112,8 @@ defmodule Exhub.MCP.Hub.CodeMode do
   require Logger
 
   alias Exhub.MCP.Encoding
+  alias Exhub.MCP.Hub.ToolSearch
+  alias Exhub.MCP.Tools.Hub.RetrieveTools
 
   # `timeout_ms` matches the Hub server's `request_timeout` (600s, see
   # `application.ex` / `router.ex`): the sandbox must hit its own wall-clock
@@ -114,7 +136,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
 
   # Globals the sandbox owns; a server whose sanitized name lands on one of
   # these is only reachable through the flat `tools` table.
-  @reserved_globals ~w(print parallel parallel_all)
+  @reserved_globals ~w(print parallel parallel_all retrieve_tools describe_tool)
 
   # Truncated results are spilled to a temp file the caller can read back
   # later; files matching this prefix/suffix are swept once older than the max
@@ -212,7 +234,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
           {:error, "Execution failed: #{format_reason(reason)}"}
 
         {:timeout, ms} ->
-          {:error, "Execution timed out after #{ms} ms"}
+          {:error, "TimeoutExceeded: execution timed out after #{ms} ms"}
       end
 
     truncate_result(result, max_chars, cfg)
@@ -231,7 +253,7 @@ defmodule Exhub.MCP.Hub.CodeMode do
     {:ok, results, Process.get(:code_mode_log, [])}
   rescue
     error in [Lua.RuntimeException, Lua.CompilerException] ->
-      message = Exception.message(error)
+      message = diagnostic(error)
 
       # A strict `parallel` batch that aborts with at least one settled success
       # stashes its full report before raising (see `render_strict/3`). Surface
@@ -269,11 +291,19 @@ defmodule Exhub.MCP.Hub.CodeMode do
         max_string_bytes: cfg[:max_string_bytes]
       )
 
+    # Discovery helpers search the exact set of tools bridged below, so a
+    # snippet can find a tool mid-run instead of spending a separate
+    # `retrieve_tools` round trip. The index is rebuilt per evaluation from the
+    # visible tools — the same list the bridge uses.
+    index = ToolSearch.build_index(tools)
+
     lua =
       lua
       |> Lua.set!([:print], print_fun())
       |> Lua.set!([:parallel], parallel_fun(call_fun, cfg, :strict))
       |> Lua.set!([:parallel_all], parallel_fun(call_fun, cfg, :soft))
+      |> Lua.set!([:retrieve_tools], retrieve_tools_fun(index))
+      |> Lua.set!([:describe_tool], describe_tool_fun(elem(index, 0)))
 
     Enum.reduce(tools, lua, fn tool, lua ->
       server = tool |> Map.get("server") |> to_string_or_nil()
@@ -303,11 +333,11 @@ defmodule Exhub.MCP.Hub.CodeMode do
             {encoded, lua}
 
           {:error, message} ->
-            {:error, "tool #{server}.#{name} failed: #{message}", lua}
+            {:error, "ToolFailure: #{server}.#{name} failed: #{message}", lua}
         end
       else
         {:error, message} ->
-          {:error, "tool #{server}.#{name} failed: #{message}", lua}
+          {:error, "ToolFailure: #{server}.#{name} failed: #{message}", lua}
       end
     end
   end
@@ -507,6 +537,154 @@ defmodule Exhub.MCP.Hub.CodeMode do
       line = args |> then(&Lua.decode_list!(lua, &1)) |> Enum.map_join("\t", &stringify/1)
       Process.put(:code_mode_log, Process.get(:code_mode_log, []) ++ [line])
       {[], lua}
+    end
+  end
+
+  # --- Tool discovery helpers ---
+
+  # `retrieve_tools({query, limit})` — the in-sandbox counterpart of the hub's
+  # own `retrieve_tools` tool, backed by the same `ToolSearch` TF-IDF ranking
+  # over the bridged tool set. An empty query browses every tool alphabetically.
+  defp retrieve_tools_fun(index) do
+    fn args, lua ->
+      request = args |> then(&Lua.decode_list!(lua, &1)) |> discovery_request()
+      {encoded, lua} = Lua.encode!(lua, search_index(index, request))
+      {encoded, lua}
+    end
+  end
+
+  defp search_index(index, request) do
+    query = Map.get(request, "query", "")
+    limit = to_int(Map.get(request, "limit"), 10)
+
+    docs =
+      case index do
+        {list, _inverted} when is_list(list) -> list
+        _ -> []
+      end
+
+    matches =
+      if query == "" do
+        docs |> Enum.sort_by(& &1["full_name"]) |> Enum.take(limit)
+      else
+        ToolSearch.search(index, query, limit: limit)
+      end
+
+    entries = Enum.map(matches, &tool_entry/1)
+    %{"tools" => entries, "count" => length(entries)}
+  end
+
+  defp tool_entry(doc) do
+    base = %{
+      "name" => doc["full_name"],
+      "server" => doc["server"],
+      "description" => doc["description"]
+    }
+
+    case RetrieveTools.compact_params(doc["input_schema"]) do
+      nil -> base
+      params -> Map.put(base, "params", params)
+    end
+  end
+
+  # `describe_tool(path)` — full description and input schema for one tool, so a
+  # snippet can see the nested arguments/enums a compact param summary hides.
+  # Accepts the flat `server__tool` name or the nested `server.tool` path;
+  # returns `{error = "..."}` for an unknown path.
+  defp describe_tool_fun(docs) do
+    fn args, lua ->
+      path = args |> then(&Lua.decode_list!(lua, &1)) |> discovery_path()
+      {encoded, lua} = Lua.encode!(lua, describe_doc(docs, path))
+      {encoded, lua}
+    end
+  end
+
+  defp describe_doc(docs, path) do
+    case find_doc(docs, path) do
+      nil ->
+        %{
+          "error" =>
+            "UnknownTool: #{inspect(path)} is not a known tool. " <>
+              "Use retrieve_tools({query = '...'}) to find available tools."
+        }
+
+      doc ->
+        %{
+          "name" => doc["full_name"],
+          "server" => doc["server"],
+          "description" => doc["description"],
+          "input_schema" => doc["input_schema"]
+        }
+    end
+  end
+
+  defp find_doc(docs, path) when is_binary(path) do
+    trimmed = path |> String.trim() |> String.replace_prefix("tools.", "")
+    variants = [trimmed, String.replace(trimmed, ".", "__")]
+
+    Enum.find(docs, fn doc ->
+      doc["full_name"] in variants or "#{doc["server"]}.#{doc["name"]}" in variants
+    end)
+  end
+
+  defp find_doc(_docs, _path), do: nil
+
+  # Accept either a bare query string or `{query = ..., limit = ...}`.
+  defp discovery_request([]), do: %{}
+
+  defp discovery_request([first | _rest]) do
+    case lua_to_elixir(first) do
+      map when is_map(map) -> map
+      query when is_binary(query) -> %{"query" => query}
+      _ -> %{}
+    end
+  end
+
+  defp discovery_path([]), do: nil
+
+  defp discovery_path([first | _rest]) do
+    case lua_to_elixir(first) do
+      path when is_binary(path) -> path
+      map when is_map(map) -> Map.get(map, "name") || Map.get(map, "path") || Map.get(map, "tool")
+      _ -> nil
+    end
+  end
+
+  defp to_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp to_int(value, _default) when is_float(value) and value > 0, do: trunc(value)
+  defp to_int(_value, default), do: default
+
+  # --- Structured diagnostics ---
+
+  # Classify a sandbox failure into a stable, model-friendly category so the
+  # caller can react (fix syntax, discover a tool, retry) instead of parsing a
+  # raw Lua trace. Mirrors AiderDesk's PTC diagnostics.
+  defp diagnostic(%Lua.CompilerException{} = error) do
+    error
+    |> Exception.message()
+    |> String.replace_prefix("Failed to compile Lua!", "")
+    |> String.trim()
+    |> case do
+      "" -> "SyntaxError: code could not be parsed"
+      body -> "SyntaxError: " <> body
+    end
+  end
+
+  defp diagnostic(error) do
+    error
+    |> Exception.message()
+    |> String.replace_prefix("Lua runtime error: ", "")
+    |> classify_runtime()
+  end
+
+  defp classify_runtime(message) do
+    case Regex.run(~r/attempt to (?:call|index) a nil value \([^']*'([^']+)'/, message) do
+      [_, name] ->
+        "UnknownTool: '#{name}' is not available in this sandbox. " <>
+          "Use retrieve_tools({query = '...'}) inside the code to find available tools."
+
+      _ ->
+        message
     end
   end
 

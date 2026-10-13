@@ -71,6 +71,16 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
     every call failed stays an error. `parallel_all` never raises, returning one
     `{ok = true, result = …}` / `{ok = false, error = …}` per call.
 
+    **Finding tools (inside the script)**
+    - `retrieve_tools({query = "...", limit = 10})` searches every callable tool
+      by name/description — the in-sandbox counterpart of the hub's own
+      `retrieve_tools`, so a script can find a tool it wasn't told about without
+      a second round trip. Returns `{tools = {...}, count = n}`; an empty query
+      lists tools alphabetically. Accepts a bare string too: `retrieve_tools("read file")`.
+    - `describe_tool("server__tool")` (or `"server.tool"`) returns that tool's
+      full `description` and `input_schema`, so argument names/nesting are
+      visible before the call. Unknown paths return `{error = "..."}`.
+
     **Rules**
     - Arguments are a Lua table with named keys, e.g.
       `{path = "/x", pattern = "*.ex", search_type = "content"}`. A positional
@@ -81,6 +91,9 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
       results carrying `isError = true`. Catch it with
       `local ok, r = pcall(desktop.read_file, {path = "/nope"})`; note `pcall`
       yields only the message string, not the structured payload.
+    - An uncaught failure comes back categorised: `SyntaxError`, `UnknownTool`
+      (with a `retrieve_tools` hint), `ToolFailure` (`server.tool failed: …`),
+      or `TimeoutExceeded`.
     - `print(...)` output is collected and returned above your `return` value.
     - Return a table/string/number to send it back; returning nothing sends
       "Execution completed with no return value."
