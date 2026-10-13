@@ -350,4 +350,22 @@ defmodule Exhub.Router.ConfigTest do
       assert {"authorization", "Bearer request-key"} in headers
     end
   end
+
+  describe "model-name variant suffixes" do
+    test "provider routing uses the base model" do
+      assert Config.provider_for_model("qwen3.6-flash--no-think") ==
+               Config.provider_for_model("qwen3.6-flash")
+
+      assert Config.provider_for_model("qwen3.6-flash--no-think") == :giteeai
+    end
+
+    test "the target URL uses the base model" do
+      assert Config.get_model_target("qwen3.6-flash--no-think") ==
+               Config.get_model_target("qwen3.6-flash")
+    end
+
+    test "a non-Qwen name with an unrecognised suffix is not normalised" do
+      assert Config.provider_for_model("deepseek-v3--no-think") == :default
+    end
+  end
 end

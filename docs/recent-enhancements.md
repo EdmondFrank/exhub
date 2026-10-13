@@ -1,5 +1,32 @@
 # Recent Enhancements
 
+## LLM Default — `qwen3.8-flash--no-think`
+
+- **Change**: `Exhub.LLMModels.default_llm_name/0` now returns `openai/qwen3.8-flash--no-think` (was `openai/step-3.7-flash`), and `qwen3.8-flash` was added to the GiteeAI model list. It is the `/llms` catalog default and the `LlmConfigServer` fallback default.
+- **No silent fallback**: `LlmConfigServer` now resolves a variant-suffixed name to its base config (`lookup_llm/2` → `openai/qwen3.8-flash`), so the suffixed default resolves instead of falling back to an arbitrary model (the old `ensure_default_llm_exists/1` behaviour when the key was absent).
+- **Scope**: the suffix governs the OpenAI-compatible proxy routes (blink-search / MCP / HTTP). LangChain chains (`Exhub.Llm.Chain`) call the provider directly and cannot express `chat_template_kwargs`, so they use the base `qwen3.8-flash` (thinking on) — the suffix is stripped by the config lookup, never forwarded upstream.
+- **Modified Files**:
+  - `lib/exhub/llm_models.ex` — `qwen3.8-flash` in `giteeai_models/0`; new `default_llm_name/0`; module doc
+  - `lib/llm/llm_config_server.ex` — `lookup_llm/2` + `base_llm_name/1` variant-aware resolution
+  - `priv/llm_models.default.json` — mirror synced
+  - `test/exhub/llm_models_test.exs`, `test/exhub/llm/llm_config_server_test.exs` — NEW
+
+---
+
+## Router — Reasoning Controls Encoded in the Model Name (Qwen variants)
+
+- **Feature**: a model name may carry a `--`-separated variant suffix that selects Qwen reasoning controls — `qwen3.6-flash--no-think`, `qwen3.6-flash--no-think+effort-medium`, `qwen3.6-flash--effort-xhigh`, `qwen3.6-flash--kv-top_p=0.9`. Modifiers: `think`/`no-think` → `chat_template_kwargs.enable_thinking` (and `preserve_thinking`), `keep-think`/`no-keep-think` → `preserve_thinking`, `effort-low|medium|xhigh` → top-level `reasoning_effort`, and `kv-<key>=<value>` for arbitrary `chat_template_kwargs` entries.
+- **Routing and billing**: `Exhub.Router.ModelVariant.normalize/1` strips the suffix before provider lookup (`Exhub.Router.Config`), the upstream `model`, token pricing (`Exhub.TokenUsage.*`) and the GiteeAI token pool, so `qwen3.6-flash--no-think` routes and bills exactly like `qwen3.6-flash`.
+- **Scope and precedence**: OpenAI-compatible routes only (`Exhub.ProxyPlug`); Qwen family (`qwen*`) only — any other name, or one where a modifier does not parse, is forwarded verbatim, so unrelated models that contain `--` are unaffected. The suffix's `reasoning_effort` is the explicit per-request override and wins over a `reasoning_effort` rule in `~/.config/exhub/router.json` (`Exhub.Router.Settings`).
+- **Modified Files**:
+  - `lib/exhub/router/model_variant.ex` — NEW: grammar, `split/1`, `normalize/1`, `apply_params/2`, `reasoning_effort/1`
+  - `lib/exhub/proxy_plug.ex` — strip the suffix; apply variant params on OpenAI routes; suffix wins over the router.json rule
+  - `lib/exhub/router/config.ex` — provider/use-proxy lookup on the base model
+  - `lib/exhub/router/token_pool.ex`, `lib/exhub/token_usage/token_usage_store.ex`, `lib/exhub/token_usage/token_usage_stats.ex` — base-model normalization
+  - `test/exhub/router/model_variant_test.exs`, `test/exhub/proxy_plug_model_variant_test.exs` — NEW; `test/exhub/router/config_test.exs` — provider normalization cases
+
+---
+
 ## MCP Hub — Non-Blocking Built-in Tool Dispatch in `ClientManager`
 
 - **Problem**: `ClientManager.handle_call({:call_tool, …})` ran built-in tools inline (`BuiltInRegistry.call_tool/3`) inside the GenServer, which had two consequences: (1) one slow built-in call — a long `execute_command`, a blocking subprocess, an outbound HTTP call — stalled **every** other hub request (measured: 19,075 ms of queue wait behind a 20 s call); and (2) a built-in call that recursed back into `ClientManager` (e.g. an `rpc` shell command invoking `ClientManager.list_all_tools/0`) self-deadlocked until the caller's 60 s timeout.

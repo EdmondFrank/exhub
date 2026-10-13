@@ -211,13 +211,20 @@ defmodule Exhub.ProxyPlug do
     if List.first(conn.path_info) == "cohere" do
       Jason.encode!(Map.delete(conn.body_params, "n"))
     else
-      encode_body_with_model_transforms(conn.body_params)
+      encode_body_with_model_transforms(conn.body_params, conn)
     end
   end
 
-  defp encode_body_with_model_transforms(body_params) do
+  # Builds the upstream JSON body, applying model-name transforms. Exposed
+  # (without docs) for tests.
+  @doc false
+  def encode_body_with_model_transforms(body_params, conn) do
     body_params = fill_tool_calls_content(body_params)
     body_params = normalize_developer_role(body_params)
+
+    # Name-encoded reasoning controls (`Exhub.Router.ModelVariant`, Qwen family)
+    # are honoured on the OpenAI-compatible routes only.
+    openai? = openai_proxy?(conn)
 
     # Normalize model name by stripping prefixes before sending to API
     body_params =
@@ -226,15 +233,28 @@ defmodule Exhub.ProxyPlug do
           body_params
 
         model ->
-          normalized_model =
-            model
-            |> Exhub.Router.Config.resolve_model_alias()
+          # A variant suffix (e.g. `qwen3.6-flash--no-think`) is stripped here so
+          # the upstream model name, provider lookup and billing all use the
+          # base model. See `Exhub.Router.ModelVariant`.
+          base = Exhub.Router.ModelVariant.normalize(model)
+
+          normalized_model = Exhub.Router.Config.resolve_model_alias(base)
 
           body_params = Map.put(body_params, "model", normalized_model)
 
-          # Inject reasoning_effort from router.json if configured for this model
-          provider = Exhub.Router.Config.provider_for_model(model)
-          effort = Exhub.Router.Settings.reasoning_effort(model, provider)
+          body_params =
+            if openai?,
+              do: Exhub.Router.ModelVariant.apply_params(body_params, model),
+              else: body_params
+
+          # `reasoning_effort`: the name suffix (explicit per-request override)
+          # wins over a rule configured in router.json (`Exhub.Router.Settings`).
+          provider = Exhub.Router.Config.provider_for_model(base)
+
+          variant_effort = if openai?, do: Exhub.Router.ModelVariant.reasoning_effort(model)
+
+          effort =
+            variant_effort || Exhub.Router.Settings.reasoning_effort(base, provider)
 
           if is_binary(effort) do
             Logger.info(
@@ -310,6 +330,12 @@ defmodule Exhub.ProxyPlug do
   end
 
   defp normalize_developer_role(body_params), do: body_params
+
+  # Model-name variant suffixes (`Exhub.Router.ModelVariant`) are honoured on
+  # the OpenAI-compatible routes only.
+  defp openai_proxy?(conn) do
+    String.contains?(conn.request_path, "/openai/")
+  end
 
   defp extract_model_name(conn) do
     case conn.body_params do

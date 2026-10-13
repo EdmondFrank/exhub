@@ -164,10 +164,17 @@ defmodule Exhub.Router.TokenPool do
   def estimate_langchain_tokens(messages) when is_list(messages) do
     body =
       Enum.map(messages, fn
-        %LangChain.Message{content: content} -> %{"content" => flatten_langchain_content(content)}
-        %{content: content} when not is_nil(content) -> %{"content" => flatten_langchain_content(content)}
-        %{"content" => content} when not is_nil(content) -> %{"content" => flatten_langchain_content(content)}
-        _ -> %{"content" => ""}
+        %LangChain.Message{content: content} ->
+          %{"content" => flatten_langchain_content(content)}
+
+        %{content: content} when not is_nil(content) ->
+          %{"content" => flatten_langchain_content(content)}
+
+        %{"content" => content} when not is_nil(content) ->
+          %{"content" => flatten_langchain_content(content)}
+
+        _ ->
+          %{"content" => ""}
       end)
 
     estimate_tokens(%{"messages" => body})
@@ -210,6 +217,8 @@ defmodule Exhub.Router.TokenPool do
   end
 
   defp giteeai_model?(model) when is_binary(model) do
+    model = Exhub.Router.ModelVariant.normalize(model)
+
     model in Exhub.LLMModels.giteeai_models() and model not in Exhub.LLMModels.minimax_models()
   end
 

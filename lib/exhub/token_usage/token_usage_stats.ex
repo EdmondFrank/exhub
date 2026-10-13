@@ -296,10 +296,13 @@ defmodule Exhub.TokenUsage.TokenUsageStats do
   defp normalize_model_name(model) do
     model
     |> strip_provider_prefix()
+    |> strip_variant_suffix()
     |> strip_date_suffix()
     |> strip_latest_suffix()
     |> String.downcase()
   end
+
+  defp strip_variant_suffix(model), do: Exhub.Router.ModelVariant.normalize(model)
 
   defp strip_provider_prefix(model) do
     case String.split(model, "/", parts: 2) do

@@ -24,6 +24,14 @@ defmodule Exhub.LLMModels do
   - `anthropic/claude-3-5-sonnet-latest` — use `claude-3.7-sonnet` (Kiro) instead
   - `groq/llama-3.3-70b-versatile` — use `qwen3.5-122b-a10b` instead
   - `openai/gemini-2.5-pro` / `gemini/gemini-2.0-flash` — use models from `giteeai_models/0` instead
+
+  ## Default model
+
+  `default_llm_name/0` returns `openai/qwen3.8-flash--no-think`. The `--no-think`
+  suffix is an `Exhub.Router.ModelVariant` control: the OpenAI-compatible proxy
+  routes strip it and disable Qwen thinking, while `Exhub.Llm.LlmConfigServer`
+  resolves it to the base `openai/qwen3.8-flash` configuration for LangChain
+  chains (which call the provider directly and cannot send the thinking extras).
   """
 
   # ============================================================================
@@ -104,6 +112,7 @@ defmodule Exhub.LLMModels do
     "qwen3.5-27b-claude-4.6-opus-reasoning-distilled",
     "qwen3.7-plus",
     "qwen3.7-max",
+    "qwen3.8-flash",
     "minimax-m2",
     "minimax-m2.1",
     "minimax-m2.5",
@@ -466,10 +475,13 @@ defmodule Exhub.LLMModels do
   @doc """
   Returns the default LLM name for LangChain configuration.
 
-  This is used by `Exhub.Llm.LlmConfigServer` as the fallback default.
+  This is used by `Exhub.Llm.LlmConfigServer` as the fallback default and by
+  the `/llms` catalog. The name may carry an `Exhub.Router.ModelVariant` suffix
+  (e.g. `openai/qwen3.8-flash--no-think`); `LlmConfigServer` resolves it to the
+  base model's configuration.
   """
   @spec default_llm_name() :: String.t()
-  def default_llm_name, do: "openai/step-3.7-flash"
+  def default_llm_name, do: "openai/qwen3.8-flash--no-think"
 
   @doc """
   Checks if a model name is known (exists in any model list).

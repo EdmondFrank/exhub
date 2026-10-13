@@ -176,6 +176,8 @@ defmodule Exhub.Router.Config do
   """
   @spec use_proxy_for_model?(model()) :: boolean()
   def use_proxy_for_model?(model) when is_binary(model) do
+    model = Exhub.Router.ModelVariant.normalize(model)
+
     provider_for_model(model) in [:openrouter, :nvidia, :runinfra, :orcarouter, :bai] or
       model in ["minimax-m2.1", "minimax-m2-preview"]
   end
@@ -326,6 +328,10 @@ defmodule Exhub.Router.Config do
   """
   @spec provider_for_model(model()) :: atom()
   def provider_for_model(model) when is_binary(model) do
+    # Strip a model-name variant suffix (`Exhub.Router.ModelVariant`) so provider
+    # membership is decided on the base model, e.g. `qwen3.6-flash--no-think`.
+    model = Exhub.Router.ModelVariant.normalize(model)
+
     order =
       case Exhub.Router.Settings.provider_order() do
         [] -> @default_provider_order

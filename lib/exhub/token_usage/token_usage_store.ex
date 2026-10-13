@@ -488,16 +488,20 @@ defmodule Exhub.TokenUsage.TokenUsageStore do
 
   # Normalize a model name for pricing lookup:
   #   1. Strip provider prefix  (e.g. "openai/gpt-4.1"  → "gpt-4.1")
-  #   2. Strip 8-digit date suffix (e.g. "claude-sonnet-4.6-20260219" → "claude-sonnet-4.6")
-  #   3. Strip "-latest" suffix
-  #   4. Lowercase
+  #   2. Strip model-name variant suffix (e.g. "qwen3.6-flash--no-think" → "qwen3.6-flash")
+  #   3. Strip 8-digit date suffix (e.g. "claude-sonnet-4.6-20260219" → "claude-sonnet-4.6")
+  #   4. Strip "-latest" suffix
+  #   5. Lowercase
   defp normalize_model_name(model) do
     model
     |> strip_provider_prefix()
+    |> strip_variant_suffix()
     |> strip_date_suffix()
     |> strip_latest_suffix()
     |> String.downcase()
   end
+
+  defp strip_variant_suffix(model), do: Exhub.Router.ModelVariant.normalize(model)
 
   defp strip_provider_prefix(model) do
     case String.split(model, "/", parts: 2) do

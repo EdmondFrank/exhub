@@ -21,7 +21,9 @@ defmodule Exhub.Llm.LlmConfigServer do
 
   alias Exhub.LLMModels
 
-  # Define the default LLM name (sourced from LLMModels)
+  # Define the default LLM name (sourced from LLMModels). It may carry an
+  # `Exhub.Router.ModelVariant` suffix (e.g. `openai/qwen3.8-flash--no-think`);
+  # `lookup_llm/2` resolves it to the base model's configuration.
   @default_llm_name LLMModels.default_llm_name()
 
   # Configuration state keys
@@ -108,7 +110,7 @@ defmodule Exhub.Llm.LlmConfigServer do
   @impl true
   def handle_call({:get_llm_config, llm_name}, _from, config) do
     response =
-      case Map.get(config, llm_name) do
+      case lookup_llm(config, llm_name) do
         nil -> {:error, "LLM '#{llm_name}' not found"}
         config -> {:ok, config}
       end
@@ -122,7 +124,7 @@ defmodule Exhub.Llm.LlmConfigServer do
     default_name = config[@current_llm_key]
 
     response =
-      case Map.get(config, default_name) do
+      case lookup_llm(config, default_name) do
         nil -> {:error, "Default LLM '#{default_name}' not found in configuration"}
         config -> {:ok, config}
       end
@@ -141,7 +143,7 @@ defmodule Exhub.Llm.LlmConfigServer do
   # Handle setting default LLM name with validation
   @impl true
   def handle_cast({:set_default_llm_name, llm_name}, config) do
-    if Map.has_key?(config, llm_name) do
+    if lookup_llm(config, llm_name) do
       new_state = Map.put(config, @current_llm_key, llm_name)
       {:noreply, new_state}
     else
@@ -161,10 +163,27 @@ defmodule Exhub.Llm.LlmConfigServer do
   defp is_config_key(key) when is_atom(key), do: true
   defp is_config_key(_), do: false
 
+  # Resolves `name` to its configuration, falling back to the base model when
+  # `name` carries an `Exhub.Router.ModelVariant` suffix (e.g.
+  # `openai/qwen3.8-flash--no-think` -> `openai/qwen3.8-flash`). This keeps a
+  # variant-suffixed default from silently falling back to another model.
+  defp lookup_llm(config, name) do
+    Map.get(config, name) || Map.get(config, base_llm_name(name))
+  end
+
+  defp base_llm_name(name) when is_binary(name) do
+    case String.split(name, "/", parts: 2) do
+      [provider, model] -> provider <> "/" <> Exhub.Router.ModelVariant.normalize(model)
+      _ -> Exhub.Router.ModelVariant.normalize(name)
+    end
+  end
+
+  defp base_llm_name(name), do: name
+
   defp ensure_default_llm_exists(config) do
     default_name = config[@current_llm_key]
 
-    if Map.has_key?(config, default_name) do
+    if lookup_llm(config, default_name) do
       config
     else
       # If default LLM doesn't exist, find first available LLM
