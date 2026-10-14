@@ -77,6 +77,7 @@ defmodule Exhub.LLMModels do
     "hy-mt2-30b-a3b",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
+    "deepseek-v4.1-flash",
     "deepseek-v3",
     "deepseek-r1",
     "deepseek-v3_1",
