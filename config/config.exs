@@ -4,13 +4,19 @@ config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 
 config :exhub, :shell, "zsh"
 
-# Gitee AI (moark) token pool: two billing-mode access tokens and the
-# context-token threshold that selects between them (< threshold →
-# token-based, >= threshold → request-based). Override in runtime.exs.
+# Gitee AI (moark) token pool: two billing-mode access tokens plus the
+# weighted cost model that selects between them. A request uses the token-based
+# pool when `token * context_tokens < request`, and the request-based pool
+# otherwise. Override in runtime.exs.
 config :exhub,
   giteeai_token_api_key: "",
   giteeai_request_api_key: "",
-  giteeai_pool_threshold: 20_000
+  giteeai_pool_threshold: 64_000
+
+# Optional pool weights (see Exhub.Router.TokenPool.weights/0). Defaults to
+# `%{token: 1.0, request: giteeai_pool_threshold}` — the 64k break-even.
+# Raise `:token` to prefer the token-based pool for smaller contexts, e.g.:
+#   config :exhub, giteeai_pool_weights: %{token: 2.0, request: 64_000.0}
 
 # Dedicated LLM for the exhub-translate module. Set to a name from the `llms`
 # config map (e.g. "codestral/codestral-latest"); nil (default) → the default

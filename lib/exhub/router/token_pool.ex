@@ -9,17 +9,28 @@ defmodule Exhub.Router.TokenPool do
 
   Each mode is charged via a dedicated access token (API key). This module
   decides which pool (and therefore which `Authorization` token) a request
-  should use based on the estimated context token count:
+  should use by comparing the weighted cost of both modes:
 
-    * context tokens < `:giteeai_pool_threshold` (default 20_000) →
-      `:token_based` (cheaper than the flat per-request price at break-even)
-    * context tokens >= threshold → `:request_based` (flat fee caps the cost)
+    * `token * context_tokens` — variable cost of the token-based pool
+    * `request` — flat cost of the request-based pool
+
+  A request uses the token-based pool when its weighted token cost stays
+  below the flat per-request cost, and the request-based pool otherwise.
 
   ## Configuration
 
     * `:exhub -> :giteeai_token_api_key` — access token for the token-based pool
     * `:exhub -> :giteeai_request_api_key` — access token for the request-based pool
-    * `:exhub -> :giteeai_pool_threshold` — context-token threshold (default 20_000)
+    * `:exhub -> :giteeai_pool_weights` — weighted cost model, a map of:
+      * `:token` — relative cost per context token (default `1.0`)
+      * `:request` — relative flat cost per request (default `threshold/0`)
+    * `:exhub -> :giteeai_pool_threshold` — context-token break-even used as the
+      default request weight (default 64_000)
+
+  With the default weights (`token: 1.0`, `request: 64_000.0`) the selection is
+  exactly the historical threshold rule. Configuring weights re-expresses the
+  break-even as a cost comparison — e.g. `%{token: 2.0, request: 64_000.0}`
+  moves the break-even to 32_000 tokens.
 
   When neither pool key is configured the pool is disabled and requests keep
   using the regular `:giteeai_api_key`, preserving existing behavior.
@@ -32,18 +43,54 @@ defmodule Exhub.Router.TokenPool do
   @typedoc "Billing mode selected for a request"
   @type mode :: :token_based | :request_based
 
-  @default_threshold 20_000
+  @default_threshold 64_000
+  @default_token_weight 1.0
 
   @default_key_key :giteeai_api_key
   @token_mode_key :giteeai_token_api_key
   @request_mode_key :giteeai_request_api_key
 
   @doc """
-  Context-token threshold above which the request-based pool is preferred.
+  Context-token break-even used as the default request weight.
+
+  See `weights/0` for the weighted cost model that supersedes this value.
   """
   @spec threshold() :: pos_integer()
   def threshold do
     Application.get_env(:exhub, :giteeai_pool_threshold, @default_threshold)
+  end
+
+  @doc """
+  Weighted cost model used to select between the two billing pools.
+
+  Returns a map with:
+
+    * `:token` — relative cost per context token (default `1.0`)
+    * `:request` — relative flat cost per request (default `threshold/0`)
+
+  Values come from `:exhub -> :giteeai_pool_weights` when configured, merged
+  over the defaults, so a partial map (e.g. `%{token: 2.0}`) only overrides the
+  keys it specifies. Non-numeric or negative values fall back to the default.
+
+  ## Examples
+
+      iex> Exhub.Router.TokenPool.weights()
+      %{token: 1.0, request: 64_000.0}
+  """
+  @spec weights() :: %{token: float(), request: float()}
+  def weights do
+    default = %{token: @default_token_weight, request: threshold() * 1.0}
+
+    case Application.get_env(:exhub, :giteeai_pool_weights) do
+      %{} = configured ->
+        %{
+          token: positive_number(Map.get(configured, :token), default.token),
+          request: positive_number(Map.get(configured, :request), default.request)
+        }
+
+      _ ->
+        default
+    end
   end
 
   @doc """
@@ -62,21 +109,28 @@ defmodule Exhub.Router.TokenPool do
   @doc """
   Selects the billing mode for a given estimated context token count.
 
-  Counts below the threshold use the token-based pool (best economic
-  efficiency for small contexts); counts at or above it use the
-  request-based pool (flat fee caps the cost).
+  Uses the weighted cost model from `weights/0`: the token-based pool is
+  chosen when the weighted token cost (`token * token_count`) stays below the
+  flat per-request cost (`request`), and the request-based pool otherwise.
+  With the default weights this is the 64k break-even rule.
 
   ## Examples
 
-      iex> Exhub.Router.TokenPool.select_mode(5000)
+      iex> Exhub.Router.TokenPool.select_mode(5_000)
       :token_based
 
-      iex> Exhub.Router.TokenPool.select_mode(25_000)
+      iex> Exhub.Router.TokenPool.select_mode(100_000)
       :request_based
   """
   @spec select_mode(integer() | nil) :: mode()
   def select_mode(token_count) when is_integer(token_count) do
-    if token_count < threshold(), do: :token_based, else: :request_based
+    %{token: token_weight, request: request_weight} = weights()
+
+    if token_weight * token_count < request_weight do
+      :token_based
+    else
+      :request_based
+    end
   end
 
   def select_mode(_), do: :token_based
@@ -243,6 +297,12 @@ defmodule Exhub.Router.TokenPool do
   end
 
   defp flatten_langchain_content(content), do: inspect(content)
+
+  defp positive_number(value, _default) when is_integer(value) and value >= 0,
+    do: value * 1.0
+
+  defp positive_number(value, _default) when is_float(value) and value >= 0.0, do: value
+  defp positive_number(_value, default), do: default
 
   defp token_key, do: Application.get_env(:exhub, @token_mode_key, "")
   defp request_key, do: Application.get_env(:exhub, @request_mode_key, "")

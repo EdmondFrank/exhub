@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## Gitee AI Token Pool — Configurable Token Weights & Anthropic Coverage
+
+- **Feature**: the Gitee AI (moark) pool now selects its billing mode with a configurable **weighted cost model**, applies pooling to the Anthropic-compatible upstream, and raises the default break-even from 20k to 64k context tokens.
+- **Weighted selection**: a request uses the token-based pool when `token * context_tokens < request`, and the request-based pool otherwise. `:exhub -> :giteeai_pool_weights` (`%{token: 1.0, request: 64_000.0}`) tunes the model; partial maps merge over defaults and `:request` defaults to `:giteeai_pool_threshold`, so the default break-even is 64k context tokens (e.g. `%{token: 2.0, request: 64_000.0}` moves it to 32k).
+- **Anthropic coverage**: `Exhub.Router.Config.get_pooled_auth_headers/3` now accepts `:openai | :anthropic`, and `POST /anthropic/v1/*path` resolves pooled `x-api-key` headers for Gitee AI/moark targets; other Anthropic-compatible upstreams (MiniMax) keep their own key.
+- **New API**: `Exhub.Router.TokenPool.weights/0` returns the resolved `%{token, request}` weights; `select_mode/1` and `resolve_token/3` use it.
+- **Modified Files**:
+  - `lib/exhub/router/token_pool.ex` — `weights/0`, weighted `select_mode/1`
+  - `lib/exhub/router/config.ex` — `:anthropic` pooled headers; `build_anthropic_headers/2`
+  - `lib/exhub/router.ex` — pooled headers on the Anthropic proxy route
+  - `config/config.exs` — `:giteeai_pool_weights` documented
+  - `test/exhub/router/token_pool_test.exs`, `test/exhub/router/config_test.exs` — weights + anthropic tests
+
+---
+
 ## LLM Default — `qwen3.8-flash--no-think`
 
 - **Change**: `Exhub.LLMModels.default_llm_name/0` now returns `openai/qwen3.8-flash--no-think` (was `openai/step-3.7-flash`), and `qwen3.8-flash` was added to the GiteeAI model list. It is the `/llms` catalog default and the `LlmConfigServer` fallback default.

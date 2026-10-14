@@ -40,7 +40,7 @@ case SecretVault.Config.fetch_from_current_env(:exhub) do
       # pools, selected per request from the estimated context token count.
       giteeai_token_api_key: giteeai_token_api_key,
       giteeai_request_api_key: giteeai_request_api_key,
-      giteeai_pool_threshold: 20_000,
+      giteeai_pool_threshold: 64_000,
       openai_api_key: openai_api_key,
       burncloud_api_key: fetch_secret.("burncloud_api_key"),
       burncloud_gemini_api_key: fetch_secret.("burncloud_gemini_api_key"),

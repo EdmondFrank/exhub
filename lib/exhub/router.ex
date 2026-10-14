@@ -354,12 +354,22 @@ defmodule Exhub.Router do
   post "/anthropic/v1/*path" do
     model = Helpers.extract_model(conn)
     target_url = RouterConfig.get_anthropic_target(model)
-    token = RouterConfig.get_model_api_key(model)
     use_proxy = RouterConfig.use_proxy_for_model?(model)
     proxy = if use_proxy, do: RouterConfig.get_proxy(), else: ""
 
+    # Only use Gitee AI token pooling when the target upstream is Gitee AI /
+    # moark; other Anthropic-compatible upstreams (e.g. MiniMax) keep their own
+    # key so they never consume Gitee AI billing tokens.
+    custom_headers =
+      if String.contains?(target_url, "gitee") or String.contains?(target_url, "moark") do
+        RouterConfig.get_pooled_auth_headers(model, :anthropic, conn.body_params)
+      else
+        token = RouterConfig.get_model_api_key(model)
+        [{"x-api-key", token}]
+      end
+
     options = [
-      custom_headers: [{"x-api-key", token}],
+      custom_headers: custom_headers,
       client_options: [
         timeout: RouterConfig.get_timeout(),
         recv_timeout: RouterConfig.get_timeout(),

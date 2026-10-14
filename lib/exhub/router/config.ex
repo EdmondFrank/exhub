@@ -202,14 +202,16 @@ defmodule Exhub.Router.Config do
   end
 
   def get_auth_headers(model, :anthropic) do
-    token = get_model_api_key(model)
+    build_anthropic_headers(model, get_model_api_key(model))
+  end
+
+  # Builds the Anthropic-style auth headers for an already-resolved token,
+  # adding the Gitee AI failover header and merging runtime custom headers.
+  defp build_anthropic_headers(model, token) do
     base_headers = [{"x-api-key", token}]
 
-    provider = provider_for_model(model)
-
-    # Add X-Failover-Enabled header for gitee_ai upstream models
     headers =
-      if provider == :giteeai do
+      if provider_for_model(model) == :giteeai do
         [{"X-Failover-Enabled", "true"} | base_headers]
       else
         base_headers
@@ -221,13 +223,17 @@ defmodule Exhub.Router.Config do
   end
 
   @doc """
-  Returns the authorization headers for a Gitee AI upstream request using
-  the token pool.
+  Returns the authorization headers for a Gitee AI/moark upstream request
+  using the token pool.
 
-  Resolves the `Authorization` token via `Exhub.Router.TokenPool` — which
-  picks the token-based or request-based pool key from the estimated context
-  token count in `body_params` — when a pool is configured for the model.
-  Falls back to `get_auth_headers/2` behavior otherwise.
+  Resolves the access token via `Exhub.Router.TokenPool` — which picks the
+  token-based or request-based pool key from the estimated context token count
+  in `body_params` — when a pool is configured for the model. Falls back to
+  `get_model_api_key/1` otherwise, preserving existing behavior.
+
+  `provider` selects the header shape: `:openai` produces a `Bearer`
+  `authorization` header; `:anthropic` produces an `x-api-key` header. In both
+  cases the Gitee AI failover header is added for Gitee AI models.
 
   ## Examples
 
@@ -236,12 +242,18 @@ defmodule Exhub.Router.Config do
       ...> })
       [{"authorization", "Bearer <pooled_key>"}, {"X-Failover-Enabled", "true"}]
   """
-  @spec get_pooled_auth_headers(model(), :openai, map()) :: [{String.t(), String.t()}]
-  def get_pooled_auth_headers(model, :openai, body_params) do
+  @spec get_pooled_auth_headers(model(), :openai | :anthropic, map()) :: [
+          {String.t(), String.t()}
+        ]
+  def get_pooled_auth_headers(model, provider, body_params)
+      when provider in [:openai, :anthropic] do
     token =
       Exhub.Router.TokenPool.resolve_token(model, body_params, fallback: get_model_api_key(model))
 
-    build_openai_headers(model, token)
+    case provider do
+      :openai -> build_openai_headers(model, token)
+      :anthropic -> build_anthropic_headers(model, token)
+    end
   end
 
   defp build_openai_headers(model, token) do

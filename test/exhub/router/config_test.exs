@@ -298,12 +298,14 @@ defmodule Exhub.Router.ConfigTest do
       original = %{
         giteeai_api_key: Application.get_env(:exhub, :giteeai_api_key),
         giteeai_token_api_key: Application.get_env(:exhub, :giteeai_token_api_key),
-        giteeai_request_api_key: Application.get_env(:exhub, :giteeai_request_api_key)
+        giteeai_request_api_key: Application.get_env(:exhub, :giteeai_request_api_key),
+        giteeai_pool_weights: Application.get_env(:exhub, :giteeai_pool_weights)
       }
 
       Application.put_env(:exhub, :giteeai_api_key, "default-key")
       Application.delete_env(:exhub, :giteeai_token_api_key)
       Application.delete_env(:exhub, :giteeai_request_api_key)
+      Application.delete_env(:exhub, :giteeai_pool_weights)
 
       on_exit(fn ->
         Enum.each(original, fn {key, value} ->
@@ -344,10 +346,29 @@ defmodule Exhub.Router.ConfigTest do
 
       headers =
         Config.get_pooled_auth_headers("qwen3.5-27b", :openai, %{
-          "messages" => [%{"content" => String.duplicate("x", 80_001)}]
+          "messages" => [%{"content" => String.duplicate("x", 400_001)}]
         })
 
       assert {"authorization", "Bearer request-key"} in headers
+    end
+
+    test "uses the pooled key with an x-api-key header for anthropic requests" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+
+      headers =
+        Config.get_pooled_auth_headers("deepseek-v3", :anthropic, %{
+          "messages" => [%{"content" => "short"}]
+        })
+
+      assert {"x-api-key", "token-key"} in headers
+      assert {"X-Failover-Enabled", "true"} in headers
+    end
+
+    test "falls back to the default key for anthropic requests when the pool is disabled" do
+      headers = Config.get_pooled_auth_headers("deepseek-v3", :anthropic, %{})
+
+      assert {"x-api-key", "default-key"} in headers
+      assert {"X-Failover-Enabled", "true"} in headers
     end
   end
 

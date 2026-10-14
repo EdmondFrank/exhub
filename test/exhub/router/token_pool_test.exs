@@ -3,7 +3,13 @@ defmodule Exhub.Router.TokenPoolTest do
 
   alias Exhub.Router.TokenPool
 
-  @default_keys [:giteeai_api_key, :giteeai_token_api_key, :giteeai_request_api_key, :giteeai_pool_threshold]
+  @default_keys [
+    :giteeai_api_key,
+    :giteeai_token_api_key,
+    :giteeai_request_api_key,
+    :giteeai_pool_threshold,
+    :giteeai_pool_weights
+  ]
 
   setup do
     original =
@@ -15,7 +21,9 @@ defmodule Exhub.Router.TokenPoolTest do
 
     on_exit(fn ->
       Enum.each(original, fn {key, value} ->
-        if value == nil, do: Application.delete_env(:exhub, key), else: Application.put_env(:exhub, key, value)
+        if value == nil,
+          do: Application.delete_env(:exhub, key),
+          else: Application.put_env(:exhub, key, value)
       end)
     end)
 
@@ -23,8 +31,8 @@ defmodule Exhub.Router.TokenPoolTest do
   end
 
   describe "threshold/0" do
-    test "defaults to 20_000 when not configured" do
-      assert TokenPool.threshold() == 20_000
+    test "defaults to 64_000 when not configured" do
+      assert TokenPool.threshold() == 64_000
     end
 
     test "reads the configured threshold" do
@@ -36,16 +44,45 @@ defmodule Exhub.Router.TokenPoolTest do
   describe "select_mode/1" do
     test "uses token-based below the threshold" do
       assert TokenPool.select_mode(0) == :token_based
-      assert TokenPool.select_mode(19_999) == :token_based
+      assert TokenPool.select_mode(63_999) == :token_based
     end
 
     test "uses request-based at and above the threshold" do
-      assert TokenPool.select_mode(20_000) == :request_based
+      assert TokenPool.select_mode(64_000) == :request_based
       assert TokenPool.select_mode(200_000) == :request_based
     end
 
     test "falls back to token-based for unknown token counts" do
       assert TokenPool.select_mode(nil) == :token_based
+    end
+
+    test "honours configured weights when selecting the mode" do
+      Application.put_env(:exhub, :giteeai_pool_weights, %{token: 2.0, request: 20_000.0})
+
+      assert TokenPool.select_mode(9_999) == :token_based
+      assert TokenPool.select_mode(10_000) == :request_based
+    end
+  end
+
+  describe "weights/0" do
+    test "defaults to token: 1.0 and the configured threshold as the request weight" do
+      assert TokenPool.weights() == %{token: 1.0, request: 64_000.0}
+
+      Application.put_env(:exhub, :giteeai_pool_threshold, 50_000)
+      assert TokenPool.weights() == %{token: 1.0, request: 50_000.0}
+    end
+
+    test "reads configured weights, filling unspecified keys from defaults" do
+      Application.put_env(:exhub, :giteeai_pool_weights, %{token: 2.0, request: 8_000.0})
+      assert TokenPool.weights() == %{token: 2.0, request: 8_000.0}
+
+      Application.put_env(:exhub, :giteeai_pool_weights, %{token: 2.0})
+      assert TokenPool.weights() == %{token: 2.0, request: 64_000.0}
+    end
+
+    test "ignores invalid weight values" do
+      Application.put_env(:exhub, :giteeai_pool_weights, %{token: -1.0, request: "bad"})
+      assert TokenPool.weights() == %{token: 1.0, request: 64_000.0}
     end
   end
 
@@ -116,7 +153,9 @@ defmodule Exhub.Router.TokenPoolTest do
     test "returns the fallback for non-GiteeAI models" do
       Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
 
-      assert TokenPool.resolve_token("claude-3.7-sonnet", %{"messages" => []}, fallback: "fallback") ==
+      assert TokenPool.resolve_token("claude-3.7-sonnet", %{"messages" => []},
+               fallback: "fallback"
+             ) ==
                "fallback"
     end
 
@@ -133,7 +172,7 @@ defmodule Exhub.Router.TokenPoolTest do
       Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
       Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
 
-      body = %{"messages" => [%{"content" => String.duplicate("x", 80_001)}]}
+      body = %{"messages" => [%{"content" => String.duplicate("x", 400_001)}]}
 
       assert TokenPool.resolve_token("qwen3.5-27b", body, fallback: "fallback") == "request-key"
     end
@@ -142,7 +181,7 @@ defmodule Exhub.Router.TokenPoolTest do
       Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
       Application.put_env(:exhub, :giteeai_api_key, "default-key")
 
-      body = %{"messages" => [%{"content" => String.duplicate("x", 80_001)}]}
+      body = %{"messages" => [%{"content" => String.duplicate("x", 400_001)}]}
 
       assert TokenPool.resolve_token("deepseek-v3", body, fallback: "fallback") == "default-key"
     end
@@ -180,14 +219,19 @@ defmodule Exhub.Router.TokenPoolTest do
 
   describe "resolve_langchain_key/3" do
     test "returns fallback when the pool is disabled" do
-      assert TokenPool.resolve_langchain_key("deepseek-v3", [%LangChain.Message{role: :user, content: "hi"}], fallback: "original") ==
+      assert TokenPool.resolve_langchain_key(
+               "deepseek-v3",
+               [%LangChain.Message{role: :user, content: "hi"}],
+               fallback: "original"
+             ) ==
                "original"
     end
 
     test "returns fallback for non-GiteeAI models" do
       Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
 
-      assert TokenPool.resolve_langchain_key("claude-sonnet-4", [], fallback: "original") == "original"
+      assert TokenPool.resolve_langchain_key("claude-sonnet-4", [], fallback: "original") ==
+               "original"
     end
 
     test "uses the token-based pool for small contexts" do
@@ -211,7 +255,7 @@ defmodule Exhub.Router.TokenPoolTest do
       key =
         TokenPool.resolve_langchain_key(
           "deepseek-v3",
-          [LangChain.Message.new_user!(String.duplicate("x", 80_001))],
+          [LangChain.Message.new_user!(String.duplicate("x", 400_001))],
           fallback: "original"
         )
 
@@ -224,7 +268,7 @@ defmodule Exhub.Router.TokenPoolTest do
       key =
         TokenPool.resolve_langchain_key(
           "deepseek-v3",
-          [LangChain.Message.new_user!(String.duplicate("x", 80_001))],
+          [LangChain.Message.new_user!(String.duplicate("x", 400_001))],
           fallback: "original"
         )
 
