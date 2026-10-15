@@ -34,6 +34,16 @@ defmodule Exhub.MCP.DesktopServer do
   ### Search
   - `search_files`     — Semantic (probe) code search with Smart Decide filtering, plus glob/content search
 
+  ## Safety
+
+  Tool calls are gated by `Exhub.MCP.Desktop.CostGuard` before dispatch: a
+  `search_files`/`list_directory`/`execute_command`/`start_process` call that
+  would scan the whole home directory or disk (a `~`/`/`/`/Users` path, or a
+  `find ~` / `grep -r /` command) is refused up front — deterministically for
+  blatant cases, otherwise via a Smart Decide (System One) judgment — so a
+  pathological scan cannot run for minutes. See that module for the policy and
+  the `:exhub, Exhub.MCP.Desktop.CostGuard` configuration.
+
   The server is accessible at `/desktop/mcp`.
   """
 
@@ -41,6 +51,9 @@ defmodule Exhub.MCP.DesktopServer do
     name: "exhub-desktop-server",
     version: "1.1.0",
     capabilities: [:tools]
+
+  alias Anubis.Server.Response
+  alias Exhub.MCP.Desktop.CostGuard
 
   # Filesystem tools
   component(Exhub.MCP.Tools.Desktop.ReadFile)
@@ -74,6 +87,17 @@ defmodule Exhub.MCP.DesktopServer do
   end
 
   @impl true
+  def handle_request(%{"method" => "tools/call"} = request, frame) do
+    case CostGuard.check_request(request) do
+      :ok ->
+        Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
+
+      {:refuse, message} ->
+        resp = Response.tool() |> Response.error(message)
+        {:reply, Response.to_protocol(resp), frame}
+    end
+  end
+
   def handle_request(request, frame) do
     Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
   end

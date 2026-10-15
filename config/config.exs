@@ -312,6 +312,31 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir,
   cache_ttl_ms: 60_000,
   cache_limit: 2000
 
+# Desktop cost gate (`search_files`, `list_directory`, `execute_command`,
+# `start_process`): refuse a call before it runs when it looks set to scan the
+# whole home directory or disk (a `~`/`/`/`/Users` path, or a `find ~` /
+# `grep -r /` command). Blatant cases are refused deterministically; the rest
+# are judged by a Smart Decide (System One) `noul` question, and a failed/disabled
+# judgment falls back to allowing the call (fail open).
+#   - `enabled`: master switch (off ⇒ only the deterministic fast path refuses)
+#   - `model`: System One model id. Defaults to `APUS-OpenJev-v1-9B`, picked by a
+#     labeled accuracy sweep (94%, perfect recall) over the Smart Decide default
+#   - `threshold`: minimum `noul` probability to refuse
+#   - `timeout`: per-request timeout in milliseconds
+#   - `cache_ttl_ms`/`cache_limit`: per-`{tool, arguments}` verdict cache
+#   - `guarded_tools`: tool names the gate applies to
+#   - `always_allow`: tool names never gated (broad scans the operator wants)
+# In-code defaults in `Exhub.MCP.Desktop.CostGuard` apply for any missing key.
+config :exhub, Exhub.MCP.Desktop.CostGuard,
+  enabled: true,
+  model: "APUS-OpenJev-v1-9B",
+  threshold: 0.5,
+  timeout: 30_000,
+  cache_ttl_ms: 60_000,
+  cache_limit: 2000,
+  guarded_tools: ~w(search_files list_directory execute_command start_process),
+  always_allow: []
+
 # Network counterpart of the working-dir gate: after a failed outbound command,
 # `Exhub.MCP.Desktop.ProxyEnv` decides whether to retry it with HTTP(S) proxy
 # variables in the child's environment only (never persisted).

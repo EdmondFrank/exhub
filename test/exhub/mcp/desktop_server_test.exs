@@ -31,6 +31,19 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert {:config, 0} in functions
     end
 
+    test "CostGuard module exists" do
+      assert is_atom(Exhub.MCP.Desktop.CostGuard)
+      functions = Exhub.MCP.Desktop.CostGuard.__info__(:functions)
+      assert {:check, 2} in functions
+      assert {:check, 3} in functions
+      assert {:check_request, 1} in functions
+      assert {:check_request, 2} in functions
+      assert {:broad_path?, 1} in functions
+      assert {:broad_command?, 1} in functions
+      assert {:enabled?, 0} in functions
+      assert {:config, 0} in functions
+    end
+
     test "ProxyEnv module exists" do
       assert is_atom(Exhub.MCP.Desktop.ProxyEnv)
       functions = Exhub.MCP.Desktop.ProxyEnv.__info__(:functions)
