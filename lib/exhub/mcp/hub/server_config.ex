@@ -121,7 +121,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
     [
       name: client_name(config.name),
       transport_name: transport_name(config.name),
-      transport: {:sse, server: sse_opts},
+      transport: {:sse, [server: sse_opts] ++ transport_headers(config)},
       protocol_version: "2024-11-05",
       client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
@@ -136,7 +136,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
     [
       name: client_name(config.name),
       transport_name: transport_name(config.name),
-      transport: {:streamable_http, base_url: base_url},
+      transport: {:streamable_http, [base_url: base_url] ++ transport_headers(config)},
       client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
@@ -151,6 +151,14 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       capabilities: %{}
     ]
   end
+
+  # Only forward HTTP headers (e.g. Authorization) to remote transports when the
+  # config actually carries some; an empty map is the transport default anyway.
+  defp transport_headers(%__MODULE__{headers: headers})
+       when is_map(headers) and map_size(headers) > 0,
+       do: [headers: headers]
+
+  defp transport_headers(_config), do: []
 
   @doc """
   Converts a ServerConfig to a JSON-serializable map.
