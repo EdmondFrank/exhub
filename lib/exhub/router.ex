@@ -17,6 +17,7 @@ defmodule Exhub.Router do
   - `POST /cohere/v1/*path` - Proxies to Cohere API
   - `POST /samba/v1/*path` - Proxies to SambaNova API
   - `GET|POST /openai/v1/*path` - Proxies to OpenAI-compatible endpoints with model routing
+  - `POST /openai/v1/audio/transcriptions` - OpenAI-compatible transcription (MoArk HTTP + WebSocket-only ASR models, e.g. `TeleASR-MultiDialect`)
   - `POST /anthropic/v1/*path` - Proxies to Anthropic API with model routing
   - `GET|POST /burncloud/v1/*path` - Proxies to BurnCloud API with Bearer token auth
   - `GET|POST /bailiancloud/v1/*path` - Proxies to BailianCloud (Aliyun MaaS) API with Bearer token auth
@@ -177,6 +178,14 @@ defmodule Exhub.Router do
     Logger.info("[OpenAI Proxy] Forwarded in #{duration}ms")
     PerformanceTracker.record_llm_proxy("openai", duration, provider: "openai")
     conn
+  end
+
+  # OpenAI-compatible audio transcription. Dedicated handler (declared before
+  # the catch-all `post "/openai/v1/*path"`) because MoArk's real-time ASR
+  # models are WebSocket-only and cannot be reached through a plain HTTP proxy.
+  # See `Exhub.RealtimeASR.Handler`.
+  post "/openai/v1/audio/transcriptions" do
+    Exhub.RealtimeASR.Handler.call(conn)
   end
 
   post "/openai/v1/*path" do

@@ -44,6 +44,7 @@ defmodule Exhub.MixProject do
       {:langchain, ">= 0.8.11"},
       {:tzdata, "~> 1.1"},
       {:req, "~> 0.5.8", override: true},
+      {:mint_web_socket, "~> 1.0"},
       {:quantum, "~> 3.0"},
       {:secret_vault, "~> 1.0"},
       {:exile, "~> 0.10"},

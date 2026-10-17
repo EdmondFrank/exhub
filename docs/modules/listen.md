@@ -75,4 +75,8 @@ MCP endpoint: `/listen/mcp`
 - Uses OpenAI-compatible `/v1/audio/transcriptions` endpoint
 - Audio files are uploaded as multipart/form-data
 - 1-hour audio takes approximately 20 seconds to transcribe
-- The `TeleASR-MultiDialect` model (Chinese + English + 60 dialects) is listed in the API docs but currently returns "暂不支持该接口" at this endpoint
+- The `TeleASR-MultiDialect` model (Chinese + English + 60 dialects) is served
+  **only** over a WebSocket — it returns `暂不支持该接口` at this HTTP endpoint.
+  Use the ExHub HTTP route `POST /openai/v1/audio/transcriptions` instead, which
+  bridges the WebSocket and exposes it with an OpenAI-compatible surface (see
+  [`realtime-asr.md`](./realtime-asr.md)).
