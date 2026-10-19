@@ -389,4 +389,16 @@ defmodule Exhub.Router.ConfigTest do
       assert Config.provider_for_model("deepseek-v3--no-think") == :default
     end
   end
+
+  describe "resolve_model_alias/1" do
+    test "resolves Gitee AI upstream aliases" do
+      assert Config.resolve_model_alias("deepseek-v4-flash") == "deepseek-v4-flash-0731"
+      assert Config.resolve_model_alias("deepseek-v4-pro") == "deepseek-v4-pro-0813"
+      assert Config.resolve_model_alias("deepseek-v4.1-flash") == "deepseek-v4.1-flash-1017"
+    end
+
+    test "returns the model unchanged when no alias exists" do
+      assert Config.resolve_model_alias("deepseek-v3") == "deepseek-v3"
+    end
+  end
 end
