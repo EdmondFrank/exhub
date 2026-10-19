@@ -28,6 +28,13 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir, enabled: false
 # test/exhub/mcp/tools/desktop/cost_guard_test.exs.
 config :exhub, Exhub.MCP.Desktop.CostGuard, enabled: false
 
+# Likewise for the Desktop secret gate (`read_file`, `read_multiple_files`,
+# `search_files`, `execute_command`, `start_process`): disable the Smart Decide
+# layer by default so tool tests stay offline and deterministic; only the
+# deterministic fast path refuses. The gate is exercised directly (with an
+# injected decider) in test/exhub/mcp/tools/desktop/secret_guard_test.exs.
+config :exhub, Exhub.MCP.Desktop.SecretGuard, enabled: false
+
 # Same reasoning for the proxy-env gate: `execute_command`/`start_process` tests
 # must stay offline and deterministic, so no retry and no TCP probe happen by
 # default. Exercised directly (with injected decider/probe) in

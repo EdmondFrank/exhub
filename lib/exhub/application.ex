@@ -124,6 +124,8 @@ defmodule Exhub.Application do
       {Exhub.MCP.Desktop.ProxyEnv, []},
       # Owns the cost-guard verdict cache ETS table (same reasoning as above)
       {Exhub.MCP.Desktop.CostGuard, []},
+      # Owns the secret-guard verdict cache ETS table (same reasoning as above)
+      {Exhub.MCP.Desktop.SecretGuard, []},
       {Exhub.MCP.DesktopServer,
        transport: :streamable_http,
        request_timeout: 600_000,

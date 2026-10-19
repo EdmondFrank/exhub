@@ -708,12 +708,15 @@ This allows tools to accept user-friendly paths like `~/Documents/file.txt` with
 
 ## Decision layers (Smart Decide)
 
-Two shell-tool behaviours are decided per call by a typed System One judgment
+Several tool behaviours are decided per call by a typed System One judgment
 (`smart_decide`, default `Intern-Decision-4B`) instead of a static rule, and
-both follow the same layered shape: a **local fast path**, then **Smart
-Decide**, then a **fail-closed fallback**. Verdicts are cached in a named ETS
-table owned by a supervised child (started before `DesktopServer`), because
-Anubis runs every `tools/call` in a transient task.
+each follows the same layered shape: a **local fast path**, then **Smart
+Decide**, then a **deterministic fallback** whose direction depends on what a
+wrong answer would cost — fail-closed when a false negative would leak or
+misroute (the working-dir and proxy gates), fail-open when a false refusal would
+block legitimate work (the cost and secret gates). Verdicts are cached in a
+named ETS table owned by a supervised child (started before `DesktopServer`),
+because Anubis runs every `tools/call` in a transient task.
 
 ### Working-directory gate — `Exhub.MCP.Desktop.WorkingDir`
 
@@ -833,6 +836,57 @@ branch, the judged one included (`judge/4` takes `respect_bypass: false` to put
 such a host in front of the model deliberately). See
 [`web-tools.md`](web-tools.md) → *Proxy decision (Smart Decide)*.
 
+### Cost gate — `Exhub.MCP.Desktop.CostGuard`
+
+Refuses `search_files` / `list_directory` / `execute_command` / `start_process`
+calls that look set to scan the whole home directory or disk. Blatant targets
+(`~`, `/`, `/Users`; `find ~`, `grep -r /`) are refused locally; the rest are
+judged by one `noul` question, and — because a false refusal here would block
+legitimate work — the gate **fails open**. Verdicts are cached per
+`{tool, arguments}`.
+
+### Secret-exposure gate — `Exhub.MCP.Desktop.SecretGuard`
+
+Refuses `read_file` / `read_multiple_files` / `search_files` /
+`execute_command` / `start_process` calls that look set to expose secrets — a
+credential, private key, envless vault value, or production/release config —
+into the tool result and therefore into the conversation.
+
+1. **Local fast path** — the blatant cases, refused without a model call:
+   - the `envless` CLI printing a value (`envless get` / `export` / `show` /
+     `print`), or `envless exec` wrapped around an environment dump (`env`,
+     `printenv`, `set`). The value-free `envless list` and a consuming child
+     (`envless exec -- CMD`) are allowed;
+   - a bare `env` / `printenv` / `set`, or one naming a credential-shaped
+     variable (an `env FOO=1 cmd` assignment prefix is not caught);
+   - a keychain / secret-manager read (`security find-generic-password`,
+     `op read`, `pass show`, `gh auth token`, `sops -d`,
+     `aws secretsmanager get-secret-value`, `kubectl get secret`);
+   - a `.env` / private-key / credential file, or a file under an envless
+     vault's `.envless/` or `secrets/` subtree. The vault root is `$ENVLESS_ROOT`
+     (else `~/GTD`), read at decision time; plain notes that merely share the
+     vault directory (e.g. `~/GTD/PKB/…`) are **not** refused, only the store.
+     `*.example` / `*.sample` / `*.template` copies are exempt;
+   - a production / release configuration file (`config/runtime.exs`,
+     `prod.exs`, `sys.config`, `vm.args`, `env.sh`).
+2. **Smart Decide** — everything else gets one `noul` question: *would this
+   invocation expose a secret value into the output?*
+3. **Fail open** — a disabled, erroring or timed-out model means allow; only the
+   fast path refuses.
+
+Verdicts are cached per `{tool, arguments}` in `:exhub_secret_guard_cache`,
+owned by the supervised `SecretGuard` child.
+
+```elixir
+config :exhub, Exhub.MCP.Desktop.SecretGuard,
+  enabled: true,
+  model: "SemIf-OpenJev-4B",   # task-specific pick; NOT CostGuard's APUS-9B
+  threshold: 0.3,             # lower cut buys recall for a security gate
+  guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
+  always_allow: [],
+  vault_roots: nil            # nil ⇒ $ENVLESS_ROOT, else ~/GTD
+```
+
 ### Configuration
 
 ```elixir
@@ -858,7 +912,7 @@ switches the questions to "the evidence alone, with no assumed regional
 restriction".
 
 `config/test.exs` sets `enabled: false, target_probe: false` so the shell tools
-stay offline and deterministic; both gates are exercised directly with an injected `:decider`
+stay offline and deterministic; each gate is exercised directly with an injected `:decider`
 (and, for this one, `:probe`) in
 `test/exhub/mcp/tools/desktop/proxy_env_test.exs` and
 `working_dir_test.exs`.

@@ -337,6 +337,37 @@ config :exhub, Exhub.MCP.Desktop.CostGuard,
   guarded_tools: ~w(search_files list_directory execute_command start_process),
   always_allow: []
 
+# Desktop secret gate (`read_file`, `read_multiple_files`, `search_files`,
+# `execute_command`, `start_process`): refuse a call before it runs when it looks
+# set to expose a secret — a credential, private key, envless vault value, or a
+# production/release config — into the tool result. Blatant cases (the `envless`
+# value-printing CLI, an environment dump, a `.env`/key/`secrets/` path,
+# `config/runtime.exs`) are refused deterministically; the rest are judged by a
+# Smart Decide (System One) `noul` question, and a failed/disabled judgment falls
+# back to allowing the call (fail open).
+#   - `enabled`: master switch (off ⇒ only the deterministic fast path refuses)
+#   - `model`: System One model id. Defaults to `SemIf-OpenJev-4B` — the winner of
+#     a labeled sweep for *this* task (17/18, zero missed secrets at 0.3), which
+#     is deliberately NOT the cost gate's `APUS-OpenJev-v1-9B` (that model scored
+#     10/18 here). The ranking is task-specific.
+#   - `threshold`: minimum `noul` probability to refuse (`0.3`, tuned to the model)
+#   - `timeout`: per-request timeout in milliseconds
+#   - `cache_ttl_ms`/`cache_limit`: per-`{tool, arguments}` verdict cache
+#   - `guarded_tools`: tool names the gate applies to
+#   - `always_allow`: tool names never gated
+#   - `vault_roots`: envless vault roots whose `.envless/`/`secrets/` subtrees are
+#     refused (default: `$ENVLESS_ROOT`, else `~/GTD`)
+# In-code defaults in `Exhub.MCP.Desktop.SecretGuard` apply for any missing key.
+config :exhub, Exhub.MCP.Desktop.SecretGuard,
+  enabled: true,
+  model: "SemIf-OpenJev-4B",
+  threshold: 0.3,
+  timeout: 30_000,
+  cache_ttl_ms: 60_000,
+  cache_limit: 2000,
+  guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
+  always_allow: []
+
 # Network counterpart of the working-dir gate: after a failed outbound command,
 # `Exhub.MCP.Desktop.ProxyEnv` decides whether to retry it with HTTP(S) proxy
 # variables in the child's environment only (never persisted).

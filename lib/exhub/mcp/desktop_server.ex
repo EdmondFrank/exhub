@@ -44,6 +44,12 @@ defmodule Exhub.MCP.DesktopServer do
   pathological scan cannot run for minutes. See that module for the policy and
   the `:exhub, Exhub.MCP.Desktop.CostGuard` configuration.
 
+  A second gate, `Exhub.MCP.Desktop.SecretGuard`, refuses a call that looks set
+  to expose secrets — the `envless` value-printing CLI, an environment dump, a
+  `.env`/key/`secrets/` path, or a production config — into the tool result.
+  Blatant cases are refused deterministically, the rest by a Smart Decide
+  judgment (fail open).
+
   The server is accessible at `/desktop/mcp`.
   """
 
@@ -54,6 +60,7 @@ defmodule Exhub.MCP.DesktopServer do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.CostGuard
+  alias Exhub.MCP.Desktop.SecretGuard
 
   # Filesystem tools
   component(Exhub.MCP.Tools.Desktop.ReadFile)
@@ -88,10 +95,10 @@ defmodule Exhub.MCP.DesktopServer do
 
   @impl true
   def handle_request(%{"method" => "tools/call"} = request, frame) do
-    case CostGuard.check_request(request) do
-      :ok ->
-        Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
-
+    with :ok <- CostGuard.check_request(request),
+         :ok <- SecretGuard.check_request(request) do
+      Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
+    else
       {:refuse, message} ->
         resp = Response.tool() |> Response.error(message)
         {:reply, Response.to_protocol(resp), frame}
