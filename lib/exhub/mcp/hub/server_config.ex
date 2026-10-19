@@ -1,4 +1,6 @@
 defmodule Exhub.MCP.Hub.ServerConfig do
+  alias Exhub.MCP.Hub.EnvTemplate
+
   @moduledoc """
   Server configuration struct for MCP Hub upstream servers.
 
@@ -97,6 +99,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   """
   @spec to_anubis_client_opts(t()) :: keyword()
   def to_anubis_client_opts(%__MODULE__{transport: :stdio} = config) do
+    config = expand_secrets(config)
     opts = [command: config.command, args: config.args || []]
     opts = if config.env, do: Keyword.put(opts, :env, config.env), else: opts
 
@@ -110,6 +113,8 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   end
 
   def to_anubis_client_opts(%__MODULE__{transport: :sse} = config) do
+    config = expand_secrets(config)
+
     sse_opts =
       if String.ends_with?(config.url || "", "/sse") do
         stripped = String.replace_suffix(config.url, "/sse", "")
@@ -129,6 +134,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   end
 
   def to_anubis_client_opts(%__MODULE__{transport: :streamable_http} = config) do
+    config = expand_secrets(config)
     # Anubis.Transport.StreamableHTTP appends "/mcp" (default mcp_path) to base_url
     # via URI.append_path/2, so strip a trailing "/mcp" to avoid doubling the path.
     base_url = strip_mcp_path(config.url)
@@ -143,6 +149,8 @@ defmodule Exhub.MCP.Hub.ServerConfig do
   end
 
   def to_anubis_client_opts(%__MODULE__{transport: :websocket} = config) do
+    config = expand_secrets(config)
+
     [
       name: client_name(config.name),
       transport_name: transport_name(config.name),
@@ -150,6 +158,21 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       client_info: %{"name" => "exhub-mcp-hub-#{config.name}", "version" => "1.0.0"},
       capabilities: %{}
     ]
+  end
+
+  # Resolves `${VAR}` placeholders in the secret-bearing fields right before the
+  # config is handed to Anubis. The stored struct keeps its templates, so no
+  # resolved secret is ever persisted back to mcp_servers.json (see
+  # Exhub.MCP.Hub.EnvTemplate).
+  defp expand_secrets(%__MODULE__{} = config) do
+    %{
+      config
+      | command: EnvTemplate.expand_value(config.command),
+        args: EnvTemplate.expand_value(config.args || []),
+        env: EnvTemplate.expand_value(config.env || %{}),
+        url: EnvTemplate.expand_value(config.url),
+        headers: EnvTemplate.expand_value(config.headers || %{})
+    }
   end
 
   # Only forward HTTP headers (e.g. Authorization) to remote transports when the

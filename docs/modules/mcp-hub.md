@@ -122,6 +122,40 @@ Servers are configured in `~/.config/exhub/mcp_servers.json` (or the path given 
 }
 ```
 
+### Secret Templating (`${VAR}`)
+
+Server configs are persisted back to disk on every change, so secrets must not
+live in `mcp_servers.json` in plaintext. Any string field may instead reference
+an environment variable with `${VAR_NAME}`:
+
+```json
+{
+  "name": "github",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+}
+```
+
+Placeholders are expanded in `command`, each `args` element, each `env` value,
+`url`, and each `headers` value **only when a client is started**
+(`ServerConfig.to_anubis_client_opts/1`). The stored config — and therefore the
+config file on disk and the `GET /mcp_hub/configs` REST response — keeps the raw
+`${VAR_NAME}`, so resolved secrets are never persisted and never logged.
+
+Values come from the process environment (`System.get_env/1`). To inject them
+from the shared [envless](https://github.com/biliboss/envless) vault, start
+ExHub under `envless exec`:
+
+```sh
+ENVLESS_ROOT=~/GTD envless exec -- bin/exhub start
+```
+
+A `${VAR_NAME}` whose variable is unset is left literal and a warning naming the
+variable (never its value) is logged, so a misconfiguration is visible rather
+than silently sending an empty credential. See `mcp_servers.json.example`.
+
 ### Server Config Fields
 
 | Field          | Type    | Required | Default   | Description                                                     |
