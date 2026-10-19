@@ -21,25 +21,40 @@ defmodule Exhub.MCP.Hub.EnvTemplate do
   placeholders. This keeps resolved secrets out of the config file and out of
   every config-representation path.
 
-  Values come from the process environment (`System.get_env/1`). To inject
-  them from a secrets vault, start ExHub under `envless`:
+  ## Resolution order
 
-      ENVLESS_ROOT=~/GTD envless exec -- bin/exhub start
+  1. **Process environment** — `System.get_env/1`.
+  2. **envless vault** — when the variable is not in the environment, it is
+     read from the shared [envless](https://github.com/biliboss/envless) vault
+     via `envless exec --env <env> -- sh -c 'printf %s "$VAR"'`. The secret
+     never touches a shell, argv, the config file, or the ExHub process
+     environment (so it is never inherited by `desktop`/stdio children), and it
+     is never logged.
 
-  A placeholder whose variable is unset is left literal and a warning naming
-  the variable is logged, so a misconfiguration is visible rather than silently
-  sending an empty credential. The resolved value is never logged.
+  A placeholder resolved by neither source is left literal and a warning naming
+  the variable (never its value) is logged, so a misconfiguration is visible
+  rather than silently sending an empty credential.
+
+  ## Configuration
+
+      config :exhub, Exhub.MCP.Hub.EnvTemplate,
+        envless: true,          # false disables the vault fallback (env only)
+        envless_env: "dev",     # envless --env (default "dev")
+        envless_root: "/path",  # defaults to $ENVLESS_ROOT, else ~/GTD
+        envless_path: "/path"   # override the envless binary (mainly for tests)
   """
 
   require Logger
 
   @placeholder ~r/\$\{[A-Za-z_][A-Za-z0-9_]*\}/
+  @default_env "dev"
 
   @doc """
-  Expands `${VAR_NAME}` placeholders in a string using environment variables.
+  Expands `${VAR_NAME}` placeholders in a string.
 
-  Unset variables are left as the literal `${VAR_NAME}` (plus a warning), and
-  strings without a `${` are returned unchanged.
+  Unset variables are resolved from the envless vault; a variable found in
+  neither the environment nor the vault is left as the literal `${VAR_NAME}`
+  (plus a warning). Strings without a `${` are returned unchanged.
   """
   @spec expand_string(String.t()) :: String.t()
   def expand_string(str) when is_binary(str) do
@@ -66,20 +81,72 @@ defmodule Exhub.MCP.Hub.EnvTemplate do
 
   def expand_value(other), do: other
 
+  # --- Placeholder resolution ---
+
   defp resolve("${" <> _ = match) do
     name = String.slice(match, 2..-2//1)
 
     case System.get_env(name) do
-      nil ->
+      nil -> resolve_from_vault(name)
+      value -> value
+    end
+  end
+
+  defp resolve_from_vault(name) do
+    with true <- vault_enabled?(),
+         binary when is_binary(binary) <- vault_binary(),
+         {:ok, value} <- vault_get(binary, name) do
+      value
+    else
+      _ ->
         Logger.warning(
-          "[MCP Hub] ${#{name}} referenced in mcp_servers config but not set; " <>
+          "[MCP Hub] ${#{name}} is not set in the environment or the envless vault; " <>
             "leaving placeholder unexpanded"
         )
 
         "${#{name}}"
-
-      value ->
-        value
     end
+  end
+
+  # Reads a single secret from the envless vault. `envless exec` injects the
+  # secrets into the child's environment and the child prints just the requested
+  # one; the value is captured from stdout and never logged.
+  defp vault_get(binary, name) do
+    script = ~s([ -n "$#{name}" ] && printf %s "$#{name}")
+    args = ["exec", "--env", vault_env(), "--", "sh", "-c", script]
+
+    try do
+      case System.cmd(binary, args, env: [{"ENVLESS_ROOT", vault_root()}]) do
+        {output, 0} -> {:ok, output}
+        {_output, _code} -> {:error, :exit}
+      end
+    rescue
+      _ -> {:error, :not_found}
+    catch
+      _, _ -> {:error, :not_found}
+    end
+  end
+
+  # --- envless configuration ---
+
+  defp config, do: Application.get_env(:exhub, __MODULE__, [])
+
+  defp vault_enabled?, do: Keyword.get(config(), :envless, true)
+
+  defp vault_env, do: Keyword.get(config(), :envless_env, @default_env)
+
+  defp vault_root do
+    System.get_env("ENVLESS_ROOT") ||
+      Keyword.get(config(), :envless_root) ||
+      Path.join(System.user_home!(), "GTD")
+  end
+
+  defp vault_binary do
+    Keyword.get(config(), :envless_path) || System.find_executable("envless") || default_binary()
+  end
+
+  defp default_binary do
+    path = Path.join([System.user_home!(), ".cargo", "bin", "envless"])
+    if File.exists?(path), do: path, else: nil
   end
 end

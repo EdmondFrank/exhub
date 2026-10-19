@@ -144,17 +144,29 @@ Placeholders are expanded in `command`, each `args` element, each `env` value,
 config file on disk and the `GET /mcp_hub/configs` REST response — keeps the raw
 `${VAR_NAME}`, so resolved secrets are never persisted and never logged.
 
-Values come from the process environment (`System.get_env/1`). To inject them
-from the shared [envless](https://github.com/biliboss/envless) vault, start
-ExHub under `envless exec`:
+Values resolve in order:
 
-```sh
-ENVLESS_ROOT=~/GTD envless exec -- bin/exhub start
+1. the process environment (`System.get_env/1`);
+2. the shared [envless](https://github.com/biliboss/envless) vault, when the
+   variable is not in the environment. The value is read transiently with
+   `envless exec` — the secret never touches a shell, argv, the config file, or
+   the ExHub process environment (so it is never inherited by `desktop`/stdio
+   children) and is never logged. The vault is `$ENVLESS_ROOT` (default
+   `~/GTD`), environment `dev` by default.
+
+Tune or disable the vault fallback via application config:
+
+```elixir
+config :exhub, Exhub.MCP.Hub.EnvTemplate,
+  envless: true,        # false = resolve from the process environment only
+  envless_env: "dev",   # envless --env
+  envless_root: "/path/to/vault"
 ```
 
-A `${VAR_NAME}` whose variable is unset is left literal and a warning naming the
-variable (never its value) is logged, so a misconfiguration is visible rather
-than silently sending an empty credential. See `mcp_servers.json.example`.
+A `${VAR_NAME}` found in neither the environment nor the vault is left literal
+and a warning naming the variable (never its value) is logged, so a
+misconfiguration is visible rather than silently sending an empty credential.
+See `mcp_servers.json.example`.
 
 ### Server Config Fields
 
