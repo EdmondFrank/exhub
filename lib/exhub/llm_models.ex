@@ -137,6 +137,7 @@ defmodule Exhub.LLMModels do
   @openrouter_models [
     "tngtech/deepseek-r1t2-chimera:free",
     "minimax/minimax-m2:free",
+    "minimax/minimax-m3.1-flash:free",
     "openrouter/polaris-alpha",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
     "tencent/hy3:free",
