@@ -74,6 +74,10 @@ defmodule Exhub.LLMModels do
     "glm-5.1",
     "glm-5.2",
     "glm-5-turbo",
+    # Served under its capitalised canonical id (as exposed by the model
+    # catalog and sent by clients). The token pool matches ids exactly, so it
+    # must be listed verbatim to be billed through the Gitee AI pool.
+    "GLM-5.3-Flash",
     "hy-mt2-30b-a3b",
     "deepseek-v4-flash",
     "deepseek-v4-pro",

@@ -168,6 +168,14 @@ defmodule Exhub.Router.TokenPoolTest do
       assert TokenPool.resolve_token("deepseek-v3", body, fallback: "fallback") == "token-key"
     end
 
+    test "uses the token-based pool for GLM-5.3-Flash" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+
+      body = %{"messages" => [%{"content" => "short"}]}
+
+      assert TokenPool.resolve_token("GLM-5.3-Flash", body, fallback: "fallback") == "token-key"
+    end
+
     test "uses the request-based pool at or above the threshold" do
       Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
       Application.put_env(:exhub, :giteeai_request_api_key, "request-key")

@@ -21,6 +21,14 @@ defmodule Exhub.LLMModelsTest do
     end
   end
 
+  describe "giteeai_models/0" do
+    test "lists GLM-5.3-Flash verbatim so the token pool applies" do
+      assert "GLM-5.3-Flash" in LLMModels.giteeai_models()
+      assert LLMModels.model_provider("GLM-5.3-Flash") == :giteeai
+      assert LLMModels.known_model?("GLM-5.3-Flash")
+    end
+  end
+
   describe "build_llms_config/1" do
     test "exposes qwen3.8-flash under the GiteeAI endpoint" do
       config = LLMModels.build_llms_config(%{giteeai_api_key: "test"})
