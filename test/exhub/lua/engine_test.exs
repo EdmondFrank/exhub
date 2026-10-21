@@ -79,6 +79,19 @@ defmodule Exhub.Lua.EngineTest do
       assert Jason.decode!(json) == %{"total" => 3, "names" => ["a", "b", "c"]}
     end
 
+    test "renders JSON compactly (single line, no whitespace) to save tokens" do
+      code = ~s[return {total = 3, names = {"a", "b"}}]
+      assert {:ok, json} = CodeMode.run(code, [])
+
+      refute json =~ ~r/\s/
+      assert Jason.decode!(json) == %{"total" => 3, "names" => ["a", "b"]}
+
+      # Several return values are compact too, not a pretty-printed array.
+      assert {:ok, multi} = CodeMode.run(~s[return {n = 1}, "two"], [])
+      refute multi =~ ~r/\s/
+      assert Jason.decode!(multi) == [%{"n" => 1}, "two"]
+    end
+
     test "surfaces syntax errors instead of crashing" do
       assert {:error, message} = CodeMode.run("return 2 +", [])
       assert message != ""

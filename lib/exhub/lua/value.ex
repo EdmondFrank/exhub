@@ -59,8 +59,9 @@ defmodule Exhub.Lua.Value do
 
   @doc """
   Formats a decoded result value for the caller: a bare string is returned
-  as-is, `nil` becomes `"nil"`, anything else is JSON-encoded (pretty) with an
-  `inspect/2` fallback for terms JSON cannot hold.
+  as-is, `nil` becomes `"nil"`, anything else is JSON-encoded **compactly**
+  (single line — no indentation or spaces after `:`/`,`, so the response is
+  cheaper in tokens) with an `inspect/2` fallback for terms JSON cannot hold.
   """
   @spec render_value(term()) :: String.t()
   def render_value(value) do
@@ -76,9 +77,9 @@ defmodule Exhub.Lua.Value do
         "nil"
 
       value ->
-        case Jason.encode(value, pretty: true) do
+        case Jason.encode(value) do
           {:ok, json} -> json
-          {:error, reason} -> inspect_unencodable(value, reason, pretty: true)
+          {:error, reason} -> inspect_unencodable(value, reason)
         end
     end
   end
@@ -89,16 +90,16 @@ defmodule Exhub.Lua.Value do
   A Lua `return a, b, …` yields **several** values, so `render_value/1` cannot be
   used: the list is a list of independent values, not a single Lua table's
   `{key, value}` pair-list, and decoding it as one crashed in `array_like?/1`.
-  Each value is decoded on its own and the batch is JSON-encoded, so every
-  returned value survives.
+  Each value is decoded on its own and the batch is JSON-encoded compactly, so
+  every returned value survives.
   """
   @spec render_values([term()]) :: String.t()
   def render_values(values) do
     decoded = values |> Enum.map(&lua_to_elixir/1) |> Encoding.sanitize_utf8()
 
-    case Jason.encode(decoded, pretty: true) do
+    case Jason.encode(decoded) do
       {:ok, json} -> json
-      {:error, reason} -> inspect_unencodable(decoded, reason, pretty: true)
+      {:error, reason} -> inspect_unencodable(decoded, reason)
     end
   end
 
@@ -118,7 +119,7 @@ defmodule Exhub.Lua.Value do
 
     case Jason.encode(result) do
       {:ok, json} -> json
-      {:error, reason} -> inspect_unencodable(result, reason, [])
+      {:error, reason} -> inspect_unencodable(result, reason)
     end
   end
 
@@ -129,9 +130,9 @@ defmodule Exhub.Lua.Value do
   as text instead of a numeric byte dump; the encoder's complaint is appended so
   the fallback is diagnosable rather than a silent change of format.
   """
-  @spec inspect_unencodable(term(), term(), keyword()) :: String.t()
-  def inspect_unencodable(value, reason, opts) do
-    inspect(value, Keyword.put(opts, :limit, :infinity)) <>
+  @spec inspect_unencodable(term(), term()) :: String.t()
+  def inspect_unencodable(value, reason) do
+    inspect(value, limit: :infinity) <>
       "\n(not JSON-encodable: #{inspect(reason, limit: :infinity)})"
   end
 end

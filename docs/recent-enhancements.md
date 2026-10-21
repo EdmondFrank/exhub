@@ -1,5 +1,16 @@
 # Recent Enhancements
 
+## Lua code-mode — Compact (Single-Line) JSON Results
+
+- **Change**: `Exhub.Lua.Value.render_value/1` and `render_values/1` now JSON-encode **compactly** (plain `Jason.encode/2`, no `pretty: true`), so a `code_mode` result — including a `describe_tool("server__tool")` dump — comes back as one line with no indentation and no `": "`/`", "` spacing. The returned Lua value is unchanged (a snippet can still index `describe_tool(...).input_schema`); only the rendered whitespace is gone, cutting the tokens a tool-discovery response costs.
+- **Fallback**: `inspect_unencodable/2` (was `/3`, whose only caller passed the now-removed `pretty` flag) inspects single-line too.
+- **Scope**: code-mode result rendering only; the other `Jason.encode(..., pretty: true)` call sites (genclaw artifacts, sagents state, MCP tool responses) are untouched.
+- **Modified Files**:
+  - `lib/exhub/lua/value.ex` — compact `render_value/1` / `render_values/1`; `inspect_unencodable/2`
+  - `test/exhub/lua/engine_test.exs` — regression test asserting the rendered JSON contains no whitespace
+
+---
+
 ## Gitee AI Token Pool — Configurable Token Weights & Anthropic Coverage
 
 - **Feature**: the Gitee AI (moark) pool now selects its billing mode with a configurable **weighted cost model**, applies pooling to the Anthropic-compatible upstream, and raises the default break-even from 20k to 64k context tokens.
