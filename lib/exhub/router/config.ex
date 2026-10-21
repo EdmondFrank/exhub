@@ -295,6 +295,50 @@ defmodule Exhub.Router.Config do
     )
   end
 
+  # Removes package-style runtime headers (e.g. `X-Package`, `X-Package-Id`)
+  # from a forwarded request when it targets the embeddings endpoint.
+  #
+  # The Gitee AI / MoArk `/v1/embeddings` route bills through a plain token
+  # resource and rejects package identifiers with a "resource package does not
+  # support this model / v1/embeddings interface" error, so package headers
+  # configured through `Exhub.Router.Settings` must not be attached to
+  # embeddings calls. Chat completions keep them unchanged.
+  @doc """
+  Drops package-style headers from `headers` when `request_path` targets an
+  embeddings endpoint; otherwise returns `headers` unchanged.
+
+  A package header is any header whose (case-insensitive) name starts with
+  `x-package` (covering both `X-Package` and `X-Package-Id`).
+
+  ## Examples
+
+      iex> Exhub.Router.Config.strip_package_headers(
+      ...>   [{"Authorization", "Bearer x"}, {"X-Package", "8848"}],
+      ...>   "/openai/v1/embeddings"
+      ...> )
+      [{"Authorization", "Bearer x"}]
+
+      iex> Exhub.Router.Config.strip_package_headers(
+      ...>   [{"X-Package", "8848"}],
+      ...>   "/openai/v1/chat/completions"
+      ...> )
+      [{"X-Package", "8848"}]
+  """
+  @spec strip_package_headers([{String.t(), String.t()}], String.t() | nil) ::
+          [{String.t(), String.t()}]
+  def strip_package_headers(headers, request_path) when is_list(headers) do
+    if embedding_path?(request_path) do
+      Enum.reject(headers, fn {name, _} ->
+        String.starts_with?(String.downcase(name), "x-package")
+      end)
+    else
+      headers
+    end
+  end
+
+  defp embedding_path?(path) when is_binary(path), do: String.ends_with?(path, "/embeddings")
+  defp embedding_path?(_path), do: false
+
   # Merges runtime custom headers over the base authentication headers.
   # Configured values take precedence for the same case-insensitive header
   # name. Credential headers supplied through the JSON settings are filtered

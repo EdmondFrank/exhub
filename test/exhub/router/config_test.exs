@@ -401,4 +401,31 @@ defmodule Exhub.Router.ConfigTest do
       assert Config.resolve_model_alias("deepseek-v3") == "deepseek-v3"
     end
   end
+
+  describe "strip_package_headers/2" do
+    test "drops x-package headers for embeddings paths" do
+      headers = [{"Authorization", "Bearer t"}, {"X-Package", "8848"}, {"X-Package-Id", "1"}]
+
+      assert Config.strip_package_headers(headers, "/openai/v1/embeddings") ==
+               [{"Authorization", "Bearer t"}]
+    end
+
+    test "matches the package header name case-insensitively" do
+      headers = [{"x-package", "8848"}]
+
+      assert Config.strip_package_headers(headers, "/openai/v1/embeddings") == []
+    end
+
+    test "leaves non-embeddings requests untouched" do
+      headers = [{"Authorization", "Bearer t"}, {"X-Package", "8848"}]
+
+      assert Config.strip_package_headers(headers, "/openai/v1/chat/completions") == headers
+    end
+
+    test "tolerates a nil path" do
+      headers = [{"X-Package", "8848"}]
+
+      assert Config.strip_package_headers(headers, nil) == headers
+    end
+  end
 end

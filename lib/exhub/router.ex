@@ -204,6 +204,7 @@ defmodule Exhub.Router do
         token = RouterConfig.get_model_api_key(model)
         [{"Authorization", "Bearer #{token}"}]
       end
+      |> RouterConfig.strip_package_headers(conn.request_path)
 
     options = [
       custom_headers: custom_headers,
