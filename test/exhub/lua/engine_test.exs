@@ -1,7 +1,7 @@
-defmodule Exhub.MCP.Hub.CodeModeTest do
+defmodule Exhub.Lua.EngineTest do
   use ExUnit.Case, async: true
 
-  alias Exhub.MCP.Hub.CodeMode
+  alias Exhub.Lua.Engine, as: CodeMode
 
   @tools [
     %{"server" => "demo", "name" => "echo", "description" => "echo", "inputSchema" => %{}},
@@ -58,7 +58,7 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
 
     test "excludes meta servers and bounds concurrency by default" do
       cfg = CodeMode.config()
-      assert cfg[:exclude_servers] == ["mcp-hub"]
+      assert cfg[:exclude_servers] == ["mcp-hub", "lua"]
       assert cfg[:max_concurrency] == 8
     end
   end
@@ -82,6 +82,63 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
     test "surfaces syntax errors instead of crashing" do
       assert {:error, message} = CodeMode.run("return 2 +", [])
       assert message != ""
+    end
+  end
+
+  describe "multiple return values" do
+    # Regression: `format_result/2` passed the bare list of return values to
+    # `render_value/1`, which decodes a value as a Lua table's `{key, value}`
+    # pair-list — so `return a, b` crashed in `array_like?/1` and the whole tool
+    # call failed. Several returns now render as a JSON array, one element per
+    # value; a single return is unchanged.
+    test "renders each returned value as a JSON array" do
+      assert {:ok, json} = CodeMode.run("return 1, 2, 3", [])
+      assert Jason.decode!(json) == [1, 2, 3]
+    end
+
+    test "keeps multiple string values distinct" do
+      assert {:ok, json} = CodeMode.run("return 'a', 'b'", [])
+      assert Jason.decode!(json) == ["a", "b"]
+    end
+
+    test "decodes tables and scalars across returns" do
+      assert {:ok, json} = CodeMode.run("return {n = 1}, 'two', true", [])
+      assert Jason.decode!(json) == [%{"n" => 1}, "two", true]
+    end
+
+    test "a single return is still a bare value, not an array" do
+      assert {:ok, "4"} = CodeMode.run("return 2 + 2", [])
+      assert {:ok, "ok"} = CodeMode.run("return 'ok'", [])
+    end
+
+    test "print output still precedes a multi-value result" do
+      assert {:ok, text} = CodeMode.run("print('dbg'); return 1, 2", [])
+      assert text =~ "print output:"
+      assert text =~ "dbg"
+      assert text =~ "1"
+      assert text =~ "2"
+    end
+
+    test "a settled parallel report is still surfaced verbatim, not as an array" do
+      call =
+        runner(fn
+          _s, _t, %{"fail" => true} -> {:error, :boom}
+          _s, _t, args -> {:ok, %{"content" => [%{"type" => "text", "text" => args["tag"]}]}}
+        end)
+
+      code = """
+      local r = parallel({
+        {server = "demo", tool = "echo", args = {tag = "kept"}},
+        {server = "demo", tool = "echo", args = {fail = true}}
+      })
+      return "unexpected"
+      """
+
+      assert {:ok, report} = CodeMode.run(code, @tools, call_fun: call)
+      assert report =~ "parallel: 1 of 2 calls failed"
+      assert report =~ "[1] demo.echo ok:"
+      assert report =~ "kept"
+      refute report =~ "unexpected"
     end
   end
 
@@ -506,6 +563,27 @@ defmodule Exhub.MCP.Hub.CodeModeTest do
 
       assert {:ok, error} = CodeMode.run(code, @rich_tools)
       assert error =~ "UnknownTool"
+    end
+
+    test "help renders the index and one tool's parameters" do
+      code = """
+      local index = help()
+      local one = help("demo.echo")
+      return (index:match("demo%.echo") and "indexed" or "missing") ..
+             "|" .. (one:match("msg: string %(required%)") and "params" or "no")
+      """
+
+      assert {:ok, "indexed|params"} = CodeMode.run(code, @rich_tools)
+    end
+
+    test "help reports an unknown path" do
+      code = ~s|return help("nope__nope"):match("UnknownTool") and "flagged" or "not"|
+
+      assert {:ok, "flagged"} = CodeMode.run(code, @rich_tools)
+    end
+
+    test "help is a reserved global" do
+      assert "help" in Exhub.Lua.Bridge.reserved_globals()
     end
   end
 

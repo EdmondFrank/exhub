@@ -749,6 +749,12 @@ defmodule Exhub.Router do
     |> send_resp(200, Exhub.Router.AgentHubChatView.render(name))
   end
 
+  # Lua code-mode server — run Lua snippets across all visible MCP tools
+  forward("/lua/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.LuaServer, request_timeout: 600_000]
+  )
+
   # MCP Hub - unified endpoint for all upstream MCP servers
   forward("/mcp-hub",
     to: Exhub.MCP.LazyPlug,

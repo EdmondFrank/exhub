@@ -36,12 +36,13 @@ config :exhub, :obsidian_vault_path, "~/GTD/PKB"
 # first `probe` on the system PATH.
 config :exhub, :probe_binary, "/usr/local/bin/probe"
 
-# Code mode (`code_mode` MCP tool on the hub): evaluate a Lua 5.3 snippet that
-# calls visible hub tools as functions, in a resource-bounded sandbox. See
-# `Exhub.MCP.Hub.CodeMode`. Set `enabled: false` to turn the tool into an error.
-config :exhub, :code_mode,
+# Lua code mode (the `lua` MCP server at `/lua/mcp`, tool `code_mode`): evaluate
+# a Lua 5.3 snippet that calls visible MCP tools as functions, in a
+# resource-bounded sandbox. Engine: `Exhub.Lua.Engine`. Set `enabled: false` to
+# turn the tool into an error. See `docs/modules/lua.md`.
+config :exhub, :lua,
   enabled: true,
-  # Match the Hub server's `request_timeout` (600s) so the sandbox times out
+  # Match the server's `request_timeout` (600s) so the sandbox times out
   # gracefully before the transport hard-kills the request.
   timeout_ms: 600_000,
   max_instructions: 5_000_000,
@@ -57,7 +58,13 @@ config :exhub, :code_mode,
   spill_dir: nil,
   max_concurrency: 8,
   raise_on_tool_error: true,
-  exclude_servers: ["mcp-hub"]
+  # How much of the tool catalog the MCP `code_mode` description inlines:
+  # `:on_demand` (default) keeps the description short and routes discovery
+  # through the `help` / `retrieve_tools` / `describe_tool` helpers, so the
+  # catalog is pulled when needed instead of on every request; `:inline` embeds
+  # the namespace catalog in the description.
+  tool_docs: :on_demand,
+  exclude_servers: ["mcp-hub", "lua"]
 
 # Brain vault search ranking defaults. Tunable per-call via brain_search_vault
 # `fusion`/`weights`/`min_score` params, which are merged over these defaults.

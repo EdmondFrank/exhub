@@ -565,81 +565,9 @@ Execute a tool on a specific upstream MCP server through the hub. Use this to ca
 
 **Note**: Namespaced tool names of the form `{server}__{tool}` (e.g. `desktop__read_file`) are accepted and normalized to the bare tool name **before** dispatch — `ClientManager.normalize_tool_name/2` strips the `{server}__` prefix when it matches the target server, avoiding a useless "tool not found" round-trip to the upstream server.
 
-### `code_mode` — Run a Lua Script Across All Tools
+### `code_mode` (moved)
 
-Execute a Lua 5.3 snippet in a sandbox with every visible hub tool bridged in as a function. Instead of paying one LLM round trip per tool (discover → `call_tools` → discover → …), the caller writes **one** script that fetches, filters, loops and returns a distilled answer — the [code execution beats function calling](https://www.anthropic.com/engineering/code-execution-with-mcp) pattern, ported from AiderDesk's `programmatic_tool_calls` extension. The design is borrowed from [Legion](https://legion.hexdocs.pm/Legion.html) without depending on it: the engine is the pure-Elixir [`lua`](https://hexdocs.pm/lua) VM, which cannot reach the BEAM except through the tool closures it registers.
-
-**Module**: `Exhub.MCP.Tools.Hub.CodeMode` (engine: `Exhub.MCP.Hub.CodeMode`)
-
-**Parameters**:
-
-| Parameter | Type    | Required | Default | Description                            |
-|-----------|---------|----------|---------|----------------------------------------|
-| `code`    | string  | yes      | —       | Lua 5.3 snippet to execute             |
-| `timeout` | integer | no       | 600     | Maximum execution time in seconds      |
-
-**Calling tools** — every tool is bridged in twice, so either name style works:
-
-- Nested by server: `desktop.read_file({path = "/etc/hosts"})`, `web_tools.web_fetch({url = "…"})` (every non-alphanumeric character in the server and tool names becomes `_`).
-- Flat lookup: `tools["desktop__read_file"]({path = "/etc/hosts"})` — the exact `server__tool` name returned by `retrieve_tools`, kept **verbatim** (a hyphenated server keeps its dash, e.g. `tools["browser-use__browser_navigate"]`).
-
-**Parallel calls** — `parallel({…})` is the `Promise.all` analog: it fans the calls out concurrently and returns results index-aligned with the input. It still aborts on the first failure, but every call has already settled, so the abort reports each call (descriptor + outcome) and — when at least one call succeeded — the report comes back as an **ordinary result** rather than an error, so one bad call cannot replace the successes; a batch in which every call failed stays an error. `pcall(parallel, {…})` in the script still catches the abort as a string. `parallel_all({…})` is the all-settled analog (never raises; returns one `{ok = true, result = …}` / `{ok = false, error = …}` per call).
-
-```lua
-local r = parallel({
-  {server = "time",      tool = "get_current_time", args = {timezone = "UTC"}},
-  {server = "web-tools", tool = "fetch",            args = {url = "https://…"}}
-})
-return r[1].content[1].text .. r[2].content[1].text
-```
-
-A call may also be given as `{name = "server__tool", args = {…}}`.
-
-**Rules**:
-
-- Arguments are a Lua table with named keys, decoded to a JSON object; a call without a table passes `{}`. A positional table (`{"a", "b"}`) is rejected — MCP arguments must be named objects.
-- Results are Lua tables — most tools expose their text payload at `r.content[1].text`.
-- Returned values are UTF-8-repaired before they are formatted. A byte-offset slice (`s:sub(1, n)`) can end inside a multibyte codepoint, and a single dangling byte made `Jason` reject the whole value; the `inspect/2` fallback then dumped every byte of that binary numerically (`<<231, 148, 169, …>>`) — unreadable and ~4x the size of the text it replaced. `Exhub.MCP.Encoding.sanitize_utf8/1` now runs first, so tables stay JSON (one U+FFFD per dangling byte) and the result is valid UTF-8 for truncation and spill.
-- The `lua` lexer takes **ASCII source only**: a non-ASCII literal in the snippet fails to compile (`Unexpected character: 云 (U+4E91)`). Build CJK strings from data (`string.char(0xE7, 0x94, 0xA9)`, `"\231\148\169"`) and slice on codepoint boundaries with `utf8.offset` rather than raw byte counts.
-- A failing call raises a Lua error, catchable with `pcall`:
-  `local ok, r = pcall(desktop.read_file, {path = "/nope"})` (note `pcall` yields only the message string, not the structured payload). Both failure sources raise: hub/transport errors, and MCP results carrying `isError = true`. Set config `raise_on_tool_error: false` to return `isError` payloads as ordinary data instead (then check `r.isError`).
-- `print(...)` output is collected and returned above the snippet's `return` value.
-- Returning nothing yields `Execution completed with no return value.`
-- When the result exceeds `max_output_chars`, the returned text is truncated and the full output is written to a temp file whose path is included — read it back with `desktop.read_file` (set `spill_truncated: false` to disable).
-- The sandbox blocks `io`/`os`/`require`/filesystem — the only way out is the tools. Loops are bounded by an instruction budget, a wall-clock timeout and a heap cap; each evaluation runs in its own short-lived, unlinked process, so a runaway script cannot take the hub down. `print`, `parallel` and `parallel_all` are reserved globals.
-
-**Example**:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "code_mode",
-    "arguments": {
-      "code": "local r = desktop.read_file({path = \"/etc/hosts\"}); return r.content[1].text"
-    }
-  }
-}
-```
-
-Tool visibility matches `retrieve_tools`: the `mcp-hub` meta server is excluded, and `x-include-tools` / `x-exclude-tools` request headers are honoured (by bare tool name or `server__tool` form). These headers are a **server-wide** allow/deny list applied to `tools/call` as well, so an `x-include-tools` list must also name `code_mode` itself or the call is rejected with `Tool not found`.
-
-Configuration (in-code defaults in `Exhub.MCP.Hub.CodeMode`, overridable under `config :exhub, :code_mode` in `config/config.exs`):
-
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `enabled` | `true` | Master switch |
-| `timeout_ms` | `600_000` | Wall-clock budget per evaluation (aligned with the Hub server `request_timeout`) |
-| `max_instructions` | `5_000_000` | Lua VM instruction budget |
-| `max_call_depth` | `200` | Lua call-depth cap |
-| `max_heap_size` | `268_435_456` | Sandbox process heap cap (bytes) |
-| `max_string_bytes` | `8_388_608` | Max Lua string size (bytes) |
-| `max_output_chars` | `100_000` | Result truncation, to bound context; overflow is spilled to a file |
-| `spill_truncated` | `true` | Write the full result to a temp file when truncation occurs |
-| `spill_dir` | `nil` | Directory for spilled results (`nil` → `System.tmp_dir!()`) |
-| `max_concurrency` | `8` | Max concurrent calls in a `parallel`/`parallel_all` fan-out |
-| `raise_on_tool_error` | `true` | Raise on MCP results with `isError = true` (instead of returning them as data) |
-| `exclude_servers` | `["mcp-hub"]` | Servers not bridged into the sandbox |
+The Lua code-mode tool moved to a standalone MCP server, `lua`, at `/lua/mcp` (tool `code_mode`); the hub no longer exposes it. See [docs/modules/lua.md](lua.md).
 
 ---
 

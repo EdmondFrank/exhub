@@ -26,8 +26,6 @@ defmodule Exhub.MCP.Hub.Server do
   component(Exhub.MCP.Tools.Hub.RetrieveTools)
   # Register the call_tools component
   component(Exhub.MCP.Tools.Hub.CallTools)
-  # Register the code_mode component (Lua sandbox over all visible hub tools)
-  component(Exhub.MCP.Tools.Hub.CodeMode)
 
   require Logger
 

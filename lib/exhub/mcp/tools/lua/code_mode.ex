@@ -1,22 +1,32 @@
-defmodule Exhub.MCP.Tools.Hub.CodeMode do
+defmodule Exhub.MCP.Tools.Lua.CodeMode do
   @moduledoc """
-  MCP tool: `code_mode`
+  MCP tool: `code_mode` (server `lua`)
 
-  Evaluates a Lua 5.3 snippet with every visible MCP hub tool bridged in as a
+  Evaluates a Lua 5.3 snippet with every visible MCP tool bridged in as a
   function, so the caller can fetch, filter and combine tool results in a single
-  round trip instead of one `call_tools` per step. See
-  `Exhub.MCP.Hub.CodeMode` for the sandbox itself.
+  round trip instead of one call per step. See `Exhub.Lua.Engine` for the sandbox
+  itself and `docs/modules/lua.md` for the server.
+
+  The description is selected by `config :exhub, :lua, :tool_docs`:
+
+    * `:on_demand` (default) keeps only the language rules and points at the
+      `help` / `retrieve_tools` / `describe_tool` discovery helpers, so the
+      catalog is pulled when needed instead of inlined on every request;
+    * `:inline` appends the full namespace catalog to the description.
+
+  `Anubis.Server.Component.get_description/1` calls `description/0` at runtime,
+  so the setting applies without a rebuild.
   """
 
   alias Anubis.Server.Response
-  alias Exhub.MCP.Hub.ClientManager
-  alias Exhub.MCP.Hub.CodeMode, as: Engine
+  alias Exhub.Lua.Engine
+  alias Exhub.MCP.Tools.Lua.VisibleTools
 
   use Anubis.Server.Component, type: :tool
 
-  # The Hub server's `request_timeout` (see `application.ex` / `router.ex`) is
-  # the outer bound: `ConcurrentToolDispatcher` hard-kills the tools/call Task
-  # at that point. The Lua VM must time out first so it can return a graceful
+  # The server's `request_timeout` (see `application.ex` / `router.ex`) is the
+  # outer bound: `ConcurrentToolDispatcher` hard-kills the tools/call Task at
+  # that point. The Lua VM must time out first so it can return a graceful
   # error, so the sandbox default matches it and callers cannot exceed it.
   @server_timeout_ms 600_000
   @default_timeout_s div(@server_timeout_ms, 1000)
@@ -25,11 +35,72 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
 
   @impl true
   def description do
-    """
-    Execute a Lua 5.3 snippet in a sandbox with every visible MCP hub tool
-    bridged in as a function, and return the snippet's result in one round trip.
+    case Engine.config()[:tool_docs] do
+      :inline -> inline_description()
+      _ -> on_demand_description()
+    end
+  end
 
-    Instead of calling `call_tools` once per tool — discovering, waiting, then
+  # Default: rules + discovery, with the docs pulled on demand (`help`,
+  # `retrieve_tools`, `describe_tool`) instead of an inlined catalog.
+  defp on_demand_description do
+    """
+    Execute a Lua 5.3 snippet in a sandbox with every visible MCP tool bridged
+    in as a function, and return the snippet's result in one round trip.
+
+    Instead of calling one tool at a time — discovering, waiting, then
+    discovering again — write one script that fetches, filters and returns the
+    distilled answer:
+
+        local r = parallel({
+          {server = "desktop", tool = "read_file",       args = {path = "/etc/hosts"}},
+          {server = "desktop", tool = "execute_command", args = {command = "uname -a"}}
+        })
+        return {hosts = r[1].content[1].text:sub(1, 40), uname = r[2].content[1].text}
+
+    `parallel` fans the calls out concurrently and returns results index-aligned
+    with the input (a call may also be `{name = "server__tool", args = {...}}`).
+    `parallel_all` never raises, returning one `{ok = ..., result = ...}` /
+    `{ok = ..., error = ...}` per call.
+
+    **Calling tools** (both forms work):
+    - Nested by server: `desktop.read_file({path = "..."})`,
+      `web_tools.web_fetch({url = "..."})` — server and tool names have every
+      character outside `[A-Za-z0-9_]` replaced with `_`.
+    - Flat, verbatim: `tools["browser-use__browser_navigate"]({...})`.
+    - Arguments are a Lua table with **named keys**; a positional table is
+      rejected. A result is a Lua table — the text payload is usually
+      `r.content[1].text`.
+    - A failing call raises a Lua error (catch it with `pcall`, which yields the
+      message string). An uncaught failure is categorised as `SyntaxError`,
+      `UnknownTool`, `ToolFailure` or `TimeoutExceeded`.
+    - `print(...)` output is returned above the `return` value. Returning
+      nothing reports "Execution completed with no return value."; `return a, b`
+      returns both as a JSON array.
+
+    **Finding tools — never guess a name**
+    - `retrieve_tools({query = "...", limit = 10})` — TF-IDF search over the
+      bridged tools (an empty query browses all). Returns `{tools = {...}, count = n}`;
+      each entry is `{name, server, description, params}`.
+    - `describe_tool("server__tool")` (or `"server.tool"`) — that tool's full
+      `description` and `input_schema`.
+    - `help()` / `help("server.tool")` — the tool index, or one tool's
+      description and parameters. The same docs are available as the MCP tool
+      `help`, without running code.
+
+    The sandbox blocks io/os/require/filesystem, so the only way out is the
+    bridged tools. Loops are bounded by an instruction budget, a wall-clock
+    timeout (default #{@default_timeout_s}s) and a memory budget.
+    """
+  end
+
+  # Opt in with `tool_docs: :inline` — the catalog rides in the description.
+  defp inline_description do
+    """
+    Execute a Lua 5.3 snippet in a sandbox with every visible MCP tool bridged
+    in as a function, and return the snippet's result in one round trip.
+
+    Instead of calling one tool at a time — discovering, waiting, then
     discovering again — write one script that fetches, filters, loops and returns
     the distilled answer:
 
@@ -73,13 +144,15 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
 
     **Finding tools (inside the script)**
     - `retrieve_tools({query = "...", limit = 10})` searches every callable tool
-      by name/description — the in-sandbox counterpart of the hub's own
-      `retrieve_tools`, so a script can find a tool it wasn't told about without
-      a second round trip. Returns `{tools = {...}, count = n}`; an empty query
-      lists tools alphabetically. Accepts a bare string too: `retrieve_tools("read file")`.
+      by name/description — the in-sandbox counterpart of the `retrieve_tools`
+      tool, so a script can find a tool it wasn't told about without a second
+      round trip. Returns `{tools = {...}, count = n}`; an empty query lists
+      tools alphabetically. Accepts a bare string too: `retrieve_tools("read file")`.
     - `describe_tool("server__tool")` (or `"server.tool"`) returns that tool's
       full `description` and `input_schema`, so argument names/nesting are
       visible before the call. Unknown paths return `{error = "..."}`.
+    - `help()` / `help("server.tool")` — the tool index, or one tool's
+      description and parameters.
 
     **Rules**
     - Arguments are a Lua table with named keys, e.g.
@@ -87,8 +160,8 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
       table (`{"a", "b"}`) is rejected — omit the argument to pass `{}`.
     - Results are Lua tables; most tools return their text payload under
       `r.content[1].text`.
-    - A failing call raises a Lua error — both hub/transport errors and MCP
-      results carrying `isError = true`. Catch it with
+    - A failing call raises a Lua error — both transport errors and MCP results
+      carrying `isError = true`. Catch it with
       `local ok, r = pcall(desktop.read_file, {path = "/nope"})`; note `pcall`
       yields only the message string, not the structured payload.
     - An uncaught failure comes back categorised: `SyntaxError`, `UnknownTool`
@@ -96,12 +169,13 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
       or `TimeoutExceeded`.
     - `print(...)` output is collected and returned above your `return` value.
     - Return a table/string/number to send it back; returning nothing sends
-      "Execution completed with no return value."
+      "Execution completed with no return value."; `return a, b` returns both as
+      a JSON array.
     - When the result exceeds the output cap, the returned text is truncated and
       the full output is written to a temp file whose path is included — read it
       back with `desktop.read_file`.
     - The sandbox blocks io/os/require/filesystem — the only way out is the
-      tools. Loops are bounded by an instruction, a wall-clock timeout
+      tools. Loops are bounded by an instruction budget, a wall-clock timeout
       (default #{@default_timeout_s}s) and a memory budget.
 
     Available namespaces: #{namespaces_hint()}.
@@ -139,7 +213,7 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
           error("`timeout` must be a positive integer number of seconds")
 
         true ->
-          tools = visible_tools(frame)
+          tools = VisibleTools.list(frame)
           # Read the cap from the engine config (single source of truth) rather
           # than the compile-time constant, so a config change can't drift.
           server_timeout_ms = Engine.config()[:timeout_ms] || @server_timeout_ms
@@ -150,66 +224,6 @@ defmodule Exhub.MCP.Tools.Hub.CodeMode do
       end
 
     {:reply, response, frame}
-  end
-
-  # --- Tool visibility ---
-
-  defp visible_tools(frame) do
-    headers = frame_headers(frame)
-    excluded = Engine.config()[:exclude_servers] || []
-
-    case ClientManager.list_all_tools() do
-      {:ok, tools} when is_list(tools) ->
-        tools
-        |> Enum.reject(&(Map.get(&1, "server") in excluded))
-        |> apply_header_filter(headers)
-
-      _ ->
-        []
-    end
-  end
-
-  defp frame_headers(%{context: %{headers: headers}}) when is_map(headers), do: headers
-  defp frame_headers(_frame), do: %{}
-
-  # `x-include-tools` / `x-exclude-tools` may name a tool either by its bare
-  # upstream name or by the hub's `server__tool` form — match on both.
-  defp apply_header_filter(tools, headers) do
-    include = parse_tool_list(headers["x-include-tools"])
-    exclude = parse_tool_list(headers["x-exclude-tools"])
-
-    tools
-    |> maybe_include(include)
-    |> maybe_exclude(exclude)
-  end
-
-  defp parse_tool_list(value) when is_binary(value) do
-    value
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp parse_tool_list(_), do: []
-
-  defp maybe_include(tools, []), do: tools
-
-  defp maybe_include(tools, include) do
-    allowed = MapSet.new(include)
-    Enum.filter(tools, fn tool -> matches?(tool, allowed) end)
-  end
-
-  defp maybe_exclude(tools, []), do: tools
-
-  defp maybe_exclude(tools, exclude) do
-    denied = MapSet.new(exclude)
-    Enum.reject(tools, fn tool -> matches?(tool, denied) end)
-  end
-
-  defp matches?(tool, set) do
-    server = Map.get(tool, "server", "")
-    name = Map.get(tool, "name", "")
-    MapSet.member?(set, name) or MapSet.member?(set, "#{server}__#{name}")
   end
 
   # --- Response helpers ---

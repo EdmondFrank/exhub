@@ -42,6 +42,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "toonflow" => Exhub.MCP.ToonflowServer,
     "mac-use" => Exhub.MCP.MacUseServer,
     "emacs" => Exhub.MCP.EmacsServer,
+    "lua" => Exhub.MCP.LuaServer,
     "listen" => Exhub.MCP.ListenServer,
     "speak" => Exhub.MCP.SpeakServer,
     "smart-decide" => Exhub.MCP.SmartDecideServer,
