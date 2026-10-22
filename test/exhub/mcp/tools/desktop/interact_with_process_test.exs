@@ -443,7 +443,11 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
 
       {:reply, resp, ^frame} =
         InteractWithProcess.execute(
-          %{process_id: pid, input: "prefix-${USER}-middle-`echo hello`-suffix", mode: "template"},
+          %{
+            process_id: pid,
+            input: "prefix-${USER}-middle-`echo hello`-suffix",
+            mode: "template"
+          },
           frame
         )
 
@@ -528,7 +532,11 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
 
       {:reply, resp, ^frame} =
         InteractWithProcess.execute(
-          %{process_id: "nonexistent_pid", input: "`nonexistent_command_xyz_123`", mode: "template"},
+          %{
+            process_id: "nonexistent_pid",
+            input: "`nonexistent_command_xyz_123`",
+            mode: "template"
+          },
           frame
         )
 
@@ -644,7 +652,7 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
 
     test "does not expose `cat file` output in response", %{process_id: pid} do
       frame = %{}
-      tmp_file = Path.join(System.tmp_dir!(), "exhub_test_secret_#{:rand.uniform(999_999)}")
+      tmp_file = Path.join(System.tmp_dir!(), "exhub_test_value_#{:rand.uniform(999_999)}")
       File.write!(tmp_file, "another_secret_456")
 
       on_exit(fn -> File.rm(tmp_file) end)
@@ -662,6 +670,47 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
       refute text =~ "another_secret_456"
     end
 
+    test "masks an expanded secret that the child echoes back", %{process_id: pid} do
+      frame = %{}
+      System.put_env("EXHUB_TEST_ECHO_SECRET", "mask_me_9876")
+
+      {:reply, resp, ^frame} =
+        InteractWithProcess.execute(
+          %{process_id: pid, input: "${EXHUB_TEST_ECHO_SECRET}\n", mode: "template"},
+          frame
+        )
+
+      System.delete_env("EXHUB_TEST_ECHO_SECRET")
+
+      refute resp.isError
+      assert extract_field(resp, "input_expanded") == true
+      assert is_nil(extract_field(resp, "input_sent"))
+      text = response_text(resp)
+      refute text =~ "mask_me_9876"
+      assert text =~ "[redacted]"
+    end
+
+    test "refuses a command substitution that reads a secret file", %{process_id: pid} do
+      frame = %{}
+      tmp_file = Path.join(System.tmp_dir!(), "exhub_test_secret_#{:rand.uniform(999_999)}")
+      File.write!(tmp_file, "another_secret_456")
+
+      on_exit(fn -> File.rm(tmp_file) end)
+
+      {:reply, resp, ^frame} =
+        InteractWithProcess.execute(
+          %{process_id: pid, input: "`cat #{tmp_file}`", mode: "template"},
+          frame
+        )
+
+      refute resp.isError
+      assert extract_field(resp, "success") == false
+      assert extract_field(resp, "error") =~ "Input expansion failed"
+      assert extract_field(resp, "error") =~ "Command substitution failed"
+      assert extract_field(resp, "error") =~ "Refused"
+      refute response_text(resp) =~ "another_secret_456"
+    end
+
     test "raw mode still includes input_sent (no secrets to leak)", %{process_id: pid} do
       frame = %{}
 
@@ -675,6 +724,43 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
       # In raw mode, input_sent is the literal template string, not expanded
       assert extract_field(resp, "input_sent") == "${SSH_PASS}"
       assert extract_field(resp, "input_expanded") == false
+    end
+  end
+
+  # ==========================================================================
+  # Tests — output offset/length
+  # ==========================================================================
+
+  describe "execute/2 — output offset and length" do
+    setup do
+      ensure_process_store()
+      process_id = start_cat_process()
+      on_exit(fn -> safe_kill(process_id) end)
+      {:ok, process_id: process_id}
+    end
+
+    test "reads from the offset, caps at length, and reports has_more", %{process_id: pid} do
+      frame = %{}
+
+      # `cat` echoes newline-terminated input straight back.
+      {:reply, _, ^frame} =
+        InteractWithProcess.execute(
+          %{process_id: pid, input: "l1\nl2\nl3\n", wait_seconds: 0},
+          frame
+        )
+
+      Process.sleep(300)
+
+      {:reply, resp, ^frame} =
+        InteractWithProcess.execute(
+          %{process_id: pid, input: "x\n", wait_seconds: 0, offset: 2, length: 1},
+          frame
+        )
+
+      assert extract_field(resp, "offset") == 2
+      assert extract_field(resp, "lines_returned") == 1
+      assert extract_field(resp, "output") == "l3"
+      assert extract_field(resp, "has_more") == true
     end
   end
 end

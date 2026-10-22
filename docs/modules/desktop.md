@@ -492,31 +492,53 @@ Sends input to an interactive process's stdin. Use this to interact with REPLs, 
 
 **Parameters**
 
-| Name         | Type   | Required | Default | Description                                |
-|--------------|--------|----------|---------|--------------------------------------------|
-| `process_id` | string | yes      | —       | The process ID returned by `start_process` |
-| `input`      | string | yes      | —       | The text to send to the process's stdin    |
+| Name            | Type    | Required | Default | Description                                                                  |
+|-----------------|---------|----------|---------|------------------------------------------------------------------------------|
+| `process_id`    | string  | yes      | —       | The process ID returned by `start_process`                                   |
+| `input`         | string  | yes      | —       | The text to send to the process's stdin                                      |
+| `mode`          | string  | no       | `"raw"` | `"raw"` (send as-is) or `"template"` (expand `${VAR}` and `` `command` ``)    |
+| `wait_seconds`  | integer | no       | `2`     | Seconds to wait after sending before returning; `0` returns immediately      |
+| `return_output` | boolean | no       | `true`  | Include `output`, `status`, `exit_code`, `total_lines` in the response       |
+| `auto_newline`  | boolean | no       | auto    | Append `\n` before sending; defaults to `true` for PTY (`pty: true`) processes |
+| `offset`        | integer | no       | `0`     | Line offset to start reading output from                                     |
+| `length`        | integer | no       | `1000`  | Maximum number of output lines to return                                     |
 
-**Notes**
+**Input modes**
 
-- The input is sent directly to the process's stdin without any newline appended
-- Add `\n` to your input if you want to simulate pressing Enter
-- Only works with processes started with `start_process(interactive: true)`
+- `raw` (default) — the input is sent to stdin unchanged.
+- `template` — a single, left-to-right pass expands:
+  - `${VAR_NAME}` → the environment variable's value (empty string if unset);
+  - `` `command` `` → the command's stdout, with trailing newlines trimmed.
+
+  The output of a command substitution is not re-scanned, matching shell semantics.
+
+**Security**
+
+A `` `command` `` substitution is an `execute_command` by another name, so it passes
+through the same `CostGuard`/`SecretGuard` gates before anything runs; a
+substitution that would scan the whole disk or expose a secret is refused and
+nothing is sent to the process.
+
+When any expansion occurs the expanded value is treated as sensitive: it is not
+echoed back in `input_sent`, and it is masked (`[redacted]`) in the returned
+`output`, so a child that echoes its stdin (`cat`, a REPL, `ssh`) cannot leak it.
 
 **Return Value (success)**
 
-| Field        | Type    | Description             |
-|--------------|---------|-------------------------|
-| `success`    | boolean | `true`                  |
-| `process_id` | string  | The process ID          |
-| `input_sent` | string  | The input that was sent |
-
-**Return Value (error)**
-
-| Field    | Type    | Description                                              |
-|----------|---------|----------------------------------------------------------|
-| `success` | boolean | `false`                                                 |
-| `error`  | string  | Error description                                        |
+| Field            | Type    | Description                                            |
+|------------------|---------|--------------------------------------------------------|
+| `success`        | boolean | `true`                                                 |
+| `process_id`     | string  | The process ID                                          |
+| `input_sent`     | string  | The input sent — omitted when any expansion occurred    |
+| `input_expanded` | boolean | Whether a template was expanded                         |
+| `auto_newline`   | boolean | Whether a newline was appended                          |
+| `output`         | string  | Output from `offset`, capped at `length` lines          |
+| `offset`         | integer | The offset applied                                      |
+| `lines_returned` | integer | Number of lines returned                                |
+| `total_lines`    | integer | Total lines buffered                                    |
+| `status`         | string  | `running` \| `completed` \| `terminated` \| `error`     |
+| `exit_code`      | integer | Exit code (null while running)                          |
+| `has_more`       | boolean | Whether more lines remain                               |
 
 **Error Cases**
 
@@ -524,21 +546,18 @@ Sends input to an interactive process's stdin. Use this to interact with REPLs, 
 - `"Process #{process_id} is not interactive. Start with interactive: true."` — Process was not started in interactive mode
 - `"Process #{process_id} has no port reference"` — Internal error, port not initialized
 - `"Process #{process_id} is not running"` — Process has completed or crashed
+- `"Input expansion failed: Command substitution failed for …"` — A substitution failed or was refused by a gate
 
 **Example**
 
 ```bash
-# Start an interactive Python REPL
-start_process(command="python3 -i", interactive=true)
-# Returns: {"process_id": "proc_123_456", "pid": 12345, "interactive": true}
+# Start an interactive shell with a PTY (auto_newline defaults to true)
+start_process(command="sh", interactive=true)
+# Returns: {"process_id": "proc_123_456", "pid": 12345, "interactive": true, "pty": true, "backend": "erlexec"}
 
-# Send a command to the REPL (note: need to add newline)
-interact_with_process(process_id="proc_123_456", input="print('Hello, World!')\n")
-# Returns: {"success": true, "process_id": "proc_123_456", "input_sent": "print('Hello, World!')\n"}
-
-# Read the output
-read_process_output(process_id="proc_123_456")
-# Returns: {"output": "Hello, World!\n", "status": "running", ...}
+# Send a command (the newline is appended automatically for PTY processes)
+interact_with_process(process_id="proc_123_456", input="echo hi")
+# Returns: {"success": true, "process_id": "proc_123_456", "auto_newline": true, "output": "hi\n", ...}
 ```
 
 ---
@@ -564,6 +583,29 @@ Terminates a managed process started with `start_process`. Sends SIGTERM to the 
 
 - `"Process not found: #{process_id}"` — No process with that ID exists
 - `"Process has no associated system PID"` — Process entry exists but has no PID
+
+### Process lifecycle, backends and PIDs
+
+`start_process` chooses one of three backends:
+
+| `interactive` | `pty`   | Backend     | Used for                                                                 |
+|---------------|---------|-------------|--------------------------------------------------------------------------|
+| `false`       | —       | Exile       | Long-running, non-interactive commands                                    |
+| `true`        | `false` | Erlang port | Pipe-based stdin/stdout (no TTY)                                          |
+| `true`        | `true`  | erlexec PTY | SSH, REPLs, anything that needs a TTY (default when `interactive: true`)  |
+
+- **PIDs are never guessed.** Each backend records the child's real OS pid — a
+  port's `:os_pid`, erlexec's `ospid`, or `Exile.Process.os_pid/1` — so
+  `kill_process` signals the process you actually started. (An earlier version
+  resolved the pid with `pgrep -f <command>` and took the first match, which for
+  a short command such as `ls` matched an unrelated process.)
+- **PTY listeners are not tied to the request.** Anubis runs each `tools/call`
+  in a transient task; the erlexec listener therefore lives exactly as long as
+  its child instead of monitoring that task (which killed every PTY process
+  immediately after `start_process` returned).
+- A finished entry (`completed`/`terminated`/`error`) is pruned after 10 minutes;
+  any entry is dropped after 1 hour of inactivity. `read_process_output` and
+  `interact_with_process` reset that idle timer.
 
 ## Response Format
 

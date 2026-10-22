@@ -105,9 +105,14 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
                   "process_id" => process_id,
                   "pid" => entry.pid,
                   "interactive" => entry.interactive,
-                  "pty" => entry.backend == :erlexec
+                  "pty" => entry.backend == :erlexec,
+                  "backend" => to_string(entry.backend)
                 })
 
+              {:reply, resp, frame}
+
+            {:error, reason} ->
+              resp = Response.tool() |> Response.error("Failed to start process: #{reason}")
               {:reply, resp, frame}
           end
         else
@@ -133,6 +138,17 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
   defp ensure_erlexec_started do
     case Application.ensure_all_started(:erlexec) do
+      {:ok, _apps} -> :ok
+      {:error, {:already_started, _}} -> :ok
+      _ -> :ok
+    end
+  end
+
+  # `Exile.Process` needs the `:exile` application (its watcher supervisor) to be
+  # running; without it the process GenServer crashes on start and no output or
+  # pid is ever recorded.
+  defp ensure_exile_started do
+    case Application.ensure_all_started(:exile) do
       {:ok, _apps} -> :ok
       {:error, {:already_started, _}} -> :ok
       _ -> :ok
@@ -307,83 +323,96 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
 
     {:ok, _entry} = ProcessStore.register(process_id, entry_attrs)
 
-    # Start the background stream consumer
+    # Start the background stream consumer as an *unlinked* task, so it (and the
+    # Exile process it owns) outlives this transient request task. It reports the
+    # child's real OS pid back so the response can carry it.
+    ensure_exile_started()
+    starter = self()
+
     {:ok, _task_pid} =
       Task.start(fn ->
-        consume_process_stream(process_id, command, opts)
+        consume_process_stream(process_id, command, opts, starter)
       end)
 
-    # Best-effort: resolve system PID and update entry
-    system_pid = get_system_pid(command)
-    if system_pid, do: ProcessStore.update_pid(process_id, system_pid)
+    # Brief handshake — Exile reports the OS pid within milliseconds. On timeout
+    # the entry is still returned (`pid: nil`) and the consumer fills it in.
+    receive do
+      {:stream_pid, ^process_id, _os_pid} -> :ok
+    after
+      2_000 -> :ok
+    end
 
     entry = ProcessStore.get(process_id)
     {:ok, entry}
   end
 
-  defp consume_process_stream(process_id, command, opts) do
+  # Streams the child's output into ProcessStore.
+  #
+  # This uses `Exile.Process` directly rather than `Exile.stream/2` so the real
+  # OS pid is available (`Exile.Process.os_pid/1`). The previous implementation
+  # shelled out to `pgrep -f <command>` and took the first match, which is the
+  # *lowest* pid — for a short command like `ls` that matched an unrelated
+  # process (a root daemon), so `kill_process` could signal the wrong one.
+  defp consume_process_stream(process_id, command, opts, starter) do
     try do
-      {stdout, stderr, exit_code} =
-        Exile.stream(Helpers.shell_command_args(command), opts)
-        |> Enum.reduce({"", "", nil}, fn
-          {:stdout, data}, {out, err, code} ->
-            ProcessStore.append_output(process_id, data)
-            {out <> data, err, code}
+      {:ok, process} = Exile.Process.start_link(Helpers.shell_command_args(command), opts)
 
-          {:stderr, data}, {out, err, code} ->
-            ProcessStore.append_output(process_id, data)
-            {out, err <> data, code}
+      os_pid =
+        case Exile.Process.os_pid(process) do
+          {:ok, pid} when is_integer(pid) -> pid
+          _ -> nil
+        end
 
-          {:exit, {:status, code}}, {out, err, _} ->
-            ProcessStore.set_exit_code(process_id, code)
-            {out, err, code}
+      if os_pid, do: ProcessStore.update_pid(process_id, os_pid)
+      send(starter, {:stream_pid, process_id, os_pid})
 
-          {:exit, :epipe}, {out, err, _} ->
-            ProcessStore.set_exit_code(process_id, 0)
-            {out, err, 0}
+      exit_code = pump_output(process_id, process)
 
-          _, acc ->
-            acc
-        end)
+      Logger.debug(
+        "[StartProcess] Process #{process_id} completed with exit #{inspect(exit_code)}"
+      )
 
-      Logger.debug("[StartProcess] Process #{process_id} completed with exit #{exit_code}")
-
-      # Ensure exit code is set even if stream ended unexpectedly
-      if is_nil(exit_code) do
-        ProcessStore.set_exit_code(process_id, 0)
-      end
-
-      {stdout, stderr, exit_code}
+      # Ensure an exit code is recorded even if the stream ended unexpectedly.
+      ProcessStore.set_exit_code(process_id, exit_code || 0)
+      exit_code
     rescue
       e ->
         Logger.error("[StartProcess] Process #{process_id} error: #{Exception.message(e)}")
         ProcessStore.set_status(process_id, :error)
+        send(starter, {:stream_pid, process_id, nil})
         {:error, Exception.message(e)}
     end
   end
 
-  defp get_system_pid(command) do
-    # Try to get the PID of the most recent matching process
-    # This is a best-effort approach for streaming processes
-    # Note: Interactive processes use Port.info(:os_pid) instead
-    try do
-      pattern = Regex.escape(command) |> String.slice(0, 50)
+  defp pump_output(process_id, process) do
+    case Exile.Process.read_any(process) do
+      {:ok, {_stream, data}} ->
+        ProcessStore.append_output(process_id, data)
+        pump_output(process_id, process)
 
-      {output, 0} =
-        System.cmd("pgrep", ["-f", pattern], stderr_to_stdout: true)
+      :eof ->
+        await_exit_code(process)
 
-      output
-      |> String.trim()
-      |> String.split("\n")
-      |> List.first()
-      |> case do
-        nil -> nil
-        "" -> nil
-        pid_str -> String.to_integer(pid_str)
-      end
-    rescue
+      {:error, errno} ->
+        Logger.error("[StartProcess] Process #{process_id} read error: #{inspect(errno)}")
+        await_exit_code(process)
+    end
+  end
+
+  # `Exile.Process.await_exit/2` can `exit/1` if the owner is not the caller or
+  # the program overruns the timeout, so keep it in a task-local try/catch and
+  # treat an unknown status as "no exit code".
+  defp await_exit_code(process) do
+    case Exile.Process.await_exit(process, 5_000) do
+      code when is_integer(code) -> code
+      :epipe -> 0
+      {:ok, code} when is_integer(code) -> code
       _ -> nil
     end
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
   end
 
   # A background process produces no observable failure for this tool (it

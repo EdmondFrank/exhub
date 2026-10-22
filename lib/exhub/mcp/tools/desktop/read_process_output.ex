@@ -64,10 +64,12 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
         sliced = Enum.join(sliced_lines, "\n")
         lines_returned = length(sliced_lines)
 
-        # has_more is true if there are lines beyond what we returned,
-        # OR if process is running and we returned exactly 'length' lines (buffer may grow)
+        # `result.output` is already offset-sliced by ProcessStore, so `lines`
+        # holds only the remaining lines: has_more is simply "more lines remain
+        # than we returned". (Adding `offset` here — as this used to — double
+        # counted it and under-reported has_more for any offset > 0.)
         has_more =
-          length(lines) > offset + length or
+          length(lines) > lines_returned or
             (result.status == :running and lines_returned == length)
 
         resp =

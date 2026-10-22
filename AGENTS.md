@@ -10,10 +10,18 @@ Most ExUnit tests in this repo do **not** need the ExHub application booted.
 Run them with `--no-start` to skip app boot:
 
 ```sh
-mix test --no-start test/exhub/router/                              # a directory
-mix test --no-start test/exhub/proxy_plug_stream_test.exs           # a file
-mix test --no-start test/exhub/router/ test/exhub/mcp/encoding_test.exs
+MIX_ENV=test mix test --no-start test/exhub/router/                  # a directory
+MIX_ENV=test mix test --no-start test/exhub/proxy_plug_stream_test.exs
+MIX_ENV=test mix test --no-start test/exhub/router/ test/exhub/mcp/encoding_test.exs
 ```
+
+> **⚠️ Set `MIX_ENV=test` explicitly.** The agent shell here (Emacs launches the
+> dev/prod release from it) exports `MIX_ENV=prod`, and `mix test` does **not**
+> override an already-set `MIX_ENV`. Plain `mix test` therefore loads
+> `config/prod.exs`, so the Smart Decide gates (`CostGuard`, `SecretGuard`,
+> `ProxyEnv`, `WorkingDir`) stay enabled — the tests then make real model calls
+> instead of running against `config/test.exs` (`enabled: false`) and can behave
+> differently. Use `MIX_ENV=test mix test …`.
 
 Prefer targeted file/directory runs. **Avoid plain `mix test --no-start`
 (full suite)**: most tests pass, but a graceful-restart path schedules

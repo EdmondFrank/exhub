@@ -14,7 +14,13 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   require Logger
 
   @cleanup_interval_ms 60_000
+  # Hard TTL: an entry is dropped once it has been idle this long, whatever its
+  # state (a long-running process is kept until it stops and goes idle).
   @max_age_ms 1_800_000
+  # A finished entry (`:completed`/`:terminated`/`:error`) is dropped much
+  # sooner: its output is still readable for a grace period, but it must not
+  # accumulate in `list_managed_processes` for an hour.
+  @finished_ttl_ms 600_000
 
   defstruct [
     :id,
@@ -343,10 +349,12 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   @impl true
   def handle_info(:cleanup, state) do
     cutoff = now() - @max_age_ms
+    finished_cutoff = now() - @finished_ttl_ms
 
     {to_remove, to_keep} =
       Enum.split_with(state, fn {_id, entry} ->
-        is_nil(entry) or entry.last_read_at < cutoff
+        is_nil(entry) or entry.last_read_at < cutoff or
+          (finished?(entry) and entry.last_read_at < finished_cutoff)
       end)
 
     if length(to_remove) > 0 do
@@ -399,6 +407,9 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   end
 
   defp now, do: System.monotonic_time(:millisecond)
+
+  defp finished?(%{status: status}), do: status in [:completed, :terminated, :error]
+  defp finished?(_entry), do: false
 
   defp update_entry(state, id, fun) do
     case Map.get(state, id) do
