@@ -132,11 +132,13 @@ config :exhub, :toonflow, %{
   "media" => %{
     "image_model" => "qwen-image-2.0",
     "video_model" => "MiniMax-H3",
-    # Verified against ai.gitee.com on 2026-10-25: `CosyVoice2` is no longer
-    # served (`暂不支持该接口`), and `Step-Audio-TTS-3B` is the one non-cloning
-    # model that honours `voice` (中文男 / 中文女).
-    "tts_model" => "Step-Audio-TTS-3B",
-    "tts_voice" => "中文女",
+    # TTS default: MoArk's streaming WebSocket endpoint (`Exhub.TTS.Realtime`).
+    # Verified live 2026-10-25: `TeleTTS-Bidirectional-Mandarin` honours the full
+    # voice catalogue; `TeleTTS-MultiDialect` answered `TELEAI_WS_CLOSED` (1002)
+    # and `TeleTTS-Mandarin` rejects `voice`. The Gitee AI sync models
+    # (`Step-Audio-TTS-3B`, ...) remain available via `Exhub.TTS.Sync`.
+    "tts_model" => "TeleTTS-Bidirectional-Mandarin",
+    "tts_voice" => "guangzhounv",
     # Start/end keyframes: when true the pipeline `keyframes` stage renders
     # per-shot first/last frames, and `videos` feeds the end frame to `fl2va`.
     "keyframes" => true,

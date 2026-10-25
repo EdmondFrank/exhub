@@ -334,7 +334,7 @@ can drive projects itself.
 config :exhub, :toonflow, %{
   "root_dir" => nil,                              # nil => ~/.config/exhub/toonflow
   "agents"   => %{"script" => "kimi-k2.6", "director" => "kimi-k2.6", "qa" => "kimi-k2.6"},
-  "media"    => %{"image_model" => "qwen-image-2.0", "video_model" => "MiniMax-H3", "tts_model" => "Step-Audio-TTS-3B", "tts_voice" => "中文女",
+  "media"    => %{"image_model" => "qwen-image-2.0", "video_model" => "MiniMax-H3", "tts_model" => "TeleTTS-Bidirectional-Mandarin", "tts_voice" => "guangzhounv",
                   "keyframes" => true, "last_frame" => true, "candidates" => 9},
   "prompts"  => %{"overrides" => true},
   "memory"   => %{"enabled" => true, "top_k" => 5, "scope" => "project", "dim" => 1024},

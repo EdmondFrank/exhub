@@ -99,7 +99,7 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
-      # MCP Speak Server (text-to-speech: CosyVoice2 sync / Qwen3-TTS async on Gitee AI / moark.com)
+      # MCP Speak Server (text-to-speech: TeleTTS realtime / Step-Audio-TTS-3B sync / Qwen3-TTS async)
       {Exhub.MCP.SpeakServer,
        transport: :streamable_http,
        request_timeout: 600_000,

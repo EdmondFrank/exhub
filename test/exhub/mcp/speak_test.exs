@@ -16,11 +16,75 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       assert msg =~ "Invalid provider"
     end
 
-    test "defaults to the sync provider with Step-Audio-TTS-3B" do
+    test "defaults to the realtime provider with TeleTTS-Bidirectional-Mandarin" do
       assert {:ok, v} = Speak.validate_params(%{text: "hello"})
+      assert v.provider == "realtime"
+      assert v.model == "TeleTTS-Bidirectional-Mandarin"
+      assert v.voice == nil
+      assert v.volume == 50
+      assert v.speech_rate == 1
+      assert v.sample_rate == 24_000
+    end
+
+    test "an explicit sync provider still defaults to Step-Audio-TTS-3B" do
+      assert {:ok, v} = Speak.validate_params(%{text: "hello", provider: "sync"})
       assert v.provider == "sync"
       assert v.model == "Step-Audio-TTS-3B"
       assert v.voice == "alloy"
+    end
+
+    test "realtime accepts a preset voice and tuning" do
+      assert {:ok, v} =
+               Speak.validate_params(%{
+                 text: "hi",
+                 provider: "realtime",
+                 model: "TeleTTS-MultiDialect",
+                 voice: "lucas",
+                 volume: 30,
+                 speech_rate: 1.25,
+                 sample_rate: 16_000
+               })
+
+      assert v.model == "TeleTTS-MultiDialect"
+      assert v.voice == "lucas"
+      assert v.volume == 30
+      assert v.speech_rate == 1.25
+      assert v.sample_rate == 16_000
+    end
+
+    test "realtime rejects an unknown model" do
+      assert {:error, msg} =
+               Speak.validate_params(%{text: "hi", provider: "realtime", model: "nope"})
+
+      assert msg =~ "Valid realtime models"
+    end
+
+    test "realtime rejects an unknown voice" do
+      assert {:error, msg} =
+               Speak.validate_params(%{text: "hi", provider: "realtime", voice: "alloy"})
+
+      assert msg =~ "Invalid voice"
+    end
+
+    test "realtime rejects a voice for the voiceless TeleTTS-Mandarin" do
+      assert {:error, msg} =
+               Speak.validate_params(%{
+                 text: "hi",
+                 provider: "realtime",
+                 model: "TeleTTS-Mandarin",
+                 voice: "guangzhounv"
+               })
+
+      assert msg =~ "does not accept `voice`"
+
+      assert {:ok, v} =
+               Speak.validate_params(%{
+                 text: "hi",
+                 provider: "realtime",
+                 model: "TeleTTS-Mandarin"
+               })
+
+      assert v.voice == nil
     end
 
     test "rejects an unknown sync model" do
@@ -32,6 +96,7 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       assert {:ok, v} =
                Speak.validate_params(%{
                  text: "hi",
+                 provider: "sync",
                  model: "IndexTTS-2",
                  voice: "serena",
                  prompt_audio_url: "https://example.com/ref.wav",
@@ -45,7 +110,9 @@ defmodule Exhub.MCP.Tools.SpeakTest do
     end
 
     test "sync clone models require prompt_audio_url" do
-      assert {:error, msg} = Speak.validate_params(%{text: "hi", model: "IndexTTS-2"})
+      assert {:error, msg} =
+               Speak.validate_params(%{text: "hi", provider: "sync", model: "IndexTTS-2"})
+
       assert msg =~ "requires `prompt_audio_url`"
     end
 
@@ -53,6 +120,7 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       assert {:error, msg} =
                Speak.validate_params(%{
                  text: "hi",
+                 provider: "sync",
                  model: "GLM-TTS",
                  prompt_audio_url: "/tmp/a.wav"
                })
@@ -129,11 +197,35 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       Speak.build_body(validated)
     end
 
+    test "realtime mode builds the WebSocket start message" do
+      b = body(%{text: "你好", provider: "realtime"})
+
+      assert b == %{
+               "type" => "start",
+               "model" => "TeleTTS-Bidirectional-Mandarin",
+               "payload" => %{
+                 "input" => %{"type" => "text", "text" => "你好"},
+                 "output" => %{"type" => "audio", "format" => "PCM", "sample_rate" => 24_000},
+                 "options" => %{"voice" => "guangzhounv", "volume" => 50, "speech_rate" => 1}
+               }
+             }
+    end
+
+    test "realtime mode passes voice and tuning through" do
+      b = body(%{text: "hi", provider: "realtime", voice: "lucas", volume: 30, speech_rate: 1.5})
+
+      assert b["payload"]["options"] == %{
+               "voice" => "lucas",
+               "volume" => 30,
+               "speech_rate" => 1.5
+             }
+    end
+
     test "sync mode builds the OpenAI-compatible speech body" do
-      b = body(%{text: "hello"})
+      b = body(%{text: "hello", provider: "sync"})
       assert b == %{"model" => "Step-Audio-TTS-3B", "input" => "hello", "voice" => "alloy"}
 
-      b2 = body(%{text: "hi", model: "ChatTTS", voice: "serena"})
+      b2 = body(%{text: "hi", provider: "sync", model: "ChatTTS", voice: "serena"})
       assert b2["model"] == "ChatTTS"
       assert b2["voice"] == "serena"
       refute Map.has_key?(b2, "prompt_audio_url")
@@ -143,6 +235,7 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       b =
         body(%{
           text: "hi",
+          provider: "sync",
           model: "IndexTTS-2",
           prompt_audio_url: "https://example.com/ref.wav",
           prompt_text: "reference words"

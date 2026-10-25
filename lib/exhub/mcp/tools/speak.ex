@@ -2,9 +2,14 @@ defmodule Exhub.MCP.Tools.Speak do
   @moduledoc """
   MCP Tool for text-to-speech synthesis via Gitee AI / moark.com.
 
-  Two backends are available, chosen with the `provider` parameter:
+  Three backends are available, chosen with the `provider` parameter:
 
-    * **`sync`** (default) — the OpenAI-compatible
+    * **`realtime`** (default) — MoArk's streaming WebSocket endpoint
+      (`wss://api.moark.com/v1/audio/speech/ws`), driven by
+      `Exhub.TTS.Realtime`. The server streams raw PCM, which this tool wraps
+      as WAV. Default model `TeleTTS-Bidirectional-Mandarin`; the preset voices
+      are listed in `Exhub.TTS.Realtime.voices/0`.
+    * **`sync`** — the OpenAI-compatible
       `POST https://ai.gitee.com/v1/audio/speech` endpoint, which returns the
       audio bytes directly. Driven by `Exhub.TTS.Sync`; default model
       `Step-Audio-TTS-3B`. Voice-cloning models (`IndexTTS-2`, `GLM-TTS`) take a
@@ -22,15 +27,16 @@ defmodule Exhub.MCP.Tools.Speak do
   """
 
   alias Anubis.Server.Response
-  alias Exhub.TTS.Sync
+  alias Exhub.TTS.{Realtime, Sync}
 
   use Anubis.Server.Component, type: :tool
 
   @submit_url "https://api.moark.com/v1/async/audio/speech"
   @task_url "https://api.moark.com/v1/task"
 
-  @default_provider "sync"
-  @valid_providers ~w(sync async)
+  # The streaming MoArk WebSocket backend (TeleTTS) is the default.
+  @default_provider "realtime"
+  @valid_providers ~w(realtime sync async)
 
   # Async (MoArk) speech backend.
   @async_default_model "Qwen3-TTS"
@@ -67,7 +73,13 @@ defmodule Exhub.MCP.Tools.Speak do
 
     **Providers (chosen with `provider`):**
 
-    - `sync` (default) — OpenAI-compatible synchronous TTS. The audio bytes are
+    - `realtime` (default) — MoArk's streaming WebSocket TTS (`TeleTTS`). The
+      server streams PCM, returned here as WAV. Default model
+      `TeleTTS-Bidirectional-Mandarin`; other models: `TeleTTS-MultiDialect` and
+      the voiceless `TeleTTS-Mandarin`. Preset `voice`s: `guangzhounv`,
+      `shanghainv`, `chengdunv`, `zhengzhounv`, `dongbeinv`, `changshanv`,
+      `xiannv`, `xiamennv`, `joyce`, `lucas`. Tune `volume` / `speech_rate`.
+    - `sync` — OpenAI-compatible synchronous TTS. The audio bytes are
       returned directly (no task/poll). Default model `Step-Audio-TTS-3B`
       (Chinese/English). Other models: `ChatTTS`, `Step-Audio-TTS-3B`, and the
       clone-only `IndexTTS-2` / `GLM-TTS` (which require `prompt_audio_url`).
@@ -80,15 +92,18 @@ defmodule Exhub.MCP.Tools.Speak do
 
     **Parameters:**
     - `text`: the text to synthesize (required).
-    - `provider`: `sync` (default) or `async`.
-    - `voice`: preset voice for sync mode. Default: `alloy`.
+    - `provider`: `realtime` (default), `sync` or `async`.
+    - `voice`: preset voice. Realtime default `guangzhounv`; sync default `alloy`.
+    - `volume` / `speech_rate`: realtime-only tuning (defaults 50 / 1).
+    - `sample_rate`: realtime-only output sample rate (default 24000).
     - `prompt_audio_url`: reference audio URL for the sync clone models
       (`IndexTTS-2`, `GLM-TTS`).
     - `prompt_text`: transcript of `prompt_audio_url` (optional).
     - `output`: absolute / `~` path to save the audio locally. The extension is
-      corrected to the detected container (e.g. `.wav` for ChatTTS). When
-      omitted, no file is written.
-    - `model`: TTS model. Defaults: `Step-Audio-TTS-3B` (sync) / `Qwen3-TTS` (async).
+      corrected to the detected container (e.g. `.wav` for ChatTTS / realtime).
+      When omitted, no file is written.
+    - `model`: TTS model. Defaults: `TeleTTS-Bidirectional-Mandarin` (realtime) /
+      `Step-Audio-TTS-3B` (sync) / `Qwen3-TTS` (async).
 
     **Async-only parameters:**
     - `speaker`: preset voice for voice-design mode. Default: `Vivian`.
@@ -101,9 +116,10 @@ defmodule Exhub.MCP.Tools.Speak do
       the `task_id`(s) immediately.
     - `task_id`: poll an existing task instead of submitting a new one.
 
-    Returns JSON with `saved_path`, `status`, `model` and `format` (sync); or
-    `audio_url`/`audio_urls`, `task_id`/`task_ids`, `segments`, `speaker`,
-    `output_format` and `usage_info` (async).
+    Returns JSON with `saved_path`, `status`, `model`, `voice`, `format` and
+    `sample_rate` (realtime); `saved_path`, `status`, `model` and `format`
+    (sync); or `audio_url`/`audio_urls`, `task_id`/`task_ids`, `segments`,
+    `speaker`, `output_format` and `usage_info` (async).
     """
   end
 
@@ -111,15 +127,28 @@ defmodule Exhub.MCP.Tools.Speak do
     field(:text, {:required, :string}, description: "Text to synthesize into speech.")
 
     field(:provider, :string,
-      description: "TTS backend: `sync` (default) or `async`. See the description."
+      description: "TTS backend: `realtime` (default), `sync` or `async`. See the description."
     )
 
     field(:model, :string,
       description:
-        "Speech synthesis model. Defaults: `Step-Audio-TTS-3B` (sync) / `Qwen3-TTS` (async)."
+        "Speech synthesis model. Defaults: `TeleTTS-Bidirectional-Mandarin` (realtime) / " <>
+          "`Step-Audio-TTS-3B` (sync) / `Qwen3-TTS` (async)."
     )
 
-    field(:voice, :string, description: "Preset voice for sync mode. Default: alloy.")
+    field(:voice, :string,
+      description:
+        "Preset voice. Realtime default `guangzhounv` (e.g. `shanghainv`, `joyce`, `lucas`); " <>
+          "sync default `alloy`."
+    )
+
+    field(:volume, :integer, description: "Realtime only: output volume (default 50).")
+
+    field(:speech_rate, :number, description: "Realtime only: speech rate (default 1).")
+
+    field(:sample_rate, :integer,
+      description: "Realtime only: output sample rate in Hz (default 24000)."
+    )
 
     field(:prompt_audio_url, :string,
       description:
@@ -201,12 +230,63 @@ defmodule Exhub.MCP.Tools.Speak do
     end
   end
 
-  # Routes to the sync (default) or async backend.
+  # Routes to the realtime (default), sync or async backend.
+  defp dispatch(%{provider: "realtime"} = validated, _wait, output_path, api_key, frame),
+    do: run_realtime(validated, output_path, api_key, frame)
+
   defp dispatch(%{provider: "sync"} = validated, _wait, output_path, api_key, frame),
     do: run_sync(validated, output_path, api_key, frame)
 
   defp dispatch(%{provider: "async"} = validated, wait, output_path, api_key, frame),
     do: submit_and_reply(validated, wait, output_path, api_key, frame)
+
+  # --- realtime backend (MoArk streaming WebSocket) ---
+
+  defp run_realtime(validated, output_path, api_key, frame) do
+    opts = [
+      token: api_key,
+      model: validated.model,
+      voice: validated.voice,
+      volume: validated.volume,
+      speech_rate: validated.speech_rate,
+      sample_rate: validated.sample_rate
+    ]
+
+    case Realtime.synthesize(validated.text, opts) do
+      {:ok, audio} ->
+        case save_clip(audio, output_path) do
+          {:ok, saved_path} ->
+            reply =
+              %{
+                "status" => "success",
+                "provider" => "realtime",
+                "model" => audio.model,
+                "voice" => audio.voice,
+                "format" => audio.format,
+                "sample_rate" => audio.sample_rate,
+                "bytes" => byte_size(audio.body),
+                "saved_path" => saved_path
+              }
+              |> reject_nil()
+              |> Jason.encode!()
+
+            {:reply, Response.tool() |> Response.text(reply), frame}
+
+          {:error, reason} ->
+            error(frame, reason)
+        end
+
+      {:error, reason} ->
+        error(frame, realtime_error(reason))
+    end
+  end
+
+  defp realtime_error(:missing_api_key), do: "Gitee AI API key not configured"
+
+  defp realtime_error({:server_error, message}),
+    do: "MoArk realtime TTS error: #{message}"
+
+  defp realtime_error(reason), do: "Realtime speech request failed: #{inspect(reason)}"
 
   # --- sync backend (Gitee AI /v1/audio/speech) ---
 
@@ -221,7 +301,7 @@ defmodule Exhub.MCP.Tools.Speak do
 
     case Sync.synthesize(validated.text, opts) do
       {:ok, audio} ->
-        case save_sync(audio, output_path) do
+        case save_clip(audio, output_path) do
           {:ok, saved_path} ->
             reply =
               %{
@@ -248,9 +328,9 @@ defmodule Exhub.MCP.Tools.Speak do
     end
   end
 
-  defp save_sync(_audio, nil), do: {:ok, nil}
+  defp save_clip(_audio, nil), do: {:ok, nil}
 
-  defp save_sync(audio, path) do
+  defp save_clip(audio, path) do
     final = Sync.with_format(path, audio.format)
 
     with :ok <- File.mkdir_p(Path.dirname(final)),
@@ -279,12 +359,15 @@ defmodule Exhub.MCP.Tools.Speak do
   @doc """
   Validates and normalizes `speak` params.
 
-  The `provider` (`sync` default, or `async`) selects the backend and which
-  fields apply. Returns `{:ok, validated}` or `{:error, message}`.
+  The `provider` (`realtime` default, or `sync` / `async`) selects the backend
+  and which fields apply. Returns `{:ok, validated}` or `{:error, message}`.
   """
   @spec validate_params(map()) :: {:ok, map()} | {:error, String.t()}
   def validate_params(params) when is_map(params) do
     case normalize_string(Map.get(params, :provider), @default_provider) do
+      "realtime" ->
+        validate_realtime(params)
+
       "sync" ->
         validate_sync(params)
 
@@ -294,6 +377,43 @@ defmodule Exhub.MCP.Tools.Speak do
       other ->
         {:error,
          "Invalid provider: #{other}. Valid providers: #{Enum.join(@valid_providers, ", ")}"}
+    end
+  end
+
+  defp validate_realtime(params) do
+    model = normalize_string(Map.get(params, :model), Realtime.default_model())
+    text = Map.get(params, :text)
+    voice = normalize_string(Map.get(params, :voice), nil)
+    volume = number_param(params, :volume, Realtime.default_volume())
+    speech_rate = number_param(params, :speech_rate, Realtime.default_speech_rate())
+    sample_rate = integer_param(params, :sample_rate, Realtime.default_sample_rate())
+
+    cond do
+      not is_binary(text) or String.trim(text) == "" ->
+        {:error, "`text` is required"}
+
+      not Realtime.model?(model) ->
+        {:error,
+         "Invalid model: #{model}. Valid realtime models: #{Enum.join(Realtime.valid_models(), ", ")}"}
+
+      present?(voice) and Realtime.voiceless_model?(model) ->
+        {:error, "Model #{model} does not accept `voice`"}
+
+      present?(voice) and not Realtime.voice?(voice) ->
+        {:error,
+         "Invalid voice: #{voice}. Valid realtime voices: #{Enum.join(Realtime.voices(), ", ")}"}
+
+      true ->
+        {:ok,
+         %{
+           provider: "realtime",
+           model: model,
+           text: text,
+           voice: voice,
+           volume: volume,
+           speech_rate: speech_rate,
+           sample_rate: sample_rate
+         }}
     end
   end
 
@@ -374,10 +494,22 @@ defmodule Exhub.MCP.Tools.Speak do
   @doc """
   Builds the request body from validated params.
 
-  `sync` → the OpenAI-compatible speech body (see `Exhub.TTS.Sync.build_body/2`);
-  `async` → the MoArk `inputs` list shape.
+  `realtime` → the WebSocket `start` message (see
+  `Exhub.TTS.Realtime.build_start_message/2`); `sync` → the OpenAI-compatible
+  speech body (see `Exhub.TTS.Sync.build_body/2`); `async` → the MoArk `inputs`
+  list shape.
   """
   @spec build_body(map()) :: map()
+  def build_body(%{provider: "realtime"} = validated) do
+    Realtime.build_start_message(validated.text,
+      model: validated.model,
+      voice: validated.voice,
+      volume: validated.volume,
+      speech_rate: validated.speech_rate,
+      sample_rate: validated.sample_rate
+    )
+  end
+
   def build_body(%{provider: "sync"} = validated) do
     Sync.build_body(validated.text,
       model: validated.model,
@@ -931,6 +1063,20 @@ defmodule Exhub.MCP.Tools.Speak do
   end
 
   defp normalize_string(_value, default), do: default
+
+  defp number_param(params, key, default) do
+    case Map.get(params, key) do
+      value when is_number(value) -> value
+      _ -> default
+    end
+  end
+
+  defp integer_param(params, key, default) do
+    case Map.get(params, key) do
+      value when is_integer(value) -> value
+      _ -> default
+    end
+  end
 
   defp url?(value) when is_binary(value),
     do: String.starts_with?(value, ["http://", "https://"])

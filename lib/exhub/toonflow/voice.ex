@@ -10,14 +10,16 @@ defmodule Exhub.Toonflow.Voice do
 
   The client is injectable — `Application.put_env(:exhub, :toonflow_voice_client,
   Mod)` — so tests never hit the network. The default
-  (`Exhub.Toonflow.Voice.Default`) drives the Gitee AI synchronous speech
-  endpoint (`Step-Audio-TTS-3B` by default) via `Exhub.TTS.Sync`.
+  (`Exhub.Toonflow.Voice.Default`) routes by model: the MoArk/TeleTTS
+  WebSocket models stream PCM (`Exhub.TTS.Realtime`, saved as WAV), everything
+  else uses the Gitee AI synchronous speech endpoint via `Exhub.TTS.Sync`
+  (`Step-Audio-TTS-3B`).
   """
 
   alias Exhub.Toonflow
   alias Exhub.Toonflow.{Config, Media, Store, Storyboard}
 
-  @default_model "Step-Audio-TTS-3B"
+  @default_model Exhub.TTS.Realtime.default_model()
   @default_format "mp3"
 
   @doc "The configured voice client implementation module."
@@ -41,8 +43,8 @@ defmodule Exhub.Toonflow.Voice do
     with {:ok, meta} <- Store.get_project(project, server),
          {:ok, shot} <- load_shot(project, shot_id, server),
          {:ok, final_text} <- resolve_text(text, shot) do
-      format = Keyword.get(opts, :output_format) || @default_format
       model = Keyword.get(opts, :model) || media_config()["tts_model"] || @default_model
+      format = Keyword.get(opts, :output_format) || default_format(model)
 
       voice =
         Keyword.get(opts, :voice) || Keyword.get(opts, :speaker) || media_config()["tts_voice"]
@@ -58,6 +60,9 @@ defmodule Exhub.Toonflow.Voice do
         |> put_opt(:instruction, Keyword.get(opts, :instruction))
         |> put_opt(:prompt_audio_url, Keyword.get(opts, :prompt_audio_url))
         |> put_opt(:prompt_text, Keyword.get(opts, :prompt_text))
+        |> put_opt(:volume, Keyword.get(opts, :volume))
+        |> put_opt(:speech_rate, Keyword.get(opts, :speech_rate))
+        |> put_opt(:sample_rate, Keyword.get(opts, :sample_rate))
 
       case voice_client().generate_voice(final_text, client_opts) do
         {:ok, result} -> record(project, shot_id, final_text, result, server)
@@ -113,6 +118,11 @@ defmodule Exhub.Toonflow.Voice do
   defp put_opt(opts, _key, nil), do: opts
   defp put_opt(opts, key, value), do: Keyword.put(opts, key, value)
 
+  # TeleTTS (WebSocket) clips are WAV/PCM; the sync models return MP3.
+  defp default_format(model) do
+    if Exhub.TTS.Realtime.model?(model), do: "wav", else: @default_format
+  end
+
   defp media_config, do: Config.get("media", %{}) || %{}
 end
 
@@ -125,52 +135,83 @@ end
 
 defmodule Exhub.Toonflow.Voice.Default do
   @moduledoc """
-  Default voice client — Gitee AI synchronous speech (`Step-Audio-TTS-3B`).
+  Default voice client — routes by model.
 
-  Uses `Exhub.TTS.Sync` against the OpenAI-compatible `/v1/audio/speech`
-  endpoint; the API key is read from `:exhub, :giteeai_api_key`.
+    * the MoArk/TeleTTS WebSocket models (`TeleTTS-*`) stream PCM via
+      `Exhub.TTS.Realtime` and are saved as WAV;
+    * everything else uses `Exhub.TTS.Sync` against the OpenAI-compatible
+      `/v1/audio/speech` endpoint (`Step-Audio-TTS-3B` by default).
 
-  The `:out_path` extension is corrected to the detected container: CosyVoice2
-  advertises `audio/mp3` but emits RIFF/WAVE bytes, so the clip is saved with
-  a `.wav` extension.
+  The API key is read from `:exhub, :giteeai_api_key`. The `:out_path`
+  extension is corrected to the detected container (CosyVoice2 advertises
+  `audio/mp3` but emits RIFF/WAVE bytes, and the WebSocket backend returns raw
+  PCM wrapped as WAV).
   """
 
   @behaviour Exhub.Toonflow.Voice.Client
 
-  alias Exhub.TTS.Sync
+  alias Exhub.TTS.{Realtime, Sync}
 
   @impl true
   def generate_voice(text, opts) do
-    out_path = Keyword.fetch!(opts, :out_path)
+    model = Keyword.get(opts, :model) || Sync.default_model()
 
+    if Realtime.model?(model) do
+      realtime(text, model, opts)
+    else
+      sync(text, model, opts)
+    end
+  end
+
+  defp realtime(text, model, opts) do
+    rt_opts =
+      [
+        model: model,
+        voice: Keyword.get(opts, :voice),
+        volume: Keyword.get(opts, :volume),
+        speech_rate: Keyword.get(opts, :speech_rate),
+        sample_rate: Keyword.get(opts, :sample_rate)
+      ]
+      |> reject_nil()
+
+    case Realtime.synthesize(text, rt_opts) do
+      {:ok, audio} -> save(opts, audio)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp sync(text, model, opts) do
     sync_opts =
       [
-        model: Keyword.get(opts, :model) || Sync.default_model(),
+        model: model,
         voice: Keyword.get(opts, :voice),
         prompt_audio_url: Keyword.get(opts, :prompt_audio_url),
         prompt_text: Keyword.get(opts, :prompt_text)
       ]
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> reject_nil()
 
     case Sync.synthesize(text, sync_opts) do
-      {:ok, audio} ->
-        path = Sync.with_format(out_path, audio.format)
-
-        with :ok <- File.mkdir_p(Path.dirname(path)),
-             :ok <- File.write(path, audio.body) do
-          {:ok,
-           %{
-             "path" => path,
-             "url" => nil,
-             "model" => audio.model,
-             "voice" => audio.voice,
-             "output_format" => audio.format,
-             "segments" => 1
-           }}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, audio} -> save(opts, audio)
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp save(opts, audio) do
+    path = Sync.with_format(Keyword.fetch!(opts, :out_path), audio.format)
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, audio.body) do
+      {:ok,
+       %{
+         "path" => path,
+         "url" => nil,
+         "model" => audio.model,
+         "voice" => audio.voice,
+         "output_format" => audio.format,
+         "segments" => 1
+       }}
+    end
+  end
+
+  defp reject_nil(opts), do: Enum.reject(opts, fn {_key, value} -> is_nil(value) end)
 end

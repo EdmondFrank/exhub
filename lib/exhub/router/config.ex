@@ -77,8 +77,8 @@ defmodule Exhub.Router.Config do
   # actual upstream API model name when they differ.
   @giteeai_model_aliases %{
     "deepseek-v4-flash" => "deepseek-v4-flash-0731",
-    "deepseek-v4-pro" => "deepseek-v4-pro-0813",
-    "deepseek-v4.1-flash" => "deepseek-v4.1-flash-1017"
+    "deepseek-v4-pro" => "deepseek-v4-pro-0813"
+    # "deepseek-v4.1-flash" => "deepseek-v4.1-flash-1017"
   }
 
   # Default provider routing order (highest priority first). This order can be

@@ -14,9 +14,11 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
   @impl true
   def description do
     """
-    Synthesize speech via the Gitee AI synchronous TTS API (`Step-Audio-TTS-3B` by
-    default), saving it under `assets/audio/` and recording an asset row. The
-    audio bytes are returned directly (no task/poll), and the saved file
+    Synthesize speech, saving it under `assets/audio/` and recording an asset row.
+    By default this streams from MoArk's WebSocket TTS endpoint with
+    `TeleTTS-Bidirectional-Mandarin` (`Exhub.TTS.Realtime`), which returns PCM
+    and is saved as `.wav`; any non-`TeleTTS-*` model falls back to the Gitee AI
+    synchronous `/v1/audio/speech` API (`Step-Audio-TTS-3B`). The saved file
     extension is corrected to the detected container (e.g. `.wav`).
 
     Pass `shot_id` to use the shot's dialogue (`meta.dialogue` / `meta.台词`, else
@@ -35,7 +37,8 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
     field(:voice, :string, description: "Voice name (default: the configured media tts_voice).")
 
     field(:model, :string,
-      description: "TTS model (default: the configured media tts_model, Step-Audio-TTS-3B)."
+      description:
+        "TTS model (default: the configured media tts_model, TeleTTS-Bidirectional-Mandarin)."
     )
 
     field(:prompt_audio_url, :string,

@@ -433,22 +433,29 @@ the first frame and its `keyframe_end` as the last, unless `first_frame` /
 
 ### `toonflow_generate_voice`
 
-Synthesize speech via the Gitee AI synchronous TTS API
-(`Step-Audio-TTS-3B` by default), saving it under `assets/audio/` and recording
-an asset row. The audio bytes are returned directly (no task/poll); the saved
-file's extension is corrected to the detected container (e.g. `.wav` for
-`ChatTTS`).
+Synthesize speech, saving it under `assets/audio/` and recording an asset row.
+By default this streams from MoArk's WebSocket TTS endpoint with
+`TeleTTS-Bidirectional-Mandarin` (`Exhub.TTS.Realtime`), which returns PCM and
+is saved as `.wav`; any non-`TeleTTS-*` model falls back to the Gitee AI
+synchronous `/v1/audio/speech` API (`Step-Audio-TTS-3B`). The saved file's
+extension is corrected to the detected container (e.g. `.wav` for `ChatTTS`).
+
+`Exhub.TTS.Realtime` serves one MoArk session at a time and serialises behind a
+global lock, so a parallel voice batch queues rather than failing.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | ✓ | Project name. |
 | `shot_id` | string | | Use this shot's dialogue (`meta.dialogue` / `meta.台词`, else the shot description). |
 | `text` | string | | Explicit text (alternative to `shot_id`). |
-| `voice` | string | | Voice name (default: the configured `media.tts_voice`). |
-| `model` | string | | TTS model (default: the configured `media.tts_model`, `Step-Audio-TTS-3B`). |
-| `prompt_audio_url` | string | | Reference audio URL for the clone models (IndexTTS-2, GLM-TTS). |
+| `voice` | string | | Voice name (default: the configured `media.tts_voice`, `guangzhounv`). |
+| `model` | string | | TTS model (default: the configured `media.tts_model`, `TeleTTS-Bidirectional-Mandarin`). |
+| `prompt_audio_url` | string | | Reference audio URL for the sync clone models (IndexTTS-2, GLM-TTS). |
 | `prompt_text` | string | | Transcript of `prompt_audio_url` (optional). |
 | `speaker` | string | | Alias for `voice` (legacy). |
+| `volume` | integer | | Realtime only: output volume (default 50). |
+| `speech_rate` | number | | Realtime only: speech rate (default 1). |
+| `sample_rate` | integer | | Realtime only: output sample rate in Hz (default 24000). |
 | `output_format` | string | | Nominal format; corrected to the detected one. |
 | `language` | string | | Optional language hint. |
 | `instruction` | string | | Optional style instruction. |
@@ -742,8 +749,8 @@ config :exhub, :toonflow, %{
   "media" => %{
     "image_model" => "qwen-image-2.0",
     "video_model" => "MiniMax-H3",
-    "tts_model" => "Step-Audio-TTS-3B",
-    "tts_voice" => "中文女",
+    "tts_model" => "TeleTTS-Bidirectional-Mandarin",
+    "tts_voice" => "guangzhounv",
     # Start/end keyframes: the `keyframes` stage renders per-shot first/last
     # frames, and `videos` feeds the end frame to `fl2va`.
     "keyframes" => true,
