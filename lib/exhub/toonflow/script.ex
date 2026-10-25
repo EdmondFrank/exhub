@@ -9,7 +9,7 @@ defmodule Exhub.Toonflow.Script do
   """
 
   alias Exhub.Toonflow
-  alias Exhub.Toonflow.{DB, Events, LLM, Memory, Novel, Prompts, Schema, Store}
+  alias Exhub.Toonflow.{DB, Events, LLM, Memory, Novel, Prompts, Schema, Store, Worldview}
 
   @doc """
   Generate a script.
@@ -27,7 +27,7 @@ defmodule Exhub.Toonflow.Script do
           {:ok, map()} | {:error, term()}
   def generate_script(project, opts \\ [], server \\ Store) do
     chapter_id = Toonflow.blank(Keyword.get(opts, :chapter_id))
-    instructions = Keyword.get(opts, :instructions) || ""
+    instructions = Worldview.append(project, Keyword.get(opts, :instructions) || "", server)
 
     with {:ok, chapters} <- Novel.chapters_for(project, chapter_id, server) do
       case chapters do
@@ -39,14 +39,19 @@ defmodule Exhub.Toonflow.Script do
 
           with {:ok, events} <- Events.list_events(project, [chapter_id: chapter_id], server),
                {:ok, recall} <- maybe_recall(project, opts, title, server),
-               {:ok, system} <- Prompts.render("script.system", %{}),
+               {:ok, system} <- Prompts.resolve("script.system", %{}, project, server),
                {:ok, user} <-
-                 Prompts.render("script.user", %{
-                   "title" => title,
-                   "text" => text,
-                   "events" => events_digest(events),
-                   "instructions" => append_instructions(instructions, recall)
-                 }),
+                 Prompts.resolve(
+                   "script.user",
+                   %{
+                     "title" => title,
+                     "text" => text,
+                     "events" => events_digest(events),
+                     "instructions" => append_instructions(instructions, recall)
+                   },
+                   project,
+                   server
+                 ),
                {:ok, raw} <- LLM.call_llm(system, user, []) do
             persist(project, chapter_id, parse_script(raw), instructions, server)
           end

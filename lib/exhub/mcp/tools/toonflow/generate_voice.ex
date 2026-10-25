@@ -14,7 +14,7 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
   @impl true
   def description do
     """
-    Synthesize speech via the Gitee AI synchronous TTS API (`CosyVoice2` by
+    Synthesize speech via the Gitee AI synchronous TTS API (`Step-Audio-TTS-3B` by
     default), saving it under `assets/audio/` and recording an asset row. The
     audio bytes are returned directly (no task/poll), and the saved file
     extension is corrected to the detected container (e.g. `.wav`).
@@ -35,7 +35,7 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
     field(:voice, :string, description: "Voice name (default: the configured media tts_voice).")
 
     field(:model, :string,
-      description: "TTS model (default: the configured media tts_model, CosyVoice2)."
+      description: "TTS model (default: the configured media tts_model, Step-Audio-TTS-3B)."
     )
 
     field(:prompt_audio_url, :string,

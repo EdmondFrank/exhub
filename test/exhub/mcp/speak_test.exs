@@ -16,10 +16,10 @@ defmodule Exhub.MCP.Tools.SpeakTest do
       assert msg =~ "Invalid provider"
     end
 
-    test "defaults to the sync provider with CosyVoice2" do
+    test "defaults to the sync provider with Step-Audio-TTS-3B" do
       assert {:ok, v} = Speak.validate_params(%{text: "hello"})
       assert v.provider == "sync"
-      assert v.model == "CosyVoice2"
+      assert v.model == "Step-Audio-TTS-3B"
       assert v.voice == "alloy"
     end
 
@@ -131,7 +131,7 @@ defmodule Exhub.MCP.Tools.SpeakTest do
 
     test "sync mode builds the OpenAI-compatible speech body" do
       b = body(%{text: "hello"})
-      assert b == %{"model" => "CosyVoice2", "input" => "hello", "voice" => "alloy"}
+      assert b == %{"model" => "Step-Audio-TTS-3B", "input" => "hello", "voice" => "alloy"}
 
       b2 = body(%{text: "hi", model: "ChatTTS", voice: "serena"})
       assert b2["model"] == "ChatTTS"

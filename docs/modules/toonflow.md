@@ -8,14 +8,19 @@ Pipeline: **novel → script → storyboard → image → video → export**, dr
 entirely through MCP tools so any MCP client (AiderDesk, Claude Code, Emacs) can
 run it.
 
-> **Status: Phase 5 (canvas UI + live progress).** Project management,
+> **Status: Phases 5–8.** Project management,
 > novel ingest, chaptering, event-graph extraction, script generation/versioning,
-> cast/scene extraction, shot planning (storyboard), frame image generation,
-> clip/voice generation, FFmpeg episode assembly, semantic memory recall
-> (`sqlite-vec`), the one-call `toonflow_pipeline_run`, director-agent chat, and
-> the browser **canvas UI** with websocket progress are all live. See
-> [docs/plans/2026-09-30-toonflow-design.md](../plans/2026-09-30-toonflow-design.md)
-> and [docs/plans/2026-09-30-toonflow-implementation.md](../plans/2026-09-30-toonflow-implementation.md).
+> cast/scene/prop extraction, character **wardrobe variations**, shot planning
+> (storyboard) and **shot splitting**, frame image generation, **start/end
+> keyframes** with cross-shot continuity, **candidate grids** with ffmpeg cell
+> cropping, clip/voice generation, FFmpeg episode assembly, semantic memory
+> recall (`sqlite-vec`), **per-project prompt overrides** and always-injected
+> **worldview anchors**, the one-call `toonflow_pipeline_run` plus the read-only
+> `toonflow_pipeline_plan` pre-review, director-agent chat, and the browser
+> **canvas UI** with websocket progress are all live. See
+> [docs/plans/2026-09-30-toonflow-design.md](../plans/2026-09-30-toonflow-design.md),
+> [docs/plans/2026-09-30-toonflow-implementation.md](../plans/2026-09-30-toonflow-implementation.md)
+> and [docs/plans/2026-10-25-toonflow-bigbanana-alignment.md](../plans/2026-10-25-toonflow-bigbanana-alignment.md).
 
 ## MCP Endpoint
 
@@ -215,6 +220,66 @@ full extraction is mirrored to `characters/appearance.json`.
 | `name`    | string  |          | Filter to a single character name. |
 | `limit`   | integer |          | Maximum number of characters. |
 
+### `toonflow_list_scenes` / `toonflow_list_props`
+
+The scene and prop libraries extracted by `toonflow_extract_assets` (upserted by
+name, so re-extraction is idempotent).
+
+| Parameter | Type    | Required | Description |
+|-----------|---------|----------|-------------|
+| `project` | string  | ✓        | Project name. |
+| `name`    | string  |          | Filter to a single name. |
+| `limit`   | integer |          | Maximum number of rows. |
+
+### `toonflow_generate_reference`
+
+Render a *reference image* for a character, scene or prop and store it on that
+subject's `refs_json`, so later frames are conditioned on it (`i2i`).
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `project` | string | ✓        | Project name. |
+| `kind`    | string | ✓        | `character`, `scene` or `prop`. |
+| `name`    | string | ✓        | The subject's name (from the library). |
+| `prompt`  | string |          | Override the prompt built from its appearance/description. |
+| `model`   | string |          | Image model (default: `media.image_model`). |
+| `size`    | string |          | Output size (default `1024x1024`). |
+
+### `toonflow_generate_variation`
+
+Render a **wardrobe variation** of a character — the same face, a different
+outfit — conditioned on the character's base reference images.
+
+| Parameter       | Type   | Required | Description |
+|-----------------|--------|----------|-------------|
+| `project`       | string | ✓        | Project name. |
+| `character`     | string | ✓        | Character name. |
+| `name`          | string | ✓        | Variation name, e.g. `夜行衣`. |
+| `visual_prompt` | string |          | The new look (default: the name). |
+| `model` / `size`| string |          | Overrides. |
+
+Each variation is a `character_variations` row holding its own `refs_json`;
+re-generating the same name updates it rather than duplicating it.
+
+### `toonflow_list_variations`
+
+| Parameter   | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| `project`   | string | ✓        | Project name. |
+| `character` | string |          | Filter to one character's variations. |
+
+### `toonflow_set_shot_variations`
+
+Pin which wardrobe variation a shot uses, per character. This is what makes
+`refs_for_shot/3` condition the shot's frames on the variation instead of the
+character's base look.
+
+| Parameter    | Type   | Required | Description |
+|--------------|--------|----------|-------------|
+| `project`    | string | ✓        | Project name. |
+| `shot_id`    | string | ✓        | Target shot. |
+| `selections` | object | ✓        | Map of character name → variation name (or id). `{}` clears all. |
+
 ### `toonflow_generate_storyboard`
 
 Turn a script into an ordered shot list (分镜) with the DirectorAgent LLM call,
@@ -240,6 +305,25 @@ that script's shots (idempotent) and mirrors them to
 | `scene`     | string  |          | Restrict to one scene. |
 | `limit`     | integer |          | Maximum number of shots. |
 
+### `toonflow_split_shot`
+
+Split one over-packed shot into finer sub-shots with the director LLM
+(`storyboard.split.*`).
+
+| Parameter      | Type   | Required | Description |
+|----------------|--------|----------|-------------|
+| `project`      | string | ✓        | Project name. |
+| `shot_id`      | string | ✓        | The shot to split. |
+| `instructions` | string |          | How to split (free-form guidance). |
+
+The sub-shots **replace** the original **in place** — same order position, the
+script's indices resequenced — and inherit its scene, cast and outer keyframe
+prompts (the first sub-shot keeps the original's start frame prompt, the last
+keeps its end frame prompt), so start/end continuity survives the split. The
+replaced shot's generated assets are removed, since they described the coarser
+shot. At most 8 sub-shots are kept. Returns `sub_shots`, `created` (new ids) and
+the new shot summaries.
+
 ### `toonflow_generate_image`
 
 Generate a frame for a shot (or a free prompt) via the shared Gitee AI / moark
@@ -256,6 +340,73 @@ image API, saving it under `assets/images/` and recording an asset row.
 When `shot_id` is given the prompt is assembled from the shot and character
 appearances are appended for consistency; character reference images (when
 present) are conditioned through `i2i`. The returned `path` is the local image.
+
+### `toonflow_generate_keyframe`
+
+Render a shot's **start** or **end** keyframe (an asset of kind `keyframe_start`
+/ `keyframe_end`). Two frames per shot make `fl2va` (first-last-frame-to-video)
+possible: the `keyframes` pipeline stage, and `toonflow_generate_video` with
+`task: "fl2va"`, use them.
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `project` | string | ✓        | Project name. |
+| `shot_id` | string | ✓        | Target shot. |
+| `type`    | string | ✓        | `start` or `end`. |
+| `prompt`  | string |          | Override the shot's `meta.keyframe_<type>_prompt`. |
+| `refs`    | string[] |        | Extra reference images. |
+| `model` / `size` | string |   | Overrides. |
+
+The prompt resolves explicit → shot `meta.keyframe_<type>_prompt` → the shot's
+own prompt/description. The storyboard LLM writes those prompts
+(`keyframe_start_prompt` / `keyframe_end_prompt`).
+
+### `toonflow_copy_keyframe`
+
+Duplicate an **adjacent** shot's frame onto this shot — the continuity trick that
+keeps a cut from jumping. `prev_end` copies the previous shot's end frame into
+this shot's **start** frame; `next_start` copies the next shot's start frame into
+this shot's **end** frame. The image is duplicated under this shot's own key, so
+regenerating the neighbour cannot mutate the copy.
+
+| Parameter   | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| `project`   | string | ✓        | Project name. |
+| `shot_id`   | string | ✓        | Target shot. |
+| `direction` | string | ✓        | `prev_end` or `next_start`. |
+
+### `toonflow_generate_shot_candidates`
+
+Render a **candidate grid** for a shot: one image holding several alternative
+compositions, so a frame can be picked instead of regenerated blindly.
+
+| Parameter | Type    | Required | Description |
+|-----------|---------|----------|-------------|
+| `project` | string  | ✓        | Project name. |
+| `shot_id` | string  | ✓        | Shot to propose candidates for. |
+| `count`   | integer |          | Cells (default `media.candidates`, 9 → a 3×3 grid). |
+| `prompt`  | string  |          | Override the shot's prompt. |
+| `model` / `size` | string |   | Overrides. |
+
+The grid shape is derived from `count` (`Media.grid_shape/1`) and recorded in the
+asset's `meta.grid`. No candidate image is used by the pipeline automatically —
+this is an opt-in director tool.
+
+### `toonflow_select_candidate`
+
+Promote one cell of a candidate grid into the shot's start or end keyframe.
+
+| Parameter       | Type   | Required | Description |
+|-----------------|--------|----------|-------------|
+| `project`       | string | ✓        | Project name. |
+| `shot_id`       | string | ✓        | Shot the keyframe belongs to. |
+| `type`          | string | ✓        | `start` or `end`. |
+| `cell`          | string |          | 0-based grid cell (`0`..`8`), or `whole` (omit) for the whole image. |
+| `candidates_id` | string |          | A specific grid (default: the shot's latest). |
+
+A numeric cell is cropped out with ffmpeg (`Media.crop_filter/3` +
+`Media.crop_image/5`); anything else copies the whole image. The result is a
+normal `keyframe_<type>` asset, so the `videos` stage picks it up automatically.
 
 ### `toonflow_generate_video`
 
@@ -274,16 +425,19 @@ submits the task and polls until it finishes.
 | `aspect_ratio` | string | | e.g. `16:9` (default), `9:16`, `1:1`. |
 | `seed` | integer | | Optional random seed. |
 | `first_frame` | string | | Image URL, data URI or local path; required for `fl2va` when the shot has no frame. |
+| `last_frame` | string | | Interpolation target for `fl2va`; defaults to the shot's `keyframe_end` when `media.last_frame` is on. |
 
-For `fl2va`, the shot's latest generated frame image is used as the first frame
-unless `first_frame` is given. The returned `path` is the local clip.
+For `fl2va`, the shot's `keyframe_start` (else its latest frame image) is used as
+the first frame and its `keyframe_end` as the last, unless `first_frame` /
+`last_frame` are given. The returned `path` is the local clip.
 
 ### `toonflow_generate_voice`
 
-Synthesize speech via the Gitee AI synchronous TTS API (`CosyVoice2` by
-default), saving it under `assets/audio/` and recording an asset row. The audio
-bytes are returned directly (no task/poll); the saved file's extension is
-corrected to the detected container (e.g. `.wav` for CosyVoice2).
+Synthesize speech via the Gitee AI synchronous TTS API
+(`Step-Audio-TTS-3B` by default), saving it under `assets/audio/` and recording
+an asset row. The audio bytes are returned directly (no task/poll); the saved
+file's extension is corrected to the detected container (e.g. `.wav` for
+`ChatTTS`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -291,7 +445,7 @@ corrected to the detected container (e.g. `.wav` for CosyVoice2).
 | `shot_id` | string | | Use this shot's dialogue (`meta.dialogue` / `meta.台词`, else the shot description). |
 | `text` | string | | Explicit text (alternative to `shot_id`). |
 | `voice` | string | | Voice name (default: the configured `media.tts_voice`). |
-| `model` | string | | TTS model (default: the configured `media.tts_model`, `CosyVoice2`). |
+| `model` | string | | TTS model (default: the configured `media.tts_model`, `Step-Audio-TTS-3B`). |
 | `prompt_audio_url` | string | | Reference audio URL for the clone models (IndexTTS-2, GLM-TTS). |
 | `prompt_text` | string | | Transcript of `prompt_audio_url` (optional). |
 | `speaker` | string | | Alias for `voice` (legacy). |
@@ -360,6 +514,75 @@ corresponding asset, so re-runs are cheap and idempotent. Returns
 `%{"stages" => [%{"stage","status","detail"|"reason"}], "completed", "errors"}`;
 a stop-on-error run returns `success: false` with `stage` + `reason`.
 
+### `toonflow_pipeline_plan`
+
+Read-only pre-review — the cheap way to see the cost of a run before committing
+to it. No parameters beyond `project`.
+
+Returns `%{"stages" => [%{"stage", "status"}], "next" => name | nil, "shots" =>
+[%{"idx", "link", "ready", "missing"}]}`. A stage status is `done` / `partial` /
+`ready`; a shot's `link` is how its clip is produced — `keyframe` (first/last
+frame interpolation, the default), `image` or `text`, from `shots.meta.link`
+(`Pipeline.normalize_link/1` also accepts the task names `fl2va` / `i2va` /
+`t2va`) — and `missing` lists what is still absent for it. Opt-in extras
+(candidate grids, variations, keyframe copies) are never counted as required.
+
+### `toonflow_prompt_list`
+
+List the prompt templates this project overrides: name, latest version, version
+count, the latest note, and whether a shipped template of that name exists.
+Templates without an override are absent (the shipped file is used).
+
+### `toonflow_prompt_get`
+
+Read the effective text of a prompt template — the project's override when one
+exists, else the shipped `priv/toonflow/prompts/<name>.md` — plus its `source`
+(`"override"` / `"shipped"`) and `version`. Template names: `events.system`,
+`events.user`, `script.system`, `script.user`, `assets.system`, `assets.user`,
+`storyboard.system`, `storyboard.user`, `storyboard.split.system`,
+`storyboard.split.user`. `{{key}}` placeholders stay unsubstituted.
+
+### `toonflow_prompt_set`
+
+Save a new version of a project's prompt override — the *effective* template for
+that project from now on. Versions are immutable and numbered, so nothing is
+lost. Keep the `{{key}}` placeholders the shipped template uses or the stage will
+render with empty values. Parameters: `project` (required), `name` (required),
+`content` (required), `note`.
+
+### `toonflow_prompt_history` / `toonflow_prompt_revert`
+
+`toonflow_prompt_history` lists every saved version of an override (newest first)
+with its note, timestamp and content. `toonflow_prompt_revert` (`project`,
+`name`, `version`) re-saves an earlier version as a **new** one (noted
+`revert to vN`), so the history stays linear and the revert itself is auditable.
+
+Overrides are opt-out: set `prompts.overrides` to `false` and `Prompts.resolve/4`
+falls back to the shipped file (`current/3` still reports the stored override).
+
+### `toonflow_worldview_set`
+
+Record (or replace) a worldview anchor for the project: the map, region, period,
+art style, music style — whatever must stay fixed. Unlike `toonflow_memory_add`
+(recalled by similarity), the worldview is **always** injected into the script,
+assets and storyboard instructions, so every stage generates inside the same
+world.
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `project` | string | ✓        | Project name. |
+| `text`    | string | ✓        | The anchors, e.g. `架空唐代，岭南水乡，水墨动画风格`. |
+| `title`   | string |          | Anchor topic (default `世界观`), e.g. `美术风格`. |
+
+Notes are `memory_notes` rows of kind `worldview`, one per title (re-writing a
+title replaces it).
+
+### `toonflow_worldview_get`
+
+Read the project's worldview notes and the exact digest injected into the
+instructions. Optional `title` filter. Returns `count`, `notes` and `digest`
+(empty when nothing is set).
+
 ### `toonflow_memory_add`
 
 Record a director's memory note for a project (tone, style, casting,
@@ -423,6 +646,34 @@ toonflow_list_characters    {project: "my-drama"}
 toonflow_generate_storyboard{project: "my-drama", script_id: "scr_..."}
 toonflow_list_shots         {project: "my-drama", script_id: "scr_..."}
 toonflow_generate_image     {project: "my-drama", shot_id: "sht_..."}
+```
+
+### keyframes, candidates & continuity
+
+```sh
+# scene/prop references + character wardrobe variations
+toonflow_list_scenes        {project: "my-drama"}
+toonflow_generate_reference {project: "my-drama", kind: "scene", name: "祖宅"}
+toonflow_generate_variation {project: "my-drama", character: "林昭", name: "夜行衣",
+                             visual_prompt: "墨色夜行衣"}
+toonflow_set_shot_variations{project: "my-drama", shot_id: "sht_...",
+                             selections: {林昭: "夜行衣"}}
+
+# start/end frames → fl2va interpolation (and copy the neighbour's frame for a clean cut)
+toonflow_generate_keyframe  {project: "my-drama", shot_id: "sht_...", type: "start"}
+toonflow_generate_keyframe  {project: "my-drama", shot_id: "sht_...", type: "end"}
+toonflow_copy_keyframe      {project: "my-drama", shot_id: "sht_...", direction: "prev_end"}
+toonflow_generate_video     {project: "my-drama", shot_id: "sht_...", task: "fl2va"}
+
+# or: try 9 compositions in one image, then crop the best one into the keyframe
+toonflow_generate_shot_candidates {project: "my-drama", shot_id: "sht_...", count: 9}
+toonflow_select_candidate         {project: "my-drama", shot_id: "sht_...",
+                                   type: "start", cell: "4"}
+
+# refine a shot that carries two beats, then pre-review the cost of a re-run
+toonflow_split_shot         {project: "my-drama", shot_id: "sht_...",
+                             instructions: "拆成三个递进的镜头"}
+toonflow_pipeline_plan      {project: "my-drama"}
 ```
 
 ### clips, voice → episode
@@ -491,8 +742,18 @@ config :exhub, :toonflow, %{
   "media" => %{
     "image_model" => "qwen-image-2.0",
     "video_model" => "MiniMax-H3",
-    "tts_model" => "CosyVoice2",
-    "tts_voice" => "alloy"
+    "tts_model" => "Step-Audio-TTS-3B",
+    "tts_voice" => "中文女",
+    # Start/end keyframes: the `keyframes` stage renders per-shot first/last
+    # frames, and `videos` feeds the end frame to `fl2va`.
+    "keyframes" => true,
+    "last_frame" => true,
+    # Default `toonflow_generate_shot_candidates` cells (9 → a 3×3 grid).
+    "candidates" => 9
+  },
+  "prompts" => %{
+    # Per-project prompt overrides win over priv/toonflow/prompts.
+    "overrides" => true
   },
   "memory" => %{
     # Semantic recall (Phase 4). The index reuses the Brain RAG embedding
@@ -549,23 +810,25 @@ The memory index (`Exhub.Toonflow.Memory.Index`) reuses
 | `Exhub.Toonflow.Novel` | Novel ingest + chapter splitting (pure `split_chapters/1`) |
 | `Exhub.Toonflow.Events` | Event-graph extraction (pure `parse_events/1`) |
 | `Exhub.Toonflow.Script` | Script generation/versioning (pure `parse_script/1`) |
-| `Exhub.Toonflow.Assets` | Character/scene/prop extraction (pure `parse_assets/1`) |
-| `Exhub.Toonflow.Storyboard` | Shot planning (pure `parse_storyboard/1`, `shot_prompt/2`) |
-| `Exhub.Toonflow.Media` | Frame generation; `Media.Client` behaviour + `Media.Default` (moark t2i/i2i); shared asset insert/query helpers |
-| `Exhub.Toonflow.Video` | Clip generation; `Video.Client` behaviour + `Video.Default` (moark async video) |
+| `Exhub.Toonflow.Assets` | Character/scene/prop extraction (pure `parse_assets/1`), reference images and wardrobe variations |
+| `Exhub.Toonflow.Storyboard` | Shot planning (pure `parse_storyboard/1`, `characters_of/1`, `shot_prompt/3`) + `split_shot/3` |
+| `Exhub.Toonflow.Keyframe` | Start/end keyframe generation, cross-shot continuity copies, candidate-cell selection (pure `normalize_type/1`, `adjacent/2`, `normalize_cell/1`, `continuity_attrs/3`) |
+| `Exhub.Toonflow.Media` | Frame generation + candidate grids; `Media.Client` behaviour + `Media.Default` (moark t2i/i2i); shared asset insert/query helpers; pure `crop_filter/3`/`crop_argv/6` + `crop_image/5` |
+| `Exhub.Toonflow.Video` | Clip generation; `Video.Client` behaviour + `Video.Default` (moark async video, `t2va`/`i2va`/`fl2va`) |
 | `Exhub.Toonflow.Voice` | TTS generation; `Voice.Client` behaviour + `Voice.Default` (moark async speech) |
 | `Exhub.Toonflow.Assemble` | FFmpeg episode assembly + SRT (pure argv/builders, `Exile` execution) |
 | `Exhub.Toonflow.Jobs` | Job ledger over the `jobs` table |
 | `Exhub.Toonflow.HTTP` | Shared MoArk async submit/poll/download helpers |
 | `Exhub.Toonflow.Json` | Lenient LLM JSON extraction (fences/prose, CJK-safe) |
 | `Exhub.Toonflow.Memory` | Memory-note CRUD + export/index/search/recall |
+| `Exhub.Toonflow.Worldview` | Always-injected worldview anchors (pure `digest/1`) |
+| `Exhub.Toonflow.Prompts` | `priv/toonflow/prompts/*` rendering + per-project versioned overrides (`resolve/4`, `set`/`history`/`revert`) |
 | `Exhub.Toonflow.Memory.Index` | `sqlite-vec` semantic index GenServer (global DB, per-project scoping) |
-| `Exhub.Toonflow.Pipeline` | Staged orchestration (`run`/`resume`/`plan`) over `Jobs` |
+| `Exhub.Toonflow.Pipeline` | Staged orchestration (`run`/`resume`/`plan` with per-shot pre-review) over `Jobs` |
 | `Exhub.Toonflow.Snapshot` | Canvas view-model (`build/2`) + sandboxed media-path resolution |
 | `Exhub.Toonflow.Progress` | Best-effort progress fan-out over a duplicate `Registry` |
 | `Exhub.Toonflow.SocketHandler` | Cowboy websocket for the canvas (`/toonflow/ws`) |
 | `Exhub.Router.ToonflowView` | Server-rendered canvas HTML (inline CSS/JS) |
-| `Exhub.Toonflow.Prompts` | `priv/toonflow/prompts/*` template rendering |
 | `Exhub.Toonflow.LLM` | LLM behaviour + default (wraps `Exhub.Genclaw.LLMHelper`) |
 | `Exhub.MCP.ToonflowServer` | Anubis MCP server (`/toonflow/mcp`) |
 | `Exhub.MCP.Tools.Toonflow.*` | Tool components |

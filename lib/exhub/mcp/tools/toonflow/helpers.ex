@@ -57,6 +57,69 @@ defmodule Exhub.MCP.Tools.Toonflow.Helpers do
       :shot_not_found ->
         "Shot not found — generate a storyboard first (toonflow_generate_storyboard)."
 
+      :missing_shot_id ->
+        "`shot_id` is required."
+
+      :invalid_keyframe_type ->
+        "`type` must be \"start\" or \"end\"."
+
+      :invalid_direction ->
+        "`direction` must be \"prev_end\" or \"next_start\"."
+
+      :no_source_keyframe ->
+        "The adjacent shot has no keyframe to copy — generate it first " <>
+          "(toonflow_generate_keyframe)."
+
+      :no_adjacent_shot ->
+        "This shot has no adjacent shot in that direction."
+
+      :source_frame_missing ->
+        "The source keyframe image is missing on disk."
+
+      :no_candidates ->
+        "No candidate grid for this shot — run toonflow_generate_shot_candidates first."
+
+      :candidate_not_found ->
+        "No candidates asset with that id."
+
+      {:invalid_cell, cell, cols, rows} ->
+        "Cell #{inspect(cell)} is outside the #{cols}×#{rows} grid (0..#{cols * rows - 1})."
+
+      :no_subshots ->
+        "The model returned no sub-shots — try again, or with clearer `instructions`."
+
+      {:copy_failed, r} ->
+        "Could not copy the keyframe image: #{inspect(r)}"
+
+      :invalid_reference_kind ->
+        "`kind` must be \"character\", \"scene\" or \"prop\"."
+
+      :missing_name ->
+        "`name` is required."
+
+      :subject_not_found ->
+        "No character/scene/prop with that name — run toonflow_extract_assets first."
+
+      :missing_description ->
+        "The subject has no appearance/description to build a reference prompt from; " <>
+          "pass `prompt` explicitly."
+
+      :character_not_found ->
+        "No character with that name — run toonflow_extract_assets first."
+
+      :missing_character ->
+        "`character` is required."
+
+      {:variation_not_found, character, variation} ->
+        "No variation #{inspect(variation)} for #{inspect(character)} — " <>
+          "create one with toonflow_generate_variation."
+
+      :invalid_selections ->
+        "`selections` must be a map of character name to variation name."
+
+      :version_not_found ->
+        "No such prompt version — see toonflow_prompt_history."
+
       :missing_prompt ->
         "Provide a `prompt`, or a `shot_id` whose shot has a prompt."
 
@@ -74,6 +137,9 @@ defmodule Exhub.MCP.Tools.Toonflow.Helpers do
 
       {:parse_failed, r} ->
         "Could not parse the model's JSON response: #{inspect(r)}"
+
+      {:llm_failed, r} ->
+        "The model call failed: #{r}"
 
       {:image_failed, r} ->
         "Image generation failed: #{inspect(r)}"

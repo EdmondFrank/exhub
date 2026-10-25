@@ -80,12 +80,17 @@ defmodule Exhub.Toonflow.Events do
   # --- extraction ---
 
   defp extract_for(project, chapter, server) do
-    with {:ok, system} <- Prompts.render("events.system", %{}),
+    with {:ok, system} <- Prompts.resolve("events.system", %{}, project, server),
          {:ok, user} <-
-           Prompts.render("events.user", %{
-             "title" => chapter["title"] || "",
-             "text" => chapter["text"] || ""
-           }),
+           Prompts.resolve(
+             "events.user",
+             %{
+               "title" => chapter["title"] || "",
+               "text" => chapter["text"] || ""
+             },
+             project,
+             server
+           ),
          {:ok, raw} <- LLM.call_llm(system, user, []) do
       case parse_events(raw) do
         {:ok, events} -> persist(project, chapter, events, server)

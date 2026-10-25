@@ -3,11 +3,14 @@ defmodule Exhub.Toonflow.PipelineTest do
 
   alias Exhub.Toonflow.{
     Assets,
+    DB,
     Events,
+    Keyframe,
     Media,
     Memory,
     Novel,
     Pipeline,
+    Schema,
     Script,
     Store,
     Storyboard,
@@ -180,7 +183,7 @@ defmodule Exhub.Toonflow.PipelineTest do
   describe "Pipeline" do
     test "stages/0 lists the canonical order" do
       assert Pipeline.stages() ==
-               ~w(novel events script assets storyboard images videos voices assemble)
+               ~w(novel events script assets storyboard keyframes images videos voices assemble)
     end
 
     test "runs a subset of stages, reports them, then resume skips them", %{server: server} do
@@ -237,8 +240,41 @@ defmodule Exhub.Toonflow.PipelineTest do
       plan_statuses = Map.new(plan["stages"], fn s -> {s["stage"], s["status"]} end)
       assert plan_statuses["script"] == "done"
       assert plan_statuses["images"] == "done"
+      assert plan_statuses["keyframes"] == "ready"
       assert plan_statuses["videos"] == "ready"
-      assert plan["next"] == "videos"
+      assert plan["next"] == "keyframes"
+    end
+
+    test "keyframes stage renders a start frame, then images skips the shot", %{server: server} do
+      assert {:ok, _} = Store.create_project("pipe-kf", [], server)
+
+      previous = Application.get_env(:exhub, :toonflow_media_client)
+      Application.put_env(:exhub, :toonflow_media_client, Exhub.Toonflow.PipelineTest.MediaStub)
+      on_exit(fn -> restore(:toonflow_media_client, previous) end)
+
+      text = """
+      第一章 风雨
+      林昭站在祖宅门前，天色阴沉。
+      """
+
+      stages = ~w(novel events script assets storyboard keyframes)
+
+      assert {:ok, report} =
+               Pipeline.run("pipe-kf", [text: text, title: "风雨", stages: stages], server)
+
+      assert Enum.find(report["stages"], &(&1["stage"] == "keyframes"))["detail"]["generated"] ==
+               1
+
+      assert {:ok, [shot]} = Storyboard.list_shots("pipe-kf", [], server)
+
+      assert {:ok, %{"start" => %{"kind" => "keyframe_start"}, "end" => nil}} =
+               Keyframe.list_for_shot("pipe-kf", shot["id"], server)
+
+      # The shot already has its opening frame, so `images` has nothing to do.
+      assert {:ok, images} = Pipeline.run("pipe-kf", [stages: ~w(images)], server)
+      entry = Enum.find(images["stages"], &(&1["stage"] == "images"))
+      assert entry["detail"]["generated"] == 0
+      assert entry["detail"]["skipped"] == 1
     end
 
     test "stops at the first failing stage", %{server: server} do
@@ -248,6 +284,68 @@ defmodule Exhub.Toonflow.PipelineTest do
       assert report["stage"] == "novel"
       assert report["reason"] == :missing_source
     end
+
+    test "normalize_link/1 maps task aliases and defaults" do
+      assert Pipeline.links() == ~w(keyframe image text)
+
+      assert Pipeline.normalize_link("fl2va") == "keyframe"
+      assert Pipeline.normalize_link("I2VA") == "image"
+      assert Pipeline.normalize_link(" t2va ") == "text"
+      assert Pipeline.normalize_link("keyframe") == "keyframe"
+      assert Pipeline.normalize_link("bogus") == "keyframe"
+      assert Pipeline.normalize_link(nil) == "keyframe"
+    end
+
+    test "plan/3 pre-reviews each shot's readiness", %{server: server} do
+      assert {:ok, _} = Store.create_project("pipe-plan", [], server)
+
+      previous = Application.get_env(:exhub, :toonflow_media_client)
+      Application.put_env(:exhub, :toonflow_media_client, Exhub.Toonflow.PipelineTest.MediaStub)
+      on_exit(fn -> restore(:toonflow_media_client, previous) end)
+
+      text = """
+      第一章 风雨
+      林昭站在祖宅门前，天色阴沉。
+      """
+
+      stages = ~w(novel events script assets storyboard)
+
+      assert {:ok, _} = Pipeline.run("pipe-plan", [text: text, title: "风雨", stages: stages], server)
+
+      # Nothing rendered yet: the single shot's keyframe link is unsatisfied.
+      assert {:ok, plan} = Pipeline.plan("pipe-plan", [], server)
+
+      assert [%{"idx" => 1, "link" => "keyframe", "ready" => false, "missing" => ["keyframe_start"]}] =
+               plan["shots"]
+
+      assert {:ok, _} = Pipeline.run("pipe-plan", [stages: ~w(keyframes)], server)
+      assert {:ok, plan} = Pipeline.plan("pipe-plan", [], server)
+      assert Enum.map(plan["shots"], & &1["ready"]) == [true]
+
+      # An `image` link accepts either a keyframe or a plain frame.
+      assert {:ok, [shot]} = Storyboard.list_shots("pipe-plan", [], server)
+      assert :ok = set_link(server, shot["id"], "image")
+      assert {:ok, plan} = Pipeline.plan("pipe-plan", [], server)
+      assert [%{"link" => "image", "ready" => true, "missing" => []}] = plan["shots"]
+
+      # A `text` link never needs a frame.
+      assert :ok = set_link(server, shot["id"], "t2va")
+      assert {:ok, plan} = Pipeline.plan("pipe-plan", [], server)
+      assert [%{"link" => "text", "ready" => true, "missing" => []}] = plan["shots"]
+    end
+  end
+
+  defp set_link(server, shot_id, link) do
+    Store.run_project(
+      "pipe-plan",
+      fn conn ->
+        DB.execute(conn, "UPDATE shots SET meta_json = ? WHERE id = ?", [
+          Schema.encode_json(%{"link" => link}),
+          shot_id
+        ])
+      end,
+      server
+    )
   end
 
   defp restore(key, nil), do: Application.delete_env(:exhub, key)

@@ -11,18 +11,23 @@ defmodule Exhub.TTS.Sync do
 
   ## Models
 
-  Verified against the live endpoint (2026-09):
+  Verified against the live endpoint (2026-10-25):
 
-    * `CosyVoice2` (default) — Chinese/English, returns WAV bytes
-    * `ChatTTS` — returns WAV bytes
-    * `Step-Audio-TTS-3B` — returns MP3 bytes
+    * `Step-Audio-TTS-3B` (default) — Chinese/English, honours `voice`
+      (`中文男` / `中文女`), returns MP3 bytes
+    * `ChatTTS` — returns WAV bytes; fixed speaker, ignores `voice`
+    * `TeleTTS-Mandarin` — rejects the OpenAI `voice` field (`参数无效 'voice'`)
     * `IndexTTS-2`, `GLM-TTS` — voice-cloning only: they require a
       `prompt_audio_url` reference clip
 
-  `CosyVoice3` and `Qwen3-TTS` are **not** served by this endpoint (it answers
-  `暂不支持该接口`); use the async path in `Exhub.MCP.Tools.Speak` for those.
+  `CosyVoice2` was the default until 2026-10-25, when this endpoint began
+  answering `暂不支持该接口` for it (with and without a `voice`); `CosyVoice3` and
+  `Qwen3-TTS` are likewise **not** served here — use the async path in
+  `Exhub.MCP.Tools.Speak` for those. The default is `Step-Audio-TTS-3B`
+  precisely because it is the one non-cloning model that honours `voice`, which
+  a multi-character script needs.
 
-  The response `content-type` header is unreliable — `CosyVoice2` advertises
+  The response `content-type` header is unreliable — `CosyVoice2` advertised
   `audio/mp3` while emitting a RIFF/WAVE stream — so the real container is
   detected from the payload's magic bytes (`detect_format/1`) and callers
   should name saved files accordingly (`with_format/2`).
@@ -31,7 +36,7 @@ defmodule Exhub.TTS.Sync do
   alias Exhub.TLSCompat
 
   @url "https://ai.gitee.com/v1/audio/speech"
-  @default_model "CosyVoice2"
+  @default_model "Step-Audio-TTS-3B"
   @default_voice "alloy"
 
   @valid_models ~w(CosyVoice2 ChatTTS Step-Audio-TTS-3B IndexTTS-2 GLM-TTS TeleTTS-Mandarin)
@@ -47,7 +52,7 @@ defmodule Exhub.TTS.Sync do
   @spec url() :: String.t()
   def url, do: @url
 
-  @doc "The default model (`CosyVoice2`)."
+  @doc "The default model (`Step-Audio-TTS-3B`)."
   @spec default_model() :: String.t()
   def default_model, do: @default_model
 

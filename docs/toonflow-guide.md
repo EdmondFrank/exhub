@@ -6,13 +6,14 @@ MCP tools, so you can run it from any MCP client (AiderDesk, Claude Code, Emacs)
 or from the built-in web canvas.
 
 ```
-novel ─▶ events ─▶ script ─▶ assets ─▶ storyboard ─▶ images ─▶ videos ─▶ voices ─▶ assemble
-        (LLM)     (LLM)     (LLM)      (LLM)         (moark)   (moark)   (moark)   (FFmpeg)
+novel ─▶ events ─▶ script ─▶ assets ─▶ storyboard ─▶ keyframes ─▶ images ─▶ videos ─▶ voices ─▶ assemble
+        (LLM)     (LLM)     (LLM)      (LLM)         (moark)      (moark)   (moark)   (moark)   (FFmpeg)
 ```
 
 - **Authoritative reference**: [docs/modules/toonflow.md](modules/toonflow.md) — every tool & parameter.
 - **Design**: [docs/plans/2026-09-30-toonflow-design.md](plans/2026-09-30-toonflow-design.md).
-- **Build plan / status**: [docs/plans/2026-09-30-toonflow-implementation.md](plans/2026-09-30-toonflow-implementation.md) — **Phases 0-5 complete** (Phase 6 polish remaining).
+- **Build plan / status**: [docs/plans/2026-09-30-toonflow-implementation.md](plans/2026-09-30-toonflow-implementation.md) — **Phases 0-8 complete**.
+- **BigBanana alignment** (keyframes, scenes/props, variations, candidates, prompt overrides, worldview, plan pre-review): [docs/plans/2026-10-25-toonflow-bigbanana-alignment.md](plans/2026-10-25-toonflow-bigbanana-alignment.md).
 
 ---
 
@@ -56,7 +57,8 @@ Your MCP client performs the `initialize` handshake; a tool call is then:
 ### 2.2 Open the canvas
 
 ```sh
-curl -s -o /dev/null -w '%{http_code}\n' localhost:9069/toonflow      # 200
+curl -s -o /dev/null -w '%{http_code}\
+' localhost:9069/toonflow      # 200
 # then in a browser:  http://localhost:9069/toonflow
 # and a project:      http://localhost:9069/toonflow/projects/my-drama
 ```
@@ -90,7 +92,7 @@ toonflow_pipeline_run     {project: "my-drama", path: "~/novels/story.txt",
 
 ```json
 {"stages":[{"stage":"novel","status":"ok"}, {"stage":"script","status":"ok"}, …],
- "completed":9, "errors":[], "skip_existing":false}
+ "completed":10, "errors":[], "skip_existing":false}
 ```
 
 Then package the episode:
@@ -144,11 +146,32 @@ whole novel).
 ### 4.4 Assets (cast / scenes / props)
 
 ```sh
-toonflow_extract_assets  {project:"my-drama", script_id:"scr_…"}
-toonflow_list_characters {project:"my-drama"}
+toonflow_extract_assets     {project:"my-drama", script_id:"scr_…"}
+toonflow_list_characters    {project:"my-drama"}
+toonflow_list_scenes        {project:"my-drama"}
+toonflow_list_props         {project:"my-drama"}
 ```
-Characters are upserted by name (idempotent) into the appearance DB, which
-grounds storyboard + image prompts for visual consistency.
+Characters, scenes and props are upserted by name (idempotent) into the
+appearance DB, which grounds storyboard + image prompts for visual consistency.
+
+Render a **reference image** for any of them so later frames are conditioned on
+it (`i2i`):
+
+```sh
+toonflow_generate_reference {project:"my-drama", kind:"scene", name:"祖宅"}
+toonflow_generate_reference {project:"my-drama", kind:"character", name:"林昭"}
+```
+
+**Wardrobe variations** — the same face, a different outfit — and pinning one to
+a shot:
+
+```sh
+toonflow_generate_variation  {project:"my-drama", character:"林昭", name:"夜行衣",
+                              visual_prompt:"墨色夜行衣"}
+toonflow_list_variations     {project:"my-drama", character:"林昭"}
+toonflow_set_shot_variations {project:"my-drama", shot_id:"sht_…",
+                              selections:{林昭:"夜行衣"}}     # {} clears
+```
 
 ### 4.5 Storyboard (shots)
 
@@ -157,19 +180,41 @@ toonflow_generate_storyboard {project:"my-drama", script_id:"scr_…",
                               instructions:"青蓝冷光，手持运镜"}
 toonflow_list_shots          {project:"my-drama", script_id:"scr_…"}
 ```
-Each shot carries scene, 景别 (`size`), lighting, 运镜 (`motion`), characters and
-a text-to-image `prompt`. Re-running replaces that script's shots.
+Each shot carries scene, 景别 (`size`), lighting, 运镜 (`motion`), characters, a
+text-to-image `prompt` **and** optional first/last-frame prompts
+(`keyframe_start_prompt` / `keyframe_end_prompt`). Re-running replaces that
+script's shots. One shot carrying two beats? Split it in place:
+
+```sh
+toonflow_split_shot {project:"my-drama", shot_id:"sht_…", instructions:"拆成三个递进的镜头"}
+```
 
 ### 4.6 Media (per shot)
 
 ```sh
+# start/end frames first: they drive fl2va interpolated clips
+toonflow_generate_keyframe {project:"my-drama", shot_id:"sht_…", type:"start"}
+toonflow_generate_keyframe {project:"my-drama", shot_id:"sht_…", type:"end"}
+# (or copy the neighbour's frame so a cut doesn't jump)
+toonflow_copy_keyframe     {project:"my-drama", shot_id:"sht_…", direction:"prev_end"}
+
 toonflow_generate_image {project:"my-drama", shot_id:"sht_…", size:"1024x1024"}
 toonflow_generate_video {project:"my-drama", shot_id:"sht_…", duration_seconds:6,
-                         aspect_ratio:"16:9"}          # task defaults: fl2va if a frame exists
+                         aspect_ratio:"16:9"}   # task defaults: fl2va with first+last frame
 toonflow_generate_voice {project:"my-drama", shot_id:"sht_…"}   # uses meta.dialogue / meta.台词
 ```
-Image gen appends character appearances and conditions on reference images via
-`i2i`. `fl2va` uses the shot's latest frame as the first frame.
+
+Unsure what a composition should be? Ask for a **candidate grid** (9
+alternatives in one image) and crop the one you like into the keyframe:
+
+```sh
+toonflow_generate_shot_candidates {project:"my-drama", shot_id:"sht_…", count:9}
+toonflow_select_candidate         {project:"my-drama", shot_id:"sht_…", type:"start", cell:"4"}
+```
+
+Image gen appends character appearances, the scene description and any reference
+images (`i2i`). `fl2va` uses the shot's `keyframe_start`/`keyframe_end` when
+present, else its latest frame as the first frame.
 
 ### 4.7 Assemble / export
 
@@ -198,6 +243,36 @@ Pass `recall: true` to `toonflow_pipeline_run`, or `:recall` to
 `generate_script`/`generate_storyboard`, to append recalled notes to the
 instructions. Requires the embedding key configured under `:brain_rag`.
 
+### 5.1 Worldview anchors (always injected)
+
+Memory notes are recalled by *similarity*; **worldview** anchors are always
+injected into the script, assets and storyboard instructions — use them for what
+must never drift (map, region, period, art style, music style):
+
+```sh
+toonflow_worldview_set {project:"my-drama", text:"架空唐代，岭南水乡，水墨动画风格"}
+toonflow_worldview_set {project:"my-drama", title:"美术风格", text:"青蓝冷调，写实厚涂"}
+toonflow_worldview_get {project:"my-drama"}       # -> notes + the injected digest
+```
+
+### 5.2 Prompt overrides (per project, versioned)
+
+Every generation stage renders a template from `priv/toonflow/prompts/*`. Override
+one for this project — the override wins until a newer version (or a revert)
+replaces it:
+
+```sh
+toonflow_prompt_list    {project:"my-drama"}
+toonflow_prompt_get     {project:"my-drama", name:"storyboard.system"}   # shipped or override
+toonflow_prompt_set     {project:"my-drama", name:"storyboard.system",
+                         content:"…full template text (keep the {{placeholders}})…",
+                         note:"more 特写"}
+toonflow_prompt_history {project:"my-drama", name:"storyboard.system"}
+toonflow_prompt_revert  {project:"my-drama", name:"storyboard.system", version:1}
+```
+
+Overrides are opt-out via `prompts.overrides => false`.
+
 ---
 
 ## 6. Agent chat
@@ -221,6 +296,13 @@ can drive projects itself.
 - `continue_on_error: true` presses on past a failing stage; otherwise the run
   stops at the first failure and returns `success: false` + `stage` + `reason`
   (e.g. `missing_source` when a novel stage has no input).
+- **Pre-review before spending**: `toonflow_pipeline_plan {project:"my-drama"}`
+  returns each stage's status plus, per shot, its `link` (how the clip is made)
+  and what is still `missing` — with no generation at all.
+- The opt-in extras (`generate_shot_candidates`, `generate_variation`,
+  `generate_reference`, `copy_keyframe`, `split_shot`) are **not** pipeline
+  stages; they are director tools you call yourself, and `pipeline_plan` never
+  counts them as required.
 
 ---
 
@@ -232,14 +314,17 @@ can drive projects itself.
 | novel | `add_novel`, `list_chapters` |
 | events | `extract_events`, `list_events` |
 | script | `generate_script`, `get_script`, `update_script` |
-| assets | `extract_assets`, `list_characters` |
-| storyboard | `generate_storyboard`, `list_shots` |
+| assets | `extract_assets`, `list_characters`, `list_scenes`, `list_props`, `generate_reference` |
+| variations | `generate_variation`, `list_variations`, `set_shot_variations` |
+| storyboard | `generate_storyboard`, `list_shots`, `split_shot` |
+| keyframes | `generate_keyframe`, `copy_keyframe`, `generate_shot_candidates`, `select_candidate` |
 | media | `generate_image`, `generate_video`, `generate_voice` |
 | export | `assemble`, `export` |
 | memory | `memory_add`, `memory_list`, `memory_index`, `memory_search` |
-| orchestration | `pipeline_run`, `chat`, `list_agents` |
+| prompts | `prompt_list`, `prompt_get`, `prompt_set`, `prompt_history`, `prompt_revert`, `worldview_set`, `worldview_get` |
+| orchestration | `pipeline_run`, `pipeline_plan`, `chat`, `list_agents` |
 
-26 tools total. Full parameter tables: [docs/modules/toonflow.md](modules/toonflow.md).
+45 tools total. Full parameter tables: [docs/modules/toonflow.md](modules/toonflow.md).
 
 ---
 
@@ -249,7 +334,9 @@ can drive projects itself.
 config :exhub, :toonflow, %{
   "root_dir" => nil,                              # nil => ~/.config/exhub/toonflow
   "agents"   => %{"script" => "kimi-k2.6", "director" => "kimi-k2.6", "qa" => "kimi-k2.6"},
-  "media"    => %{"image_model" => "qwen-image-2.0", "video_model" => "MiniMax-H3", "tts_model" => "CosyVoice2", "tts_voice" => "alloy"},
+  "media"    => %{"image_model" => "qwen-image-2.0", "video_model" => "MiniMax-H3", "tts_model" => "Step-Audio-TTS-3B", "tts_voice" => "中文女",
+                  "keyframes" => true, "last_frame" => true, "candidates" => 9},
+  "prompts"  => %{"overrides" => true},
   "memory"   => %{"enabled" => true, "top_k" => 5, "scope" => "project", "dim" => 1024},
   "assembly" => %{"ffmpeg_path" => "ffmpeg", "ffprobe_path" => "ffprobe", "subtitles" => true},
   "ui"       => %{"enabled" => true, "tick_ms" => 5000, "require_local" => true}
@@ -281,6 +368,9 @@ config :exhub, :toonflow, %{
 | WebSocket closes immediately after `101` | a socket handler replied with a bare binary instead of a Cowboy frame (`{:text, …}`). See the frame note in [docs/modules/toonflow.md](modules/toonflow.md). |
 | New `socket/3` route returns HTTP 200 instead of `101` | Cowboy's dispatch table is compiled at **listener start** — a hot-reloaded socket route only serves after the VM (or the `Exhub.Router.HTTP` listener child) restarts. Never reinstall the dispatch with `:cowboy.set_env/3` on a live listener. |
 | `assemble`/`export` fails | `ffmpeg`/`ffprobe` not on `PATH` (or a shot is missing its clip — every shot needs `generate_video` first). |
+| `select_candidate` fails with `ffmpeg` error | cell cropping shells out to `assembly.ffmpeg_path`; ensure it is installed, or pass `cell:"whole"` to use the whole grid. |
+| `no_candidates` on `select_candidate` | no candidate grid for that shot yet — run `toonflow_generate_shot_candidates` first. |
+| a prompt override seems ignored | `prompts.overrides` is `false`, or the stage you expect does not use that template (check with `toonflow_prompt_get`). |
 | memory search returns nothing | run `toonflow_memory_index` first, and ensure the `:brain_rag` embedding key is set. |
 
 ---
@@ -291,6 +381,9 @@ config :exhub, :toonflow, %{
 |---------|--------|
 | orchestration | `Exhub.Toonflow.Pipeline` |
 | MCP surface | `Exhub.MCP.ToonflowServer` + `Exhub.MCP.Tools.Toonflow.*` |
+| keyframes / continuity | `Exhub.Toonflow.Keyframe` |
+| references / variations | `Exhub.Toonflow.Assets`, `Exhub.Toonflow.Media` |
+| prompts / worldview | `Exhub.Toonflow.Prompts`, `Exhub.Toonflow.Worldview` |
 | progress fan-out | `Exhub.Toonflow.Progress` (duplicate `Registry`) |
 | canvas | `Exhub.Router.ToonflowView`, `Exhub.Toonflow.SocketHandler`, `Exhub.Toonflow.Snapshot` |
 | store / DB | `Exhub.Toonflow.Store`, `Schema`, `DB` |

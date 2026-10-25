@@ -27,10 +27,13 @@ defmodule Exhub.Toonflow.Video do
   Generate a video clip for a shot (or from a free `prompt`).
 
   `opts`: `:shot_id`, `:prompt`, `:model`, `:task` (`\"t2va\"` | `\"fl2va\"`),
-  `:duration_seconds`, `:aspect_ratio`, `:seed`, `:first_frame`. When `:task` is
-  unset it defaults to `fl2va` if the shot already has a frame image, else
-  `t2va`; `fl2va` uses the shot's latest image as the first frame unless
-  `:first_frame` is given. Returns `{:ok, asset}` or `{:error, reason}`.
+  `:duration_seconds`, `:aspect_ratio`, `:seed`, `:first_frame`, `:last_frame`.
+  When `:task` is unset it defaults to `fl2va` if the shot already has a frame,
+  else `t2va`. Frames resolve from the shot's assets: the first is the
+  `keyframe_start` when present, else the latest `image`; the last is
+  `keyframe_end` (only while `media.last_frame` is enabled). `:first_frame` /
+  `:last_frame` override both, and `fl2va` needs a first frame. Returns
+  `{:ok, asset}` or `{:error, reason}`.
   """
   @spec generate_video(String.t(), keyword(), GenServer.server()) ::
           {:ok, map()} | {:error, term()}
@@ -41,7 +44,7 @@ defmodule Exhub.Toonflow.Video do
     with {:ok, meta} <- Store.get_project(project, server),
          {:ok, shot, characters} <- load_shot(project, shot_id, server),
          {:ok, final_prompt} <- resolve_prompt(prompt, shot, characters),
-         {:ok, task, first_frame} <- resolve_frames(project, shot, opts, server) do
+         {:ok, task, first_frame, last_frame} <- resolve_frames(project, shot, opts, server) do
       model = Keyword.get(opts, :model) || media_config()["video_model"] || @default_model
       key = shot_id || Toonflow.new_id("vid")
       out_path = video_path(meta["root_dir"], key)
@@ -52,6 +55,7 @@ defmodule Exhub.Toonflow.Video do
         |> put_opt(:aspect_ratio, Keyword.get(opts, :aspect_ratio))
         |> put_opt(:seed, Keyword.get(opts, :seed))
         |> put_opt(:first_frame, first_frame)
+        |> put_opt(:last_frame, last_frame)
 
       case video_client().generate_video(final_prompt, client_opts) do
         {:ok, result} -> record(project, shot_id, final_prompt, result, server)
@@ -63,7 +67,7 @@ defmodule Exhub.Toonflow.Video do
   @doc "Local output path for a generated clip (pure)."
   @spec video_path(String.t(), String.t()) :: String.t()
   def video_path(project_dir, key),
-    do: Path.join([project_dir, "assets", "videos", sanitize(key) <> ".mp4"])
+    do: Path.join([project_dir, "assets", "videos", Toonflow.file_key(key) <> ".mp4"])
 
   # --- prompt / frame resolution ---
 
@@ -88,43 +92,71 @@ defmodule Exhub.Toonflow.Video do
 
   defp resolve_frames(project, shot, opts, server) do
     case normalize_task(Keyword.get(opts, :task)) do
-      "t2va" -> {:ok, "t2va", nil}
-      "fl2va" -> resolve_first_frame(project, shot, opts, server)
-      _ -> default_task(project, shot, server)
+      "t2va" -> {:ok, "t2va", nil, nil}
+      "fl2va" -> resolve_fl2va(project, shot, opts, server)
+      _ -> default_task(project, shot, opts, server)
     end
   end
 
-  defp default_task(project, shot, server) do
-    case shot_frame(project, shot, server) do
-      {:ok, nil} -> {:ok, "t2va", nil}
-      {:ok, path} -> {:ok, "fl2va", path}
-      {:error, reason} -> {:error, reason}
+  defp default_task(project, shot, opts, server) do
+    with {:ok, first, last} <- shot_frames(project, shot, opts, server) do
+      if first, do: {:ok, "fl2va", first, last}, else: {:ok, "t2va", nil, nil}
     end
   end
 
-  defp resolve_first_frame(project, shot, opts, server) do
+  defp resolve_fl2va(project, shot, opts, server) do
+    with {:ok, resolved_first, last} <- shot_frames(project, shot, opts, server) do
+      case Toonflow.blank(Keyword.get(opts, :first_frame)) || resolved_first do
+        nil -> {:error, :missing_first_frame}
+        first -> {:ok, "fl2va", first, last}
+      end
+    end
+  end
+
+  defp shot_frames(_project, nil, _opts, _server), do: {:ok, nil, nil}
+
+  defp shot_frames(project, shot, opts, server) do
+    with {:ok, first} <- first_frame(project, shot, opts, server),
+         {:ok, last} <- last_frame(project, shot, opts, server) do
+      {:ok, first, last}
+    end
+  end
+
+  # The first frame prefers a generated keyframe, falling back to the plain
+  # frame image (Phase 2 behaviour) so fl2va still works without keyframes.
+  defp first_frame(project, shot, opts, server) do
     case Toonflow.blank(Keyword.get(opts, :first_frame)) do
-      nil ->
-        case shot_frame(project, shot, server) do
-          {:ok, nil} -> {:error, :missing_first_frame}
-          {:ok, path} -> {:ok, "fl2va", path}
-          {:error, reason} -> {:error, reason}
-        end
-
-      path ->
-        {:ok, "fl2va", path}
+      nil -> asset_path(project, shot["id"], ~w(keyframe_start image), server)
+      path -> {:ok, path}
     end
   end
 
-  defp shot_frame(_project, nil, _server), do: {:ok, nil}
-
-  defp shot_frame(project, shot, server) do
-    case Media.latest_asset(project, shot["id"], "image", server) do
-      {:ok, %{"path" => path}} when is_binary(path) -> {:ok, path}
-      {:ok, _} -> {:ok, nil}
-      {:error, reason} -> {:error, reason}
+  defp last_frame(project, shot, opts, server) do
+    case Toonflow.blank(Keyword.get(opts, :last_frame)) do
+      nil -> generated_last_frame(project, shot, server)
+      path -> {:ok, path}
     end
   end
+
+  defp generated_last_frame(project, shot, server) do
+    if last_frame_enabled?() do
+      asset_path(project, shot["id"], ~w(keyframe_end), server)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp asset_path(project, shot_id, kinds, server) do
+    Enum.reduce_while(kinds, {:ok, nil}, fn kind, _acc ->
+      case Media.latest_asset(project, shot_id, kind, server) do
+        {:ok, %{"path" => path}} when is_binary(path) -> {:halt, {:ok, path}}
+        {:ok, _} -> {:cont, {:ok, nil}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp last_frame_enabled?, do: media_config()["last_frame"] != false
 
   defp normalize_task(task) when is_binary(task), do: String.trim(task)
   defp normalize_task(_task), do: nil
@@ -150,7 +182,6 @@ defmodule Exhub.Toonflow.Video do
   defp put_opt(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp media_config, do: Config.get("media", %{}) || %{}
-  defp sanitize(key), do: String.replace(to_string(key), ~r/[^A-Za-z0-9._-]/, "_")
 end
 
 defmodule Exhub.Toonflow.Video.Client do
@@ -173,9 +204,29 @@ defmodule Exhub.Toonflow.Video.Default do
   @behaviour Exhub.Toonflow.Video.Client
 
   alias Exhub.MCP.Tools.VideoGen
-  alias Exhub.Toonflow.HTTP
+  alias Exhub.Toonflow.{Config, HTTP}
 
   @submit_url HTTP.api_base() <> "/async/videos/generations"
+
+  # A MiniMax-H3 clip routinely takes 3–8 minutes, so the shared 55 × 10s
+  # budget (~9m10s) times out mid-run on real shots. Both knobs are configurable
+  # under `media` so a slower account can widen them without a code change.
+  @default_poll_interval_ms 10_000
+  @default_poll_attempts 110
+
+  @doc """
+  The polling options for an async video task (pure).
+
+  Reads `media.video_poll_interval_ms` / `media.video_poll_attempts`, falling
+  back to 10 s / 110 attempts (~18 minutes).
+  """
+  @spec poll_opts(map()) :: keyword()
+  def poll_opts(media_config \\ %{}) do
+    [
+      interval_ms: Map.get(media_config, "video_poll_interval_ms") || @default_poll_interval_ms,
+      max_attempts: Map.get(media_config, "video_poll_attempts") || @default_poll_attempts
+    ]
+  end
 
   @impl true
   def generate_video(prompt, opts) do
@@ -188,6 +239,7 @@ defmodule Exhub.Toonflow.Video.Default do
       duration_seconds: Keyword.get(opts, :duration_seconds),
       aspect_ratio: Keyword.get(opts, :aspect_ratio),
       first_frame: Keyword.get(opts, :first_frame),
+      last_frame: Keyword.get(opts, :last_frame),
       seed: Keyword.get(opts, :seed)
     }
 
@@ -195,7 +247,13 @@ defmodule Exhub.Toonflow.Video.Default do
          {:ok, resolved} <- VideoGen.resolve_frames(params),
          {:ok, validated} <- VideoGen.validate_params(resolved),
          {:ok, task_id} <- HTTP.submit(@submit_url, VideoGen.build_body(validated), key),
-         {:ok, result} <- HTTP.poll(task_id, key, &VideoGen.interpret_poll/1),
+         {:ok, result} <-
+           HTTP.poll(
+             task_id,
+             key,
+             &VideoGen.interpret_poll/1,
+             poll_opts(Config.get("media", %{}) || %{})
+           ),
          {:ok, url} <- video_url(result),
          {:ok, data} <- HTTP.download(url),
          :ok <- HTTP.save(data, out_path) do

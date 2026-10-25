@@ -132,8 +132,26 @@ config :exhub, :toonflow, %{
   "media" => %{
     "image_model" => "qwen-image-2.0",
     "video_model" => "MiniMax-H3",
-    "tts_model" => "CosyVoice2",
-    "tts_voice" => "alloy"
+    # Verified against ai.gitee.com on 2026-10-25: `CosyVoice2` is no longer
+    # served (`暂不支持该接口`), and `Step-Audio-TTS-3B` is the one non-cloning
+    # model that honours `voice` (中文男 / 中文女).
+    "tts_model" => "Step-Audio-TTS-3B",
+    "tts_voice" => "中文女",
+    # Start/end keyframes: when true the pipeline `keyframes` stage renders
+    # per-shot first/last frames, and `videos` feeds the end frame to `fl2va`.
+    "keyframes" => true,
+    "last_frame" => true,
+    # Default number of cells in a `toonflow_generate_shot_candidates` grid
+    # (9 → a 3×3 grid). Candidate grids are opt-in per tool call.
+    "candidates" => 9,
+    # The `videos` stage polls the MoArk async task for a result; a MiniMax-H3
+    # clip routinely takes 3–8 minutes, so widen the budget as needed.
+    "video_poll_interval_ms" => 10_000,
+    "video_poll_attempts" => 110
+  },
+  "prompts" => %{
+    # Per-project prompt overrides win over the shipped priv/toonflow/prompts.
+    "overrides" => true
   },
   "memory" => %{
     "enabled" => true,

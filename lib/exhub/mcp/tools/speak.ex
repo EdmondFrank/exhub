@@ -7,7 +7,7 @@ defmodule Exhub.MCP.Tools.Speak do
     * **`sync`** (default) — the OpenAI-compatible
       `POST https://ai.gitee.com/v1/audio/speech` endpoint, which returns the
       audio bytes directly. Driven by `Exhub.TTS.Sync`; default model
-      `CosyVoice2`. Voice-cloning models (`IndexTTS-2`, `GLM-TTS`) take a
+      `Step-Audio-TTS-3B`. Voice-cloning models (`IndexTTS-2`, `GLM-TTS`) take a
       `prompt_audio_url` reference clip.
     * **`async`** — the legacy MoArk async `Qwen3-TTS` flow: the text is
       submitted to `POST /v1/async/audio/speech`, which returns a `task_id`, and
@@ -68,7 +68,7 @@ defmodule Exhub.MCP.Tools.Speak do
     **Providers (chosen with `provider`):**
 
     - `sync` (default) — OpenAI-compatible synchronous TTS. The audio bytes are
-      returned directly (no task/poll). Default model `CosyVoice2`
+      returned directly (no task/poll). Default model `Step-Audio-TTS-3B`
       (Chinese/English). Other models: `ChatTTS`, `Step-Audio-TTS-3B`, and the
       clone-only `IndexTTS-2` / `GLM-TTS` (which require `prompt_audio_url`).
       `CosyVoice3` and `Qwen3-TTS` are NOT available here.
@@ -86,9 +86,9 @@ defmodule Exhub.MCP.Tools.Speak do
       (`IndexTTS-2`, `GLM-TTS`).
     - `prompt_text`: transcript of `prompt_audio_url` (optional).
     - `output`: absolute / `~` path to save the audio locally. The extension is
-      corrected to the detected container (e.g. `.wav` for CosyVoice2). When
+      corrected to the detected container (e.g. `.wav` for ChatTTS). When
       omitted, no file is written.
-    - `model`: TTS model. Defaults: `CosyVoice2` (sync) / `Qwen3-TTS` (async).
+    - `model`: TTS model. Defaults: `Step-Audio-TTS-3B` (sync) / `Qwen3-TTS` (async).
 
     **Async-only parameters:**
     - `speaker`: preset voice for voice-design mode. Default: `Vivian`.
@@ -115,7 +115,8 @@ defmodule Exhub.MCP.Tools.Speak do
     )
 
     field(:model, :string,
-      description: "Speech synthesis model. Defaults: `CosyVoice2` (sync) / `Qwen3-TTS` (async)."
+      description:
+        "Speech synthesis model. Defaults: `Step-Audio-TTS-3B` (sync) / `Qwen3-TTS` (async)."
     )
 
     field(:voice, :string, description: "Preset voice for sync mode. Default: alloy.")

@@ -67,6 +67,17 @@ defmodule Exhub.Toonflow.VideoTest do
     assert {:error, {:video_failed, :boom}} =
              Video.generate_video("demo", [prompt: "boom"], server)
   end
+
+  describe "poll_opts/1" do
+    test "defaults to a budget long enough for a MiniMax-H3 clip" do
+      assert Video.Default.poll_opts() == [interval_ms: 10_000, max_attempts: 110]
+    end
+
+    test "reads the media overrides" do
+      config = %{"video_poll_interval_ms" => 5_000, "video_poll_attempts" => 3}
+      assert Video.Default.poll_opts(config) == [interval_ms: 5_000, max_attempts: 3]
+    end
+  end
 end
 
 defmodule Exhub.Toonflow.VideoTest.StubClient do

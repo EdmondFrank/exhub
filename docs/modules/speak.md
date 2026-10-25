@@ -7,7 +7,7 @@ Two backends are available, selected with the `provider` parameter:
 
 | Provider | Endpoint | Default model | Returns |
 |----------|----------|---------------|---------|
-| `sync` (default) | `POST https://ai.gitee.com/v1/audio/speech` | `CosyVoice2` | audio bytes directly |
+| `sync` (default) | `POST https://ai.gitee.com/v1/audio/speech` | `Step-Audio-TTS-3B` | audio bytes directly |
 | `async` | `POST /v1/async/audio/speech` + poll | `Qwen3-TTS` | audio URL after polling |
 
 ## Setup
@@ -26,26 +26,29 @@ Get your API key from [ai.gitee.com](https://ai.gitee.com) (工作台 → 访问
 
 ### Providers
 
-#### `sync` (default) — `CosyVoice2`
+#### `sync` (default) — `Step-Audio-TTS-3B`
 
 Posts to the OpenAI-compatible `POST /v1/audio/speech` endpoint, which streams
 the audio bytes straight back (no task/poll). Implemented by `Exhub.TTS.Sync`.
 
-Verified models (2026-09):
+Verified models (2026-10-25):
 
 | Model | Output | Notes |
 |-------|--------|-------|
-| `CosyVoice2` (default) | WAV | Chinese/English |
-| `ChatTTS` | WAV | |
-| `Step-Audio-TTS-3B` | MP3 | |
+| `Step-Audio-TTS-3B` (default) | MP3 | honours `voice` (`中文男` / `中文女`) |
+| `ChatTTS` | WAV | fixed speaker — ignores `voice` |
+| `CosyVoice2` | — | **no longer served** (answers `暂不支持该接口`) |
 | `IndexTTS-2` | WAV | **clone only** — requires `prompt_audio_url` |
 | `GLM-TTS` | WAV | **clone only** — requires `prompt_audio_url` |
-| `TeleTTS-Mandarin` | — | requires a valid `voice` enum |
+| `TeleTTS-Mandarin` | — | rejects the OpenAI `voice` field (`参数无效 'voice'`) |
 
-`CosyVoice3` and `Qwen3-TTS` are **not** served by this endpoint (the API answers
-`暂不支持该接口`); use `provider: "async"` for those.
+`CosyVoice2` was the default until 2026-10-25, when the endpoint stopped serving
+it; `CosyVoice3` and `Qwen3-TTS` are also **not** served here (the API answers
+`暂不支持该接口`) — use `provider: "async"` for the latter. The default moved to
+`Step-Audio-TTS-3B` because it is the only non-cloning model that honours
+`voice`, which multi-character scripts need.
 
-The response `content-type` is unreliable — `CosyVoice2` advertises `audio/mp3`
+The response `content-type` is unreliable — `CosyVoice2` advertised `audio/mp3`
 while emitting a RIFF/WAVE stream — so the real container is detected from the
 payload's magic bytes and the saved file's extension is corrected accordingly
 (`Exhub.TTS.Sync.detect_format/1` / `with_format/2`).

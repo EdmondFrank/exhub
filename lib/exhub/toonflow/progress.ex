@@ -99,19 +99,10 @@ defmodule Exhub.Toonflow.Progress do
     })
   end
 
-  # Reason terms (e.g. `{:image_failed, :boom}`) must survive JSON encoding in
-  # the socket, so coerce anything non-JSON-native to its `inspect` form.
-  defp normalize(nil), do: nil
-  defp normalize(v) when is_binary(v) or is_number(v) or is_boolean(v) or is_atom(v), do: v
-  defp normalize(v) when is_list(v), do: Enum.map(v, &normalize/1)
-
-  defp normalize(v) when is_map(v),
-    do: Map.new(v, fn {k, val} -> {json_key(k), normalize(val)} end)
-
-  defp normalize(v), do: inspect(v)
-
-  defp json_key(k) when is_binary(k) or is_atom(k) or is_number(k), do: k
-  defp json_key(k), do: inspect(k)
+  # Reason terms (`{:image_failed, :boom}`, an exception struct, …) must survive
+  # JSON encoding in the socket. `Exhub.Toonflow.json_safe/1` is the shared rule,
+  # and the place that explains why structs and tuples are the dangerous ones.
+  defp normalize(detail), do: Exhub.Toonflow.json_safe(detail)
 
   defp key(project), do: {:toonflow_progress, project}
 

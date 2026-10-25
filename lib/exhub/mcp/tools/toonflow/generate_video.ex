@@ -19,10 +19,12 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVideo do
     an asset row. The call submits the task and polls until it finishes.
 
     `task` is `t2va` (text-to-video) or `fl2va` (first/last-frame-to-video). When
-    omitted it defaults to `fl2va` if the shot already has a frame image (used as
-    the first frame), else `t2va`. `duration_seconds` (4-15, default 6),
-    `aspect_ratio`, `model` and `seed` override the configured defaults. Returns
-    the local `path` of the clip.
+    omitted it defaults to `fl2va` if the shot already has a frame, else `t2va`.
+    For `fl2va` the shot's `keyframe_start` (or, when absent, its latest frame
+    image) is the first frame and its `keyframe_end` is the last frame —
+    use `toonflow_generate_keyframe` first. `duration_seconds` (4-15, default 6),
+    `aspect_ratio`, `model`, `seed`, `first_frame` and `last_frame` override the
+    configured defaults. Returns the local `path` of the clip.
     """
   end
 
@@ -47,6 +49,12 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVideo do
       description:
         "Image URL, data URI or local path; required for fl2va when the shot has no frame."
     )
+
+    field(:last_frame, :string,
+      description:
+        "fl2va interpolation target: image URL, data URI or local path. Defaults to the " <>
+          "shot's `keyframe_end` when one exists."
+    )
   end
 
   @impl true
@@ -61,6 +69,7 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVideo do
       |> Helpers.put_opt(:model, Helpers.opt(params, :model))
       |> Helpers.put_opt(:aspect_ratio, Helpers.opt(params, :aspect_ratio))
       |> Helpers.put_opt(:first_frame, Helpers.opt(params, :first_frame))
+      |> Helpers.put_opt(:last_frame, Helpers.opt(params, :last_frame))
       |> Helpers.put_opt(:duration_seconds, Map.get(params, :duration_seconds))
       |> Helpers.put_opt(:seed, Map.get(params, :seed))
 

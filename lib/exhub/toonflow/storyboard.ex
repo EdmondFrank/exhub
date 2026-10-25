@@ -9,11 +9,30 @@ defmodule Exhub.Toonflow.Storyboard do
   `prompt`. Shots are keyed by `script_id` and replaced on re-run (idempotent),
   and mirrored to `storyboards/<script_id>.json`.
 
-  `parse_storyboard/1` and `shot_prompt/2` are pure and unit-tested.
+  `split_shot/3` refines one shot after the fact: the director LLM
+  (`storyboard.split.*`) turns it into finer sub-shots that replace it in place.
+
+  `parse_storyboard/1`, `characters_of/1` and `shot_prompt/3` are pure and
+  unit-tested.
   """
 
   alias Exhub.Toonflow
-  alias Exhub.Toonflow.{Assets, DB, Json, LLM, Memory, Prompts, Schema, Script, Store}
+
+  alias Exhub.Toonflow.{
+    Assets,
+    DB,
+    Json,
+    Keyframe,
+    LLM,
+    Memory,
+    Prompts,
+    Schema,
+    Script,
+    Store,
+    Worldview
+  }
+
+  @max_subshots 8
 
   @doc """
   Generate a storyboard for a script.
@@ -28,18 +47,23 @@ defmodule Exhub.Toonflow.Storyboard do
           {:ok, map()} | {:error, term()}
   def generate_storyboard(project, opts \\ [], server \\ Store) do
     script_id = Toonflow.blank(Keyword.get(opts, :script_id))
-    instructions = Keyword.get(opts, :instructions) || ""
+    instructions = Worldview.append(project, Keyword.get(opts, :instructions) || "", server)
 
     with {:ok, script} <- fetch_script(project, script_id, server),
          {:ok, characters} <- Assets.list_characters(project, [], server),
          {:ok, recall} <- maybe_recall(project, opts, script["content"] || "", server),
-         {:ok, system} <- Prompts.render("storyboard.system", %{}),
+         {:ok, system} <- Prompts.resolve("storyboard.system", %{}, project, server),
          {:ok, user} <-
-           Prompts.render("storyboard.user", %{
-             "script" => script["content"] || "",
-             "characters" => characters_digest(characters),
-             "instructions" => append_instructions(instructions, recall)
-           }),
+           Prompts.resolve(
+             "storyboard.user",
+             %{
+               "script" => script["content"] || "",
+               "characters" => characters_digest(characters),
+               "instructions" => append_instructions(instructions, recall)
+             },
+             project,
+             server
+           ),
          {:ok, raw} <- LLM.call_llm(system, user, []) do
       case parse_storyboard(raw) do
         {:ok, shots} -> persist(project, script["id"], shots, server)
@@ -108,15 +132,28 @@ defmodule Exhub.Toonflow.Storyboard do
   def parse_storyboard(_), do: {:error, :invalid_payload}
 
   @doc """
-  Build a text-to-image prompt for a `shot`, appending the appearance of each
-  referenced character for consistency. Pure.
+  The character names a shot features.
+
+  Pure. `normalize_shot/2` keeps them at the top level, but `insert_shot/3`
+  moves them into `meta`, so a shot loaded back from the database carries them
+  in `meta.characters` — accept either.
   """
-  @spec shot_prompt(map(), [map()]) :: String.t()
-  def shot_prompt(shot, characters \\ []) do
+  @spec characters_of(map() | nil) :: [String.t()]
+  def characters_of(%{"characters" => names}) when is_list(names), do: names
+  def characters_of(%{"meta" => %{"characters" => names}}) when is_list(names), do: names
+  def characters_of(_shot), do: []
+
+  @doc """
+  Build a text-to-image prompt for a `shot`, appending the appearance of each
+  referenced character and the description of its scene, for consistency. Pure.
+  """
+  @spec shot_prompt(map(), [map()], [map()]) :: String.t()
+  def shot_prompt(shot, characters \\ [], scenes \\ []) do
     base = Json.text(shot["prompt"]) || compose_prompt(shot)
 
     appearances =
-      (shot["characters"] || [])
+      shot
+      |> characters_of()
       |> Enum.flat_map(fn name ->
         case Enum.find(characters, &(&1["name"] == name)) do
           %{"appearance" => appearance} when is_binary(appearance) -> ["#{name}（#{appearance}）"]
@@ -124,12 +161,260 @@ defmodule Exhub.Toonflow.Storyboard do
         end
       end)
 
-    [base | appearances]
+    ([base] ++ scene_notes(shot, scenes) ++ appearances)
     |> Enum.reject(&(is_nil(&1) or &1 == ""))
     |> Enum.join("；")
   end
 
+  # Append the scene's description (set by `toonflow_generate_reference`) so the
+  # frame matches the established look of the location.
+  defp scene_notes(shot, scenes) do
+    with scene when is_binary(scene) <- shot["scene"],
+         %{"description" => description} when is_binary(description) <-
+           Enum.find(scenes, &(&1["name"] == scene)),
+         true <- String.trim(description) != "" do
+      ["场景：#{description}"]
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  Choose which wardrobe variation of each character this shot uses.
+
+  `selections` maps a **character name** to a variation **name** (or its id).
+  The resolved variation id is stored in `shots.meta.character_variations`, so
+  `Exhub.Toonflow.Media.refs_for_shot/3` conditions that shot's frames on the
+  variation's reference image instead of the character's base look. Pass an
+  empty map to clear all selections. Returns `{:ok, %{...}}` or
+  `{:error, reason}`.
+  """
+  @spec set_shot_variations(String.t(), String.t(), map(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def set_shot_variations(project, shot_id, selections, server \\ Store) do
+    with {:ok, shot} <- get_shot(project, shot_id, server),
+         {:ok, resolved} <- resolve_selections(project, selections, server) do
+      meta = Map.put(shot["meta"] || %{}, "character_variations", resolved)
+
+      result =
+        Store.run_project(
+          project,
+          fn conn ->
+            DB.execute(conn, "UPDATE shots SET meta_json = ? WHERE id = ?", [
+              Schema.encode_json(meta),
+              shot_id
+            ])
+          end,
+          server
+        )
+
+      case result do
+        :ok -> {:ok, %{"shot_id" => shot_id, "character_variations" => resolved}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # --- shot splitting (Phase 8.5) ---
+
+  @doc """
+  Split one shot into finer sub-shots with the director LLM
+  (`storyboard.split.system` / `storyboard.split.user`).
+
+  BigBanana's "shot splitting" move: a shot is often carrying two beats, and
+  splitting it after the fact is cheaper than regenerating the whole board. The
+  sub-shots **replace** the original **in place** — same order position, the
+  script's indices resequenced — and inherit the original's scene, cast and the
+  outer keyframe prompts (the first sub-shot keeps the original's start frame
+  prompt, the last keeps its end frame prompt), so start/end continuity survives
+  the split. The replaced shot's generated assets are removed.
+
+  `opts`: `:shot_id` (required), `:instructions`, `:recall`, `:recall_top_k`.
+  Returns `{:ok, summary}` or `{:error, reason}`.
+  """
+  @spec split_shot(String.t(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  def split_shot(project, opts \\ [], server \\ Store) do
+    shot_id = Toonflow.blank(Keyword.get(opts, :shot_id))
+    instructions = Worldview.append(project, Keyword.get(opts, :instructions) || "", server)
+
+    with :ok <- validate_shot(shot_id),
+         {:ok, shot} <- get_shot(project, shot_id, server),
+         {:ok, characters} <- Assets.list_characters(project, [], server),
+         {:ok, recall} <- maybe_recall(project, opts, shot["shot_desc"] || "", server),
+         {:ok, system} <- Prompts.resolve("storyboard.split.system", %{}, project, server),
+         {:ok, user} <-
+           Prompts.resolve(
+             "storyboard.split.user",
+             %{
+               "shot" => shot_digest(shot),
+               "characters" => characters_digest(characters),
+               "instructions" => append_instructions(instructions, recall)
+             },
+             project,
+             server
+           ),
+         {:ok, raw} <- LLM.call_llm(system, user, []) do
+      case parse_storyboard(raw) do
+        {:ok, []} -> {:error, :no_subshots}
+        {:ok, subshots} -> replace_shot(project, shot, subshots, server)
+        {:error, reason} -> {:error, {:parse_failed, reason}}
+      end
+    end
+  end
+
+  defp validate_shot(nil), do: {:error, :missing_shot_id}
+  defp validate_shot(_shot_id), do: :ok
+
+  # The shot, rendered for the split prompt.
+  defp shot_digest(shot) do
+    [
+      {"场景", shot["scene"]},
+      {"画面", shot["shot_desc"]},
+      {"景别", shot["size"]},
+      {"光线", shot["lighting"]},
+      {"运镜", shot["motion"]},
+      {"角色", Enum.join(characters_of(shot), "、")},
+      {"提示词", shot["prompt"]},
+      {"首帧", Keyframe.keyframe_prompt(shot, "start")},
+      {"尾帧", Keyframe.keyframe_prompt(shot, "end")}
+    ]
+    |> Enum.flat_map(fn
+      {_label, value} when value in [nil, ""] -> []
+      {label, value} -> ["#{label}：#{value}"]
+    end)
+    |> Enum.join("\n")
+  end
+
+  # Replace `shot` with `subshots` in place. The shots after it are shifted by
+  # `length(subshots) - 1` first, so the sub-shots slot into the original's
+  # index without renumbering the whole board.
+  defp replace_shot(project, shot, subshots, server) do
+    subshots = subshots |> Enum.take(@max_subshots) |> inherit_from(shot)
+    script_id = shot["script_id"]
+    base_idx = shot["idx"] || 0
+    shift = length(subshots) - 1
+
+    result =
+      Store.run_project(
+        project,
+        fn conn ->
+          DB.transaction(conn, fn ->
+            with :ok <- shift_indices(conn, script_id, base_idx, shift),
+                 :ok <- DB.execute(conn, "DELETE FROM assets WHERE shot_id = ?", [shot["id"]]),
+                 :ok <- DB.execute(conn, "DELETE FROM shots WHERE id = ?", [shot["id"]]),
+                 {:ok, ids} <- insert_subshots(conn, script_id, subshots, base_idx) do
+              {:ok, ids}
+            end
+          end)
+        end,
+        server
+      )
+
+    case result do
+      {:ok, ids} ->
+        {:ok,
+         %{
+           "shot_id" => shot["id"],
+           "script_id" => script_id,
+           "sub_shots" => length(subshots),
+           "created" => ids,
+           "shots" => Enum.map(subshots, &shot_summary/1)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp shift_indices(_conn, _script_id, _base_idx, 0), do: :ok
+
+  defp shift_indices(conn, script_id, base_idx, shift) do
+    DB.execute(
+      conn,
+      "UPDATE shots SET idx = idx + ? WHERE script_id = ? AND idx > ?",
+      [shift, script_id, base_idx]
+    )
+  end
+
+  defp insert_subshots(conn, script_id, subshots, base_idx) do
+    subshots
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {shot, offset}, {:ok, acc} ->
+      case insert_shot(conn, script_id, Map.put(shot, "idx", base_idx + offset)) do
+        {:ok, id} -> {:cont, {:ok, acc ++ [id]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # A sub-shot keeps the original's scene/cast, and the outer keyframe prompts
+  # anchor the first and last sub-shot so the split does not break continuity.
+  defp inherit_from(subshots, shot) do
+    last = length(subshots) - 1
+
+    subshots
+    |> Enum.with_index()
+    |> Enum.map(fn {sub, index} ->
+      sub
+      |> Map.put("scene", sub["scene"] || shot["scene"])
+      |> Map.put("characters", inherit_cast(sub, shot))
+      |> Map.put(
+        "meta",
+        sub
+        |> Map.get("meta", %{})
+        |> inherit_prompt(
+          index == 0,
+          "keyframe_start_prompt",
+          Keyframe.keyframe_prompt(shot, "start")
+        )
+        |> inherit_prompt(
+          index == last,
+          "keyframe_end_prompt",
+          Keyframe.keyframe_prompt(shot, "end")
+        )
+      )
+    end)
+  end
+
+  defp inherit_cast(%{"characters" => [_ | _]} = sub, _shot), do: sub["characters"]
+  defp inherit_cast(_sub, shot), do: characters_of(shot)
+
+  defp inherit_prompt(meta, true, _key, value) when not is_binary(value), do: meta
+
+  defp inherit_prompt(meta, true, key, value) do
+    # `Toonflow.blank/1` returns nil for an absent prompt, so compare explicitly.
+    if Toonflow.blank(meta[key]) == nil, do: Map.put(meta, key, value), else: meta
+  end
+
+  defp inherit_prompt(meta, _cond, _key, _value), do: meta
+
   # --- persistence ---
+
+  # --- wardrobe selections ---
+
+  defp resolve_selections(_project, selections, _server) when selections in [nil, %{}],
+    do: {:ok, %{}}
+
+  defp resolve_selections(project, selections, server) when is_map(selections) do
+    selections
+    |> Enum.reduce_while({:ok, %{}}, fn {character, variation}, {:ok, acc} ->
+      case resolve_selection(project, to_string(character), to_string(variation), server) do
+        {:ok, id} -> {:cont, {:ok, Map.put(acc, to_string(character), id)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp resolve_selections(_project, _selections, _server), do: {:error, :invalid_selections}
+
+  defp resolve_selection(project, character, variation, server) do
+    with {:ok, variations} <- Assets.list_variations(project, [character: character], server) do
+      case Enum.find(variations, &(&1["name"] == variation or &1["id"] == variation)) do
+        nil -> {:error, {:variation_not_found, character, variation}}
+        variation -> {:ok, variation["id"]}
+      end
+    end
+  end
 
   defp fetch_script(project, script_id, server) do
     opts = if script_id, do: [script_id: script_id], else: []
@@ -155,7 +440,7 @@ defmodule Exhub.Toonflow.Storyboard do
                 shots
                 |> Enum.reduce_while({:ok, 0}, fn shot, {:ok, count} ->
                   case insert_shot(conn, script_id, shot) do
-                    :ok -> {:cont, {:ok, count + 1}}
+                    {:ok, _id} -> {:cont, {:ok, count + 1}}
                     {:error, reason} -> {:halt, {:error, reason}}
                   end
                 end)
@@ -184,27 +469,31 @@ defmodule Exhub.Toonflow.Storyboard do
 
   defp insert_shot(conn, script_id, shot) do
     meta = Map.put(shot["meta"] || %{}, "characters", shot["characters"] || [])
+    id = Toonflow.new_id("sht")
 
-    DB.execute(
-      conn,
-      """
-      INSERT INTO shots (id, script_id, idx, scene, shot_desc, size, camera, lighting, motion, prompt, meta_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      """,
-      [
-        Toonflow.new_id("sht"),
-        script_id,
-        shot["idx"],
-        shot["scene"],
-        shot["shot_desc"],
-        shot["size"],
-        shot["camera"],
-        shot["lighting"],
-        shot["motion"],
-        shot["prompt"],
-        Schema.encode_json(meta)
-      ]
-    )
+    case DB.execute(
+           conn,
+           """
+           INSERT INTO shots (id, script_id, idx, scene, shot_desc, size, camera, lighting, motion, prompt, meta_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           """,
+           [
+             id,
+             script_id,
+             shot["idx"],
+             shot["scene"],
+             shot["shot_desc"],
+             shot["size"],
+             shot["camera"],
+             shot["lighting"],
+             shot["motion"],
+             shot["prompt"],
+             Schema.encode_json(meta)
+           ]
+         ) do
+      :ok -> {:ok, id}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp write_mirror(dir, script_id, shots) do
@@ -284,8 +573,15 @@ defmodule Exhub.Toonflow.Storyboard do
           "prompt",
           "image_prompt",
           "characters",
-          "角色"
+          "角色",
+          "keyframe_start_prompt",
+          "start_frame_prompt",
+          "首帧提示词",
+          "keyframe_end_prompt",
+          "end_frame_prompt",
+          "尾帧提示词"
         ])
+        |> put_keyframe_prompts(shot)
     }
   end
 
@@ -302,6 +598,33 @@ defmodule Exhub.Toonflow.Storyboard do
       "characters" => [],
       "meta" => %{"raw" => other}
     }
+  end
+
+  # The storyboard LLM may describe a first/last frame per shot (used by the
+  # `keyframes` stage and `Exhub.Toonflow.Keyframe`); store them under stable
+  # keys in `meta`, dropping the aliases it used.
+  defp put_keyframe_prompts(meta, shot) do
+    keyframes =
+      %{}
+      |> put_prompt(
+        "keyframe_start_prompt",
+        shot["keyframe_start_prompt"] || shot["start_frame_prompt"] || shot["首帧提示词"]
+      )
+      |> put_prompt(
+        "keyframe_end_prompt",
+        shot["keyframe_end_prompt"] || shot["end_frame_prompt"] || shot["尾帧提示词"]
+      )
+
+    Map.merge(meta, keyframes)
+  end
+
+  defp put_prompt(map, _key, nil), do: map
+
+  defp put_prompt(map, key, value) do
+    case Json.text(value) do
+      nil -> map
+      text -> Map.put(map, key, text)
+    end
   end
 
   defp character_names(list) when is_list(list) do

@@ -1,7 +1,7 @@
 defmodule Exhub.Toonflow.StoryboardTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Exhub.Toonflow.Storyboard
+  alias Exhub.Toonflow.{DB, Media, Schema, Store, Storyboard}
 
   describe "parse_storyboard/1" do
     test "parses fenced shots and assigns sequential idx" do
@@ -35,6 +35,24 @@ defmodule Exhub.Toonflow.StoryboardTest do
     end
   end
 
+  describe "characters_of/1" do
+    test "reads the names from the top level or from meta" do
+      assert Storyboard.characters_of(%{"characters" => ["林昭"]}) == ["林昭"]
+
+      # `insert_shot/3` stores them in meta, so DB-loaded shots land here.
+      assert Storyboard.characters_of(%{"meta" => %{"characters" => ["林昭"]}}) == ["林昭"]
+      assert Storyboard.characters_of(%{}) == []
+      assert Storyboard.characters_of(nil) == []
+    end
+
+    test "shot_prompt/2 still appends appearances for a DB-loaded shot" do
+      shot = %{"prompt" => "青衫少年", "meta" => %{"characters" => ["林昭"]}}
+      characters = [%{"name" => "林昭", "appearance" => "青衫少年"}]
+
+      assert Storyboard.shot_prompt(shot, characters) == "青衫少年；林昭（青衫少年）"
+    end
+  end
+
   describe "shot_prompt/2" do
     test "composes from fields when no prompt is given" do
       shot = %{
@@ -48,11 +66,139 @@ defmodule Exhub.Toonflow.StoryboardTest do
       assert Storyboard.shot_prompt(shot) == "祖宅，林昭立于门前，中景，推，冷光"
     end
 
+    test "appends the scene description when one is known" do
+      shot = %{"prompt" => "青衫少年立于门前", "scene" => "祖宅", "characters" => []}
+      scenes = [%{"name" => "祖宅", "description" => "雨夜庭院"}]
+
+      assert Storyboard.shot_prompt(shot, [], scenes) == "青衫少年立于门前；场景：雨夜庭院"
+    end
+
     test "prefers an explicit prompt and appends character appearances" do
       shot = %{"prompt" => "青衫少年立于门前", "characters" => ["林昭", "无名"]}
       characters = [%{"name" => "林昭", "appearance" => "青衫少年"}]
 
       assert Storyboard.shot_prompt(shot, characters) == "青衫少年立于门前；林昭（青衫少年）"
     end
+  end
+
+  describe "split_shot/3" do
+    setup do
+      root = Path.join(System.tmp_dir!(), "toonflow_split_#{System.unique_integer([:positive])}")
+      server = :"toonflow_split_store_#{System.unique_integer([:positive])}"
+      {:ok, pid} = Store.start_link(root_dir: root, name: server)
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      previous = Application.get_env(:exhub, :toonflow_llm)
+      Application.put_env(:exhub, :toonflow_llm, __MODULE__.SplitLLM)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm_rf(root)
+
+        if previous,
+          do: Application.put_env(:exhub, :toonflow_llm, previous),
+          else: Application.delete_env(:exhub, :toonflow_llm)
+      end)
+
+      %{server: server}
+    end
+
+    test "replaces a shot with sub-shots in place and resequences", %{server: server} do
+      first = insert_shot(server, 1, %{})
+
+      target =
+        insert_shot(server, 2, %{
+          "keyframe_start_prompt" => "开门首帧",
+          "keyframe_end_prompt" => "门内尾帧"
+        })
+
+      insert_shot(server, 3, %{})
+
+      # The replaced shot's generated assets go away with it.
+      assert {:ok, _} =
+               Media.insert_asset(
+                 "demo",
+                 [shot_id: target, kind: "image", path: "/tmp/x.png"],
+                 server
+               )
+
+      assert {:ok, summary} = Storyboard.split_shot("demo", [shot_id: target], server)
+      assert summary["shot_id"] == target
+      assert summary["sub_shots"] == 2
+      assert length(summary["created"]) == 2
+
+      assert {:ok, shots} = Storyboard.list_shots("demo", [], server)
+      assert Enum.map(shots, & &1["idx"]) == [1, 2, 3, 4]
+      assert Enum.map(shots, & &1["id"]) |> Enum.member?(target) == false
+      assert Enum.at(shots, 0)["id"] == first
+
+      [_head, a, b, _last] = shots
+
+      # Inherited scene, cast and the outer keyframe anchors.
+      assert a["scene"] == "祖宅"
+      assert Storyboard.characters_of(a) == ["林昭"]
+      assert a["shot_desc"] == "林昭推门"
+      assert a["meta"]["visual_focus"] == "手推门"
+      assert a["meta"]["keyframe_start_prompt"] == "开门首帧"
+      assert b["meta"]["keyframe_end_prompt"] == "门内尾帧"
+      assert Map.get(a["meta"], "keyframe_end_prompt") == nil
+      assert Map.get(b["meta"], "keyframe_start_prompt") == nil
+
+      assert {:error, :shot_not_found} = Storyboard.get_shot("demo", target, server)
+      assert {:ok, []} = Media.list_assets("demo", [shot_id: target], server)
+    end
+
+    test "validates its target", %{server: server} do
+      assert {:error, :missing_shot_id} = Storyboard.split_shot("demo", [], server)
+      assert {:error, :shot_not_found} = Storyboard.split_shot("demo", [shot_id: "nope"], server)
+    end
+  end
+
+  defp insert_shot(server, idx, meta) do
+    id = "sht_split#{idx}"
+
+    {:ok, _id} =
+      Store.run_project(
+        "demo",
+        fn conn ->
+          DB.execute(
+            conn,
+            """
+            INSERT INTO shots (id, script_id, idx, scene, shot_desc, size, camera, lighting, motion, prompt, meta_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+              id,
+              "scr_1",
+              idx,
+              "祖宅",
+              "林昭推门而入",
+              "中景",
+              nil,
+              "冷光",
+              "推",
+              "青衫少年立于门前",
+              Schema.encode_json(Map.put(meta, "characters", ["林昭"]))
+            ]
+          )
+
+          {:ok, id}
+        end,
+        server
+      )
+
+    id
+  end
+end
+
+defmodule Exhub.Toonflow.StoryboardTest.SplitLLM do
+  @moduledoc false
+  @behaviour Exhub.Toonflow.LLM
+
+  @impl true
+  def call_llm(_system, _user, _opts) do
+    {:ok,
+     ~s({"shots":[{"shot_desc":"林昭推门","size":"中景","motion":"推","visual_focus":"手推门","prompt":"门前"},) <>
+       ~s({"shot_desc":"门缓缓打开","size":"近景","motion":"移","visual_focus":"门缝","prompt":"门内"}]})}
   end
 end

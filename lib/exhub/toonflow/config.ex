@@ -14,11 +14,36 @@ defmodule Exhub.Toonflow.Config do
       "director" => "deepseek-v4.1-flash",
       "qa" => "deepseek-v4.1-flash"
     },
+    "llm" => %{
+      # Receive timeout for Toonflow's LLM calls. GenClaw's 3-minute default is
+      # short for a whole script or storyboard JSON, and the request also
+      # traverses ExHub's upstream proxy.
+      "receive_timeout" => 300_000
+    },
     "media" => %{
       "image_model" => "qwen-image-2.0",
       "video_model" => "MiniMax-H3",
-      "tts_model" => "CosyVoice2",
-      "tts_voice" => "alloy"
+      # Verified against ai.gitee.com on 2026-10-25: `CosyVoice2` now answers
+      # `暂不支持该接口`, and `Step-Audio-TTS-3B` is the one non-cloning model
+      # that honours `voice`.
+      "tts_model" => "Step-Audio-TTS-3B",
+      "tts_voice" => "中文女",
+      # Phase 7: start/end keyframes. `keyframes` enables the pipeline stage;
+      # `last_frame` lets `fl2va` use a shot's end frame as the interpolation
+      # target.
+      "keyframes" => true,
+      "last_frame" => true,
+      # Phase 8.5: default cell count for a candidate grid (9 → 3×3).
+      "candidates" => 9,
+      # `videos` polls the MoArk async task for a result; a MiniMax-H3 clip can
+      # take 8+ minutes, so the interval/budget are configurable here.
+      "video_poll_interval_ms" => 10_000,
+      "video_poll_attempts" => 110
+    },
+    "prompts" => %{
+      # Per-project prompt overrides (Phase 8): when enabled, a project's latest
+      # `prompt_overrides` row wins over the shipped `priv/toonflow/prompts` file.
+      "overrides" => true
     },
     "memory" => %{
       # Semantic memory recall (Phase 4). The index reuses the Brain RAG

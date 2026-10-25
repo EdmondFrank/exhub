@@ -11,13 +11,13 @@ defmodule Exhub.Toonflow.Voice do
   The client is injectable — `Application.put_env(:exhub, :toonflow_voice_client,
   Mod)` — so tests never hit the network. The default
   (`Exhub.Toonflow.Voice.Default`) drives the Gitee AI synchronous speech
-  endpoint (`CosyVoice2`) via `Exhub.TTS.Sync`.
+  endpoint (`Step-Audio-TTS-3B` by default) via `Exhub.TTS.Sync`.
   """
 
   alias Exhub.Toonflow
   alias Exhub.Toonflow.{Config, Media, Store, Storyboard}
 
-  @default_model "CosyVoice2"
+  @default_model "Step-Audio-TTS-3B"
   @default_format "mp3"
 
   @doc "The configured voice client implementation module."
@@ -70,7 +70,7 @@ defmodule Exhub.Toonflow.Voice do
   @spec voice_path(String.t(), String.t(), String.t() | nil) :: String.t()
   def voice_path(project_dir, key, format) do
     ext = if format == "wav", do: "wav", else: @default_format
-    Path.join([project_dir, "assets", "audio", sanitize(key) <> "." <> ext])
+    Path.join([project_dir, "assets", "audio", Toonflow.file_key(key) <> "." <> ext])
   end
 
   # --- text resolution ---
@@ -114,7 +114,6 @@ defmodule Exhub.Toonflow.Voice do
   defp put_opt(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp media_config, do: Config.get("media", %{}) || %{}
-  defp sanitize(key), do: String.replace(to_string(key), ~r/[^A-Za-z0-9._-]/, "_")
 end
 
 defmodule Exhub.Toonflow.Voice.Client do
@@ -126,7 +125,7 @@ end
 
 defmodule Exhub.Toonflow.Voice.Default do
   @moduledoc """
-  Default voice client — Gitee AI synchronous speech (`CosyVoice2`).
+  Default voice client — Gitee AI synchronous speech (`Step-Audio-TTS-3B`).
 
   Uses `Exhub.TTS.Sync` against the OpenAI-compatible `/v1/audio/speech`
   endpoint; the API key is read from `:exhub, :giteeai_api_key`.

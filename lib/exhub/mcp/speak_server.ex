@@ -3,7 +3,7 @@ defmodule Exhub.MCP.SpeakServer do
   MCP Server for text-to-speech synthesis via Gitee AI / MoArk.
 
   Exposes the `speak` tool. By default it synthesizes speech synchronously with
-  `CosyVoice2` on Gitee AI's OpenAI-compatible `/v1/audio/speech` endpoint
+  `Step-Audio-TTS-3B` on Gitee AI's OpenAI-compatible `/v1/audio/speech` endpoint
   (audio bytes returned directly). With `provider: "async"` it falls back to the
   legacy MoArk `Qwen3-TTS` flow (submit + poll), returning the generated audio
   URL.

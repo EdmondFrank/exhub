@@ -41,7 +41,7 @@ defmodule Exhub.Router.ToonflowViewTest do
       assert html =~ "/toonflow/ws?project="
 
       assert html =~
-               ~s(const STAGES = ["novel","events","script","assets","storyboard","images","videos","voices","assemble"];)
+               ~s(const STAGES = ["novel","events","script","assets","storyboard","keyframes","images","videos","voices","assemble"];)
 
       assert html =~ "/toonflow/api/projects/"
     end

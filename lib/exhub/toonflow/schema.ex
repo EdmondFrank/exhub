@@ -83,6 +83,37 @@ defmodule Exhub.Toonflow.Schema do
     """,
     "CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);",
     """
+    CREATE TABLE IF NOT EXISTS scenes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      refs_json TEXT,
+      meta_json TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_scenes_name ON scenes(name);",
+    """
+    CREATE TABLE IF NOT EXISTS props (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      refs_json TEXT,
+      meta_json TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_props_name ON props(name);",
+    """
+    CREATE TABLE IF NOT EXISTS character_variations (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      visual_prompt TEXT,
+      refs_json TEXT,
+      meta_json TEXT
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_variations_character ON character_variations(character_id);",
+    """
     CREATE TABLE IF NOT EXISTS shots (
       id TEXT PRIMARY KEY,
       script_id TEXT,
@@ -135,7 +166,18 @@ defmodule Exhub.Toonflow.Schema do
       created_at TEXT NOT NULL
     );
     """,
-    "CREATE INDEX IF NOT EXISTS idx_memory_kind ON memory_notes(kind);"
+    "CREATE INDEX IF NOT EXISTS idx_memory_kind ON memory_notes(kind);",
+    """
+    CREATE TABLE IF NOT EXISTS prompt_overrides (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      content TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_prompt_overrides_name ON prompt_overrides(name, version);"
   ]
 
   @project_columns "id, name, root_dir, meta_json, created_at, updated_at"
@@ -144,9 +186,13 @@ defmodule Exhub.Toonflow.Schema do
   @event_columns "id, chapter_id, idx, kind, summary, payload_json"
   @script_columns "id, chapter_id, version, format, content, meta_json, created_at"
   @character_columns "id, name, appearance, refs_json, meta_json"
+  @scene_columns "id, name, description, refs_json, meta_json"
+  @prop_columns "id, name, description, refs_json, meta_json"
+  @variation_columns "id, character_id, name, visual_prompt, refs_json, meta_json"
   @shot_columns "id, script_id, idx, scene, shot_desc, size, camera, lighting, motion, prompt, meta_json"
   @asset_columns "id, shot_id, character_id, kind, path, url, prompt, meta_json, created_at"
   @memory_note_columns "id, kind, title, text, meta_json, created_at"
+  @prompt_override_columns "id, name, version, content, note, created_at"
 
   @doc "The SELECT column list for the `projects` table."
   @spec project_columns() :: String.t()
@@ -172,6 +218,18 @@ defmodule Exhub.Toonflow.Schema do
   @spec character_columns() :: String.t()
   def character_columns, do: @character_columns
 
+  @doc "The SELECT column list for the `character_variations` table."
+  @spec variation_columns() :: String.t()
+  def variation_columns, do: @variation_columns
+
+  @doc "The SELECT column list for the `scenes` table."
+  @spec scene_columns() :: String.t()
+  def scene_columns, do: @scene_columns
+
+  @doc "The SELECT column list for the `props` table."
+  @spec prop_columns() :: String.t()
+  def prop_columns, do: @prop_columns
+
   @doc "The SELECT column list for the `shots` table."
   @spec shot_columns() :: String.t()
   def shot_columns, do: @shot_columns
@@ -183,6 +241,10 @@ defmodule Exhub.Toonflow.Schema do
   @doc "The SELECT column list for the `memory_notes` table."
   @spec memory_note_columns() :: String.t()
   def memory_note_columns, do: @memory_note_columns
+
+  @doc "The SELECT column list for the `prompt_overrides` table."
+  @spec prompt_override_columns() :: String.t()
+  def prompt_override_columns, do: @prompt_override_columns
 
   @doc "DDL for the registry database."
   @spec registry_ddl() :: [String.t()]
@@ -282,6 +344,56 @@ defmodule Exhub.Toonflow.Schema do
       "id" => id,
       "name" => name,
       "appearance" => appearance,
+      "refs" => decode_json(refs_json) || [],
+      "meta" => decode_json(meta_json)
+    }
+  end
+
+  @doc "Decode a `character_variations` row (order of `variation_columns/0`)."
+  @spec decode_variation([term()]) :: map()
+  def decode_variation([id, character_id, name, visual_prompt, refs_json, meta_json]) do
+    %{
+      "id" => id,
+      "character_id" => character_id,
+      "name" => name,
+      "visual_prompt" => visual_prompt,
+      "refs" => decode_json(refs_json) || [],
+      "meta" => decode_json(meta_json)
+    }
+  end
+
+  @doc "Decode a `prompt_overrides` row (order of `prompt_override_columns/0`)."
+  @spec decode_prompt_override([term()]) :: map()
+  def decode_prompt_override([id, name, version, content, note, created_at]) do
+    %{
+      "id" => id,
+      "name" => name,
+      "version" => version,
+      "content" => content,
+      "note" => note,
+      "created_at" => created_at
+    }
+  end
+
+  @doc "Decode a `scenes` row (order of `scene_columns/0`)."
+  @spec decode_scene([term()]) :: map()
+  def decode_scene([id, name, description, refs_json, meta_json]) do
+    %{
+      "id" => id,
+      "name" => name,
+      "description" => description,
+      "refs" => decode_json(refs_json) || [],
+      "meta" => decode_json(meta_json)
+    }
+  end
+
+  @doc "Decode a `props` row (order of `prop_columns/0`)."
+  @spec decode_prop([term()]) :: map()
+  def decode_prop([id, name, description, refs_json, meta_json]) do
+    %{
+      "id" => id,
+      "name" => name,
+      "description" => description,
       "refs" => decode_json(refs_json) || [],
       "meta" => decode_json(meta_json)
     }

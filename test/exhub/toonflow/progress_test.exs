@@ -77,6 +77,26 @@ defmodule Exhub.Toonflow.ProgressTest do
     assert json =~ ~s("c":1)
   end
 
+  test "normalizes a struct detail term without raising" do
+    Progress.subscribe("demo")
+
+    # A struct is a map but not enumerable, so the map clause of `normalize/1`
+    # used to raise a `Protocol.UndefinedError` here — which, mid-run, took the
+    # whole pipeline report down with it (an LLM transport timeout arrives as a
+    # `%LangChain.LangChainError{}`).
+    Progress.stage_event(
+      "demo",
+      "storyboard",
+      "error",
+      {:parse_failed, struct(LangChain.LangChainError, type: "unknown_error", message: "timeout")}
+    )
+
+    assert_receive {:toonflow_progress, "demo", %{"detail" => detail}}
+    assert detail =~ "parse_failed"
+    assert detail =~ "LangChainError"
+    assert {:ok, _} = Jason.encode(%{"detail" => detail})
+  end
+
   test "is a no-op for a nil project" do
     assert :ok = Progress.subscribe(nil)
     assert :ok = Progress.broadcast(nil, %{"type" => "stage"})

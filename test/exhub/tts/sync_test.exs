@@ -5,7 +5,7 @@ defmodule Exhub.TTS.SyncTest do
 
   describe "defaults" do
     test "model, voice and predicates" do
-      assert Sync.default_model() == "CosyVoice2"
+      assert Sync.default_model() == "Step-Audio-TTS-3B"
       assert Sync.default_voice() == "alloy"
       assert Sync.model?("CosyVoice2")
       refute Sync.model?("CosyVoice3")
@@ -19,7 +19,7 @@ defmodule Exhub.TTS.SyncTest do
   describe "build_body/2" do
     test "applies the model/voice defaults" do
       assert Sync.build_body("你好") == %{
-               "model" => "CosyVoice2",
+               "model" => "Step-Audio-TTS-3B",
                "input" => "你好",
                "voice" => "alloy"
              }

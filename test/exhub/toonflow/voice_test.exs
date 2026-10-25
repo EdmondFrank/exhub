@@ -39,12 +39,12 @@ defmodule Exhub.Toonflow.VoiceTest do
     assert File.exists?(asset["path"])
   end
 
-  test "passes the CosyVoice2 / alloy defaults through to the client", %{server: server} do
+  test "passes the Step-Audio-TTS-3B / 中文女 defaults through to the client", %{server: server} do
     assert {:ok, _} = Store.create_project("demo", [], server)
 
     assert {:ok, asset} = Voice.generate_voice("demo", [text: "你好"], server)
-    assert asset["meta"]["model"] == "CosyVoice2"
-    assert asset["meta"]["voice"] == "alloy"
+    assert asset["meta"]["model"] == "Step-Audio-TTS-3B"
+    assert asset["meta"]["voice"] == "中文女"
   end
 
   test "resolves the dialogue from a shot's meta", %{server: server} do
