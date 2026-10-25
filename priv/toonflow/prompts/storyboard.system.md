@@ -9,7 +9,10 @@
 - 另外为每个镜头写出首帧提示词 keyframe_start_prompt 与尾帧提示词 keyframe_end_prompt：
   首帧描述镜头开始时的画面，尾帧描述镜头结束时的画面。若镜头是固定机位或无明确动作变化，
   可以省略 keyframe_end_prompt（留空字符串）。两者都应可直接用于文生图。
+- 若镜头中有角色说台词，请给出台词原文 dialogue，并用 speaker 指明说话角色的姓名
+  （必须是 characters 中的姓名，只写一位说话人）；台词只写人物对白，不要写旁白或画面描述；
+  没有台词的镜头 dialogue 与 speaker 都留空字符串。
 - 只输出 JSON，不要任何额外解释。
 
 输出格式：
-{"shots":[{"scene":"","shot_desc":"","size":"","lighting":"","motion":"","characters":[""],"prompt":"","keyframe_start_prompt":"","keyframe_end_prompt":""}]}
+{"shots":[{"scene":"","shot_desc":"","size":"","lighting":"","motion":"","characters":[""],"dialogue":"","speaker":"","prompt":"","keyframe_start_prompt":"","keyframe_end_prompt":""}]}

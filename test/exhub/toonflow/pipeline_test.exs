@@ -144,6 +144,10 @@ defmodule Exhub.Toonflow.PipelineTest do
 
     previous_video = Application.get_env(:exhub, :toonflow_video_client)
     previous_voice = Application.get_env(:exhub, :toonflow_voice_client)
+    # The storyboard stub leaves the shot without dialogue, so what the `voices`
+    # step exercises here is narration voicing — now opt-in via `tts_narration`.
+    previous_tf = Application.get_env(:exhub, :toonflow)
+    Application.put_env(:exhub, :toonflow, %{"media" => %{"tts_narration" => true}})
     Application.put_env(:exhub, :toonflow_video_client, Exhub.Toonflow.PipelineTest.VideoStub)
     Application.put_env(:exhub, :toonflow_voice_client, Exhub.Toonflow.PipelineTest.VoiceStub)
 
@@ -155,6 +159,10 @@ defmodule Exhub.Toonflow.PipelineTest do
       if previous_voice,
         do: Application.put_env(:exhub, :toonflow_voice_client, previous_voice),
         else: Application.delete_env(:exhub, :toonflow_voice_client)
+
+      if previous_tf,
+        do: Application.put_env(:exhub, :toonflow, previous_tf),
+        else: Application.delete_env(:exhub, :toonflow)
     end)
 
     assert {:ok, video} = Video.generate_video("demo-story", [shot_id: shot["id"]], server)
@@ -310,12 +318,20 @@ defmodule Exhub.Toonflow.PipelineTest do
 
       stages = ~w(novel events script assets storyboard)
 
-      assert {:ok, _} = Pipeline.run("pipe-plan", [text: text, title: "风雨", stages: stages], server)
+      assert {:ok, _} =
+               Pipeline.run("pipe-plan", [text: text, title: "风雨", stages: stages], server)
 
       # Nothing rendered yet: the single shot's keyframe link is unsatisfied.
       assert {:ok, plan} = Pipeline.plan("pipe-plan", [], server)
 
-      assert [%{"idx" => 1, "link" => "keyframe", "ready" => false, "missing" => ["keyframe_start"]}] =
+      assert [
+               %{
+                 "idx" => 1,
+                 "link" => "keyframe",
+                 "ready" => false,
+                 "missing" => ["keyframe_start"]
+               }
+             ] =
                plan["shots"]
 
       assert {:ok, _} = Pipeline.run("pipe-plan", [stages: ~w(keyframes)], server)

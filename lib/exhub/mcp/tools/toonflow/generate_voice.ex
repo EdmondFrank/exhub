@@ -25,6 +25,13 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
     the shot description), or `text` for an explicit line. `voice`, `model` and
     the clone params `prompt_audio_url` / `prompt_text` override the defaults.
     Returns the local `path` of the audio.
+
+    Voice resolution: an explicit `voice` wins, else the shot's speaker
+    (`meta.speaker` / `meta.说话人`, else its only character) selects a
+    `media.voice_map` entry — a voice name, or a map with `voice` / `speech_rate`
+    / `volume` / `sample_rate` — else `media.tts_voice`. A shot with no dialogue
+    is skipped (`skipped: true`) unless `media.tts_narration` is on, so
+    narration never gets a voiceover.
     """
   end
 
@@ -51,6 +58,20 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
     field(:output_format, :string, description: "Nominal format; corrected to the detected one.")
     field(:language, :string, description: "Optional language hint.")
     field(:instruction, :string, description: "Optional style instruction.")
+
+    field(:speech_rate, :float,
+      description:
+        "Realtime (TeleTTS) models only: speech rate. Default: the shot's `media.voice_map` entry, else 1."
+    )
+
+    field(:volume, :integer,
+      description:
+        "Realtime (TeleTTS) models only: output volume. Default: the voice_map entry, else 50."
+    )
+
+    field(:sample_rate, :integer,
+      description: "Realtime (TeleTTS) models only: output sample rate in Hz (default 24000)."
+    )
   end
 
   @impl true
@@ -69,12 +90,24 @@ defmodule Exhub.MCP.Tools.Toonflow.GenerateVoice do
       |> Helpers.put_opt(:output_format, Helpers.opt(params, :output_format))
       |> Helpers.put_opt(:language, Helpers.opt(params, :language))
       |> Helpers.put_opt(:instruction, Helpers.opt(params, :instruction))
+      |> Helpers.put_opt(:speech_rate, Helpers.opt(params, :speech_rate))
+      |> Helpers.put_opt(:volume, Helpers.opt(params, :volume))
+      |> Helpers.put_opt(:sample_rate, Helpers.opt(params, :sample_rate))
 
     job_params = %{"shot_id" => Map.get(params, :shot_id)}
 
     case Jobs.run(project, "voice", job_params, fn -> Voice.generate_voice(project, opts) end) do
       {:ok, asset} ->
         {:reply, Response.tool() |> Response.structured(Map.put(asset, "success", true)), frame}
+
+      {:skip, reason} ->
+        {:reply,
+         Response.tool()
+         |> Response.structured(%{
+           "success" => true,
+           "skipped" => true,
+           "reason" => to_string(reason)
+         }), frame}
 
       {:error, reason} ->
         Helpers.error(frame, reason)

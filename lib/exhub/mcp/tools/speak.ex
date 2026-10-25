@@ -144,7 +144,7 @@ defmodule Exhub.MCP.Tools.Speak do
 
     field(:volume, :integer, description: "Realtime only: output volume (default 50).")
 
-    field(:speech_rate, :number, description: "Realtime only: speech rate (default 1).")
+    field(:speech_rate, :float, description: "Realtime only: speech rate (default 1).")
 
     field(:sample_rate, :integer,
       description: "Realtime only: output sample rate in Hz (default 24000)."

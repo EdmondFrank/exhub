@@ -335,7 +335,9 @@ config :exhub, :toonflow, %{
   "root_dir" => nil,                              # nil => ~/.config/exhub/toonflow
   "agents"   => %{"script" => "kimi-k2.6", "director" => "kimi-k2.6", "qa" => "kimi-k2.6"},
   "media"    => %{"image_model" => "qwen-image-2.0", "video_model" => "MiniMax-H3", "tts_model" => "TeleTTS-Bidirectional-Mandarin", "tts_voice" => "guangzhounv",
-                  "keyframes" => true, "last_frame" => true, "candidates" => 9},
+                  "keyframes" => true, "last_frame" => true, "candidates" => 9,
+                  "voice_map" => %{"漩涡鸣人" => %{"voice" => "lucas", "speech_rate" => 1.05}},
+                  "tts_narration" => false},
   "prompts"  => %{"overrides" => true},
   "memory"   => %{"enabled" => true, "top_k" => 5, "scope" => "project", "dim" => 1024},
   "assembly" => %{"ffmpeg_path" => "ffmpeg", "ffprobe_path" => "ffprobe", "subtitles" => true},

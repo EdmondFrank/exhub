@@ -9,6 +9,7 @@ defmodule Exhub.Toonflow.VoiceTest do
     {:ok, pid} = Store.start_link(root_dir: root, name: server)
 
     previous = Application.get_env(:exhub, :toonflow_voice_client)
+    previous_tf = Application.get_env(:exhub, :toonflow)
     Application.put_env(:exhub, :toonflow_voice_client, Exhub.Toonflow.VoiceTest.StubClient)
 
     on_exit(fn ->
@@ -18,6 +19,10 @@ defmodule Exhub.Toonflow.VoiceTest do
       if previous,
         do: Application.put_env(:exhub, :toonflow_voice_client, previous),
         else: Application.delete_env(:exhub, :toonflow_voice_client)
+
+      if previous_tf,
+        do: Application.put_env(:exhub, :toonflow, previous_tf),
+        else: Application.delete_env(:exhub, :toonflow)
     end)
 
     %{server: server}
@@ -64,6 +69,90 @@ defmodule Exhub.Toonflow.VoiceTest do
     assert {:ok, _} = Store.create_project("demo", [], server)
     assert {:error, {:voice_failed, :boom}} = Voice.generate_voice("demo", [text: "boom"], server)
   end
+
+  describe "per-character voices" do
+    test "meta.speaker picks the mapped voice and tuning", %{server: server} do
+      put_toonflow(%{
+        "media" => %{"voice_map" => %{"鸣人" => %{"voice" => "lucas", "speech_rate" => 1.05}}}
+      })
+
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      assert :ok =
+               insert_shot("demo", "sht_1", %{"dialogue" => "我不走", "speaker" => "鸣人"}, server)
+
+      assert {:ok, asset} = Voice.generate_voice("demo", [shot_id: "sht_1"], server)
+      assert asset["meta"]["voice"] == "lucas"
+      assert asset["meta"]["speech_rate"] == 1.05
+      assert asset["meta"]["speaker"] == "鸣人"
+    end
+
+    test "a string voice_map entry is just a voice name", %{server: server} do
+      put_toonflow(%{"media" => %{"voice_map" => %{"老盐" => "shanghainv"}}})
+      assert {:ok, _} = Store.create_project("demo", [], server)
+      assert :ok = insert_shot("demo", "sht_1", %{"dialogue" => "哎", "speaker" => "老盐"}, server)
+
+      assert {:ok, asset} = Voice.generate_voice("demo", [shot_id: "sht_1"], server)
+      assert asset["meta"]["voice"] == "shanghainv"
+    end
+
+    test "infers the speaker from a shot's only character", %{server: server} do
+      put_toonflow(%{"media" => %{"voice_map" => %{"小铃" => "dongbeinv"}}})
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      assert :ok =
+               insert_shot(
+                 "demo",
+                 "sht_1",
+                 %{"dialogue" => "姐姐", "characters" => ["小铃"]},
+                 server
+               )
+
+      assert {:ok, asset} = Voice.generate_voice("demo", [shot_id: "sht_1"], server)
+      assert asset["meta"]["voice"] == "dongbeinv"
+      assert asset["meta"]["speaker"] == "小铃"
+    end
+
+    test "an explicit voice wins over the voice map", %{server: server} do
+      put_toonflow(%{"media" => %{"voice_map" => %{"小铃" => "dongbeinv"}}})
+      assert {:ok, _} = Store.create_project("demo", [], server)
+      assert :ok = insert_shot("demo", "sht_1", %{"dialogue" => "嗨", "speaker" => "小铃"}, server)
+
+      assert {:ok, asset} =
+               Voice.generate_voice("demo", [shot_id: "sht_1", voice: "lucas"], server)
+
+      assert asset["meta"]["voice"] == "lucas"
+    end
+
+    test "an unmapped speaker falls back to media.tts_voice", %{server: server} do
+      put_toonflow(%{"media" => %{"voice_map" => %{"小铃" => "dongbeinv"}}})
+      assert {:ok, _} = Store.create_project("demo", [], server)
+      assert :ok = insert_shot("demo", "sht_1", %{"dialogue" => "喂", "speaker" => "路人"}, server)
+
+      assert {:ok, asset} = Voice.generate_voice("demo", [shot_id: "sht_1"], server)
+      assert asset["meta"]["voice"] == "guangzhounv"
+    end
+  end
+
+  describe "narration" do
+    test "a shot with no dialogue is skipped", %{server: server} do
+      assert {:ok, _} = Store.create_project("demo", [], server)
+      assert :ok = insert_shot("demo", "sht_1", %{}, server)
+
+      assert {:skip, :no_dialogue} = Voice.generate_voice("demo", [shot_id: "sht_1"], server)
+    end
+
+    test "tts_narration voices the shot description instead", %{server: server} do
+      put_toonflow(%{"media" => %{"tts_narration" => true}})
+      assert {:ok, _} = Store.create_project("demo", [], server)
+      assert :ok = insert_shot("demo", "sht_1", %{}, server)
+
+      assert {:ok, asset} = Voice.generate_voice("demo", [shot_id: "sht_1"], server)
+      assert asset["prompt"] == "林昭立于门前"
+    end
+  end
+
+  defp put_toonflow(config), do: Application.put_env(:exhub, :toonflow, config)
 
   defp insert_shot(project, id, meta, server) do
     Store.run_project(
@@ -112,8 +201,12 @@ defmodule Exhub.Toonflow.VoiceTest.StubClient do
        "model" => opts[:model],
        "voice" => opts[:voice],
        "speaker" => opts[:speaker],
+       "speech_rate" => opts[:speech_rate],
+       "volume" => opts[:volume],
        "output_format" => opts[:output_format],
        "segments" => 1
-     }}
+     }
+     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+     |> Map.new()}
   end
 end

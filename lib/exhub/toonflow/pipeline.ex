@@ -390,6 +390,11 @@ defmodule Exhub.Toonflow.Pipeline do
             {:ok, _asset} ->
               {generated + 1, skipped_n, errors}
 
+            # e.g. a `voices` shot with no dialogue (narration is opt-in) —
+            # nothing to generate, not an error.
+            {:skip, _reason} ->
+              {generated, skipped_n + 1, errors}
+
             {:error, reason} ->
               {generated, skipped_n, [%{"shot_id" => shot_id, "reason" => reason} | errors]}
           end

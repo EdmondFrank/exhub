@@ -443,12 +443,26 @@ extension is corrected to the detected container (e.g. `.wav` for `ChatTTS`).
 `Exhub.TTS.Realtime` serves one MoArk session at a time and serialises behind a
 global lock, so a parallel voice batch queues rather than failing.
 
+**Per-character voices.** A shot's voice comes from its *speaker* — an explicit
+`meta.speaker` (else the shot's only character) — looked up in
+`media.voice_map`, where a value is a voice name or a
+`%{"voice" =>, "speech_rate" =>, "volume" =>, "sample_rate" =>}` map. Explicit
+`voice` / `speech_rate` / `volume` / `sample_rate` options win, then
+`media.tts_voice`. MoArk's TeleTTS catalogue has a single male voice (`lucas`),
+so several male characters can share it and be told apart by `speech_rate`.
+New storyboards carry a `speaker` per shot (the storyboard LLM fills it in);
+backfill an existing board with `Exhub.Toonflow.Storyboard.put_shot_meta/4`.
+
+**Narration.** Only shots with dialogue are voiced. A shot with none is skipped
+(`{:skip, :no_dialogue}`) so narration never gets a voiceover, unless
+`media.tts_narration` is true — then its `shot_desc` is voiced.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | ✓ | Project name. |
-| `shot_id` | string | | Use this shot's dialogue (`meta.dialogue` / `meta.台词`, else the shot description). |
+| `shot_id` | string | | Use this shot's dialogue (`meta.dialogue` / `meta.台词`). A shot with no dialogue is skipped unless `media.tts_narration` is on. |
 | `text` | string | | Explicit text (alternative to `shot_id`). |
-| `voice` | string | | Voice name (default: the configured `media.tts_voice`, `guangzhounv`). |
+| `voice` | string | | Voice name; wins over the per-character `media.voice_map` (default: `media.tts_voice`, `guangzhounv`). |
 | `model` | string | | TTS model (default: the configured `media.tts_model`, `TeleTTS-Bidirectional-Mandarin`). |
 | `prompt_audio_url` | string | | Reference audio URL for the sync clone models (IndexTTS-2, GLM-TTS). |
 | `prompt_text` | string | | Transcript of `prompt_audio_url` (optional). |
@@ -751,6 +765,15 @@ config :exhub, :toonflow, %{
     "video_model" => "MiniMax-H3",
     "tts_model" => "TeleTTS-Bidirectional-Mandarin",
     "tts_voice" => "guangzhounv",
+    # Per-character voices: a shot's `meta.speaker` (else its only character)
+    # picks an entry here — a voice name, or a map with `voice` / `speech_rate`
+    # / `volume` / `sample_rate`.
+    "voice_map" => %{
+      "漩涡鸣人" => %{"voice" => "lucas", "speech_rate" => 1.05},
+      "人造人18号" => %{"voice" => "shanghainv", "speech_rate" => 0.95}
+    },
+    # No narration voiceover: only shots that have dialogue are voiced.
+    "tts_narration" => false,
     # Start/end keyframes: the `keyframes` stage renders per-shot first/last
     # frames, and `videos` feeds the end frame to `fl2va`.
     "keyframes" => true,
@@ -822,7 +845,7 @@ The memory index (`Exhub.Toonflow.Memory.Index`) reuses
 | `Exhub.Toonflow.Keyframe` | Start/end keyframe generation, cross-shot continuity copies, candidate-cell selection (pure `normalize_type/1`, `adjacent/2`, `normalize_cell/1`, `continuity_attrs/3`) |
 | `Exhub.Toonflow.Media` | Frame generation + candidate grids; `Media.Client` behaviour + `Media.Default` (moark t2i/i2i); shared asset insert/query helpers; pure `crop_filter/3`/`crop_argv/6` + `crop_image/5` |
 | `Exhub.Toonflow.Video` | Clip generation; `Video.Client` behaviour + `Video.Default` (moark async video, `t2va`/`i2va`/`fl2va`) |
-| `Exhub.Toonflow.Voice` | TTS generation; `Voice.Client` behaviour + `Voice.Default` (moark async speech) |
+| `Exhub.Toonflow.Voice` | TTS generation; `Voice.Client` behaviour + `Voice.Default` (routes MoArk realtime vs Gitee sync); per-character `media.voice_map`, narration opt-in |
 | `Exhub.Toonflow.Assemble` | FFmpeg episode assembly + SRT (pure argv/builders, `Exile` execution) |
 | `Exhub.Toonflow.Jobs` | Job ledger over the `jobs` table |
 | `Exhub.Toonflow.HTTP` | Shared MoArk async submit/poll/download helpers |

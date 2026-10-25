@@ -3,6 +3,12 @@ defmodule Exhub.MCP.Tools.SpeakTest do
 
   alias Exhub.MCP.Tools.Speak
 
+  describe "input_schema/0" do
+    test "declares speech_rate as a number" do
+      assert Speak.input_schema()["properties"]["speech_rate"]["type"] == "number"
+    end
+  end
+
   describe "validate_params/1" do
     test "requires text" do
       assert {:error, msg} = Speak.validate_params(%{})

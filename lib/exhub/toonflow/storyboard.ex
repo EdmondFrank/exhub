@@ -215,6 +215,44 @@ defmodule Exhub.Toonflow.Storyboard do
     end
   end
 
+  @doc """
+  Merge `patch` into a shot's `meta` and persist it.
+
+  Backfills fields the storyboard LLM may not have supplied — notably
+  `meta.speaker` (the character who speaks the shot's line), which the `voices`
+  stage resolves to a per-character voice via `media.voice_map`. A `nil` value
+  deletes the key. Returns `{:ok, %{"shot_id" =>, "meta" =>}}` or
+  `{:error, reason}`.
+  """
+  @spec put_shot_meta(String.t(), String.t(), map(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def put_shot_meta(project, shot_id, patch, server \\ Store) when is_map(patch) do
+    with {:ok, shot} <- get_shot(project, shot_id, server) do
+      meta = apply_meta_patch(shot["meta"] || %{}, patch)
+
+      case Store.run_project(
+             project,
+             fn conn ->
+               DB.execute(conn, "UPDATE shots SET meta_json = ? WHERE id = ?", [
+                 Schema.encode_json(meta),
+                 shot_id
+               ])
+             end,
+             server
+           ) do
+        :ok -> {:ok, %{"shot_id" => shot_id, "meta" => meta}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp apply_meta_patch(meta, patch) do
+    Enum.reduce(patch, meta, fn
+      {key, nil}, acc -> Map.delete(acc, to_string(key))
+      {key, value}, acc -> Map.put(acc, to_string(key), value)
+    end)
+  end
+
   # --- shot splitting (Phase 8.5) ---
 
   @doc """
@@ -579,9 +617,12 @@ defmodule Exhub.Toonflow.Storyboard do
           "首帧提示词",
           "keyframe_end_prompt",
           "end_frame_prompt",
-          "尾帧提示词"
+          "尾帧提示词",
+          "speaker",
+          "说话人"
         ])
         |> put_keyframe_prompts(shot)
+        |> put_speaker(shot)
     }
   end
 
@@ -616,6 +657,16 @@ defmodule Exhub.Toonflow.Storyboard do
       )
 
     Map.merge(meta, keyframes)
+  end
+
+  # The storyboard LLM may name the character who speaks a shot's line; store it
+  # under a stable `meta.speaker` key, which the `voices` stage uses to pick a
+  # per-character voice from `media.voice_map`.
+  defp put_speaker(meta, shot) do
+    case Json.text(shot["speaker"] || shot["说话人"]) do
+      nil -> meta
+      speaker -> Map.put(meta, "speaker", speaker)
+    end
   end
 
   defp put_prompt(map, _key, nil), do: map

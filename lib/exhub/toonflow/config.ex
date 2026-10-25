@@ -30,6 +30,15 @@ defmodule Exhub.Toonflow.Config do
       # (`Step-Audio-TTS-3B`, ...) remain available via `Exhub.TTS.Sync`.
       "tts_model" => "TeleTTS-Bidirectional-Mandarin",
       "tts_voice" => "guangzhounv",
+      # Per-character voices: a shot's `meta.speaker` (or its only character)
+      # selects an entry here. A value is either a voice name, or a map with
+      # `voice` / `speech_rate` / `volume` / `sample_rate` for finer control —
+      # e.g. several characters sharing the one male voice (`lucas`), told
+      # apart by `speech_rate`.
+      "voice_map" => %{},
+      # A shot without dialogue (`meta.dialogue` / `meta.台词`) is *not* voiced
+      # unless this is true, so narration never gets a voiceover.
+      "tts_narration" => false,
       # Phase 7: start/end keyframes. `keyframes` enables the pipeline stage;
       # `last_frame` lets `fl2va` use a shot's end frame as the interpolation
       # target.
@@ -105,7 +114,45 @@ defmodule Exhub.Toonflow.Config do
     Path.join([System.user_home!(), ".config", "exhub", "toonflow"])
   end
 
+  @doc "The merged `media` configuration."
+  @spec media() :: map()
+  def media, do: get("media", %{}) || %{}
+
+  @doc """
+  Per-character voice specs (`media.voice_map`): character name → a voice name
+  or a `%{"voice" =>, "speech_rate" =>, "volume" =>, "sample_rate" =>}` map.
+  """
+  @spec voice_map() :: map()
+  def voice_map, do: media() |> Map.get("voice_map", %{}) |> normalize_voice_map()
+
+  @doc "Whether shots without dialogue are voiced (`media.tts_narration`)."
+  @spec tts_narration?() :: boolean()
+  def tts_narration?, do: media()["tts_narration"] == true
+
+  @doc "The normalized (map) voice spec for `speaker`, or `%{}` when absent."
+  @spec voice_spec(map(), String.t() | nil) :: map()
+  def voice_spec(voice_map, speaker) when is_map(voice_map) and is_binary(speaker) do
+    case Map.get(voice_map, speaker) do
+      spec when is_binary(spec) -> %{"voice" => spec}
+      spec when is_map(spec) -> spec
+      _ -> %{}
+    end
+  end
+
+  def voice_spec(_voice_map, _speaker), do: %{}
+
   # --- helpers ---
+
+  defp normalize_voice_map(map) when is_map(map) do
+    Map.new(map, fn {name, spec} -> {to_string(name), normalize_spec(spec)} end)
+  end
+
+  defp normalize_voice_map(_), do: %{}
+
+  defp normalize_spec(spec) when is_map(spec),
+    do: Map.new(spec, fn {k, v} -> {to_string(k), v} end)
+
+  defp normalize_spec(spec), do: spec
 
   defp normalize(cfg) when is_map(cfg), do: cfg
   defp normalize(_), do: %{}

@@ -60,10 +60,10 @@ defmodule Exhub.Toonflow.Jobs do
           String.t(),
           String.t(),
           map(),
-          (-> {:ok, term()} | {:error, term()}),
+          (-> {:ok, term()} | {:skip, term()} | {:error, term()}),
           GenServer.server()
         ) ::
-          {:ok, term()} | {:error, term()}
+          {:ok, term()} | {:skip, term()} | {:error, term()}
   def run(project, type, params, fun, server \\ Store) when is_function(fun, 0) do
     id =
       case start(project, type, params, server) do
@@ -126,6 +126,11 @@ defmodule Exhub.Toonflow.Jobs do
 
   defp record_outcome(project, id, {:error, reason}, server),
     do: fail(project, id, reason, server)
+
+  # A skipped step (e.g. a `voices` shot with no dialogue) is not a failure;
+  # record it as a successful no-op so the ledger has no dangling job.
+  defp record_outcome(project, id, {:skip, reason}, server),
+    do: finish(project, id, %{"skipped" => true, "reason" => to_string(reason)}, server)
 
   defp record_outcome(_project, _id, _other, _server), do: :ok
 

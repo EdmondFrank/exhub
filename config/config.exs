@@ -139,6 +139,20 @@ config :exhub, :toonflow, %{
     # (`Step-Audio-TTS-3B`, ...) remain available via `Exhub.TTS.Sync`.
     "tts_model" => "TeleTTS-Bidirectional-Mandarin",
     "tts_voice" => "guangzhounv",
+    # Per-character voices: a shot's `meta.speaker` (else its only character)
+    # picks an entry here, so each character can sound different. MoArk's
+    # TeleTTS catalogue has a single male voice (`lucas`; the rest are dialect
+    # female voices), so the male speakers of `cross-naruto18-op` share it and
+    # are told apart by `speech_rate`.
+    "voice_map" => %{
+      "漩涡鸣人" => %{"voice" => "lucas", "speech_rate" => 1.05},
+      "老盐" => %{"voice" => "lucas", "speech_rate" => 0.75},
+      "瞭望手" => %{"voice" => "lucas", "speech_rate" => 1.35},
+      "人造人18号" => %{"voice" => "shanghainv", "speech_rate" => 0.95},
+      "小铃" => %{"voice" => "dongbeinv", "speech_rate" => 1.15}
+    },
+    # No narration voiceover: only shots that have dialogue are voiced.
+    "tts_narration" => false,
     # Start/end keyframes: when true the pipeline `keyframes` stage renders
     # per-shot first/last frames, and `videos` feeds the end frame to `fl2va`.
     "keyframes" => true,

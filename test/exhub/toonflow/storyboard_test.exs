@@ -29,6 +29,14 @@ defmodule Exhub.Toonflow.StoryboardTest do
       assert shot["motion"] == "摇"
     end
 
+    test "keeps the speaker (and the dialogue) in meta" do
+      raw = ~s({"shots":[{"shot_desc":"林昭开口","dialogue":"我不走","speaker":"林昭"}]})
+
+      assert {:ok, [shot]} = Storyboard.parse_storyboard(raw)
+      assert shot["meta"]["speaker"] == "林昭"
+      assert shot["meta"]["dialogue"] == "我不走"
+    end
+
     test "errors when no shots are present" do
       assert {:error, {:missing, "shots"}} = Storyboard.parse_storyboard(~s({"foo":[]}))
       assert {:error, :invalid_payload} = Storyboard.parse_storyboard(nil)
@@ -78,6 +86,42 @@ defmodule Exhub.Toonflow.StoryboardTest do
       characters = [%{"name" => "林昭", "appearance" => "青衫少年"}]
 
       assert Storyboard.shot_prompt(shot, characters) == "青衫少年立于门前；林昭（青衫少年）"
+    end
+  end
+
+  describe "put_shot_meta/4" do
+    setup do
+      root = Path.join(System.tmp_dir!(), "toonflow_meta_#{System.unique_integer([:positive])}")
+      server = :"toonflow_meta_store_#{System.unique_integer([:positive])}"
+      {:ok, pid} = Store.start_link(root_dir: root, name: server)
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm_rf(root)
+      end)
+
+      %{server: server}
+    end
+
+    test "merges a patch, and a nil value deletes the key", %{server: server} do
+      shot_id = insert_shot(server, 1, %{"dialogue" => "我不走"})
+
+      assert {:ok, %{"meta" => meta}} =
+               Storyboard.put_shot_meta("demo", shot_id, %{"speaker" => "林昭"}, server)
+
+      assert meta["speaker"] == "林昭"
+      assert meta["dialogue"] == "我不走"
+
+      assert {:ok, _} = Storyboard.put_shot_meta("demo", shot_id, %{"speaker" => nil}, server)
+
+      assert {:ok, shot} = Storyboard.get_shot("demo", shot_id, server)
+      assert Map.get(shot["meta"], "speaker") == nil
+      assert shot["meta"]["dialogue"] == "我不走"
+    end
+
+    test "errors for an unknown shot", %{server: server} do
+      assert {:error, :shot_not_found} = Storyboard.put_shot_meta("demo", "nope", %{}, server)
     end
   end
 

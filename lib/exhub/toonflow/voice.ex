@@ -3,10 +3,25 @@ defmodule Exhub.Toonflow.Voice do
   Voice (TTS) generation for Toonflow (Phase 3).
 
   `generate_voice/3` resolves dialogue for a shot (from the shot's
-  `meta[\"dialogue\"]` / `meta[\"台词\"]`, else its description, or an explicit
+  `meta[\"dialogue\"]` / `meta[\"台词\"]`, or an explicit
   `text`), calls the configured `Exhub.Toonflow.Voice.Client`, saves the audio
   under the project's `assets/audio/`, and records an `assets` row of kind
   `audio`.
+
+  ## Per-character voices
+
+  The voice is chosen from the shot's speaker — its explicit `meta["speaker"]`
+  (e.g. `漩涡鸣人`), else its only character — via `media.voice_map`, where a
+  value is a voice name or a `%{"voice" =>, "speech_rate" =>, "volume" =>,
+  "sample_rate" =>}` map (handy to tell apart several characters sharing one
+  timbre). Explicit `:voice` / `:speaker` / `:speech_rate` / `:volume` options
+  always win, and the configured `media.tts_voice` is the final fallback.
+
+  ## Narration
+
+  A shot with no dialogue is **skipped** (`{:skip, :no_dialogue}`) so narration
+  never gets a voiceover — unless `media.tts_narration` is true, in which case
+  its `shot_desc` is voiced as before.
 
   The client is injectable — `Application.put_env(:exhub, :toonflow_voice_client,
   Mod)` — so tests never hit the network. The default
@@ -31,11 +46,13 @@ defmodule Exhub.Toonflow.Voice do
   Generate a voice clip.
 
   `opts`: `:shot_id` (resolve the dialogue from the shot), `:text` (explicit,
-  used as-is), `:model`, `:speaker`, `:output_format`, `:language`,
-  `:instruction`. Returns `{:ok, asset}` or `{:error, reason}`.
+  used as-is), `:voice`, `:speaker`, `:model`, `:output_format`, `:language`,
+  `:instruction`, `:volume`, `:speech_rate`, `:sample_rate`. Returns
+  `{:ok, asset}`, `{:skip, :no_dialogue}` (nothing to voice), or
+  `{:error, reason}`.
   """
   @spec generate_voice(String.t(), keyword(), GenServer.server()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map()} | {:skip, atom()} | {:error, term()}
   def generate_voice(project, opts \\ [], server \\ Store) do
     shot_id = Toonflow.blank(Keyword.get(opts, :shot_id))
     text = Toonflow.blank(Keyword.get(opts, :text))
@@ -46,8 +63,14 @@ defmodule Exhub.Toonflow.Voice do
       model = Keyword.get(opts, :model) || media_config()["tts_model"] || @default_model
       format = Keyword.get(opts, :output_format) || default_format(model)
 
+      # The shot's speaker (explicit `meta.speaker`, else its only character)
+      # selects a `media.voice_map` entry; explicit opts always win.
+      speaker = speaker_of(shot)
+      spec = Config.voice_spec(Config.voice_map(), speaker)
+
       voice =
-        Keyword.get(opts, :voice) || Keyword.get(opts, :speaker) || media_config()["tts_voice"]
+        Keyword.get(opts, :voice) || Keyword.get(opts, :speaker) || spec["voice"] ||
+          media_config()["tts_voice"]
 
       key = shot_id || Toonflow.new_id("vox")
       out_path = voice_path(meta["root_dir"], key, format)
@@ -60,12 +83,12 @@ defmodule Exhub.Toonflow.Voice do
         |> put_opt(:instruction, Keyword.get(opts, :instruction))
         |> put_opt(:prompt_audio_url, Keyword.get(opts, :prompt_audio_url))
         |> put_opt(:prompt_text, Keyword.get(opts, :prompt_text))
-        |> put_opt(:volume, Keyword.get(opts, :volume))
-        |> put_opt(:speech_rate, Keyword.get(opts, :speech_rate))
-        |> put_opt(:sample_rate, Keyword.get(opts, :sample_rate))
+        |> put_opt(:volume, Keyword.get(opts, :volume) || spec["volume"])
+        |> put_opt(:speech_rate, Keyword.get(opts, :speech_rate) || spec["speech_rate"])
+        |> put_opt(:sample_rate, Keyword.get(opts, :sample_rate) || spec["sample_rate"])
 
       case voice_client().generate_voice(final_text, client_opts) do
-        {:ok, result} -> record(project, shot_id, final_text, result, server)
+        {:ok, result} -> record(project, shot_id, speaker, final_text, result, server)
         {:error, reason} -> {:error, {:voice_failed, reason}}
       end
     end
@@ -90,9 +113,39 @@ defmodule Exhub.Toonflow.Voice do
   defp resolve_text(_text, shot) do
     meta = shot["meta"] || %{}
 
-    case first_blank([meta["dialogue"], meta["台词"], shot["shot_desc"]]) do
-      nil -> {:error, :missing_text}
+    case first_blank([meta["dialogue"], meta["台词"]]) do
+      nil -> narration_text(shot)
       text -> {:ok, text}
+    end
+  end
+
+  # A shot with no dialogue is only voiced (from its description) when
+  # `media.tts_narration` is on; otherwise it is skipped so narration never
+  # gets a voiceover.
+  defp narration_text(shot) do
+    if Config.tts_narration?() do
+      case first_blank([shot["shot_desc"]]) do
+        nil -> {:skip, :no_dialogue}
+        desc -> {:ok, desc}
+      end
+    else
+      {:skip, :no_dialogue}
+    end
+  end
+
+  # --- speaker resolution ---
+
+  defp speaker_of(nil), do: nil
+
+  defp speaker_of(shot) do
+    meta = shot["meta"] || %{}
+    first_blank([meta["speaker"], meta["说话人"]]) || only_character(shot)
+  end
+
+  defp only_character(shot) do
+    case Storyboard.characters_of(shot) do
+      [name] -> name
+      _ -> nil
     end
   end
 
@@ -100,7 +153,20 @@ defmodule Exhub.Toonflow.Voice do
 
   # --- persistence ---
 
-  defp record(project, shot_id, text, result, server) do
+  defp record(project, shot_id, speaker, text, result, server) do
+    meta =
+      result
+      |> Map.take([
+        "model",
+        "voice",
+        "speaker",
+        "segments",
+        "output_format",
+        "speech_rate",
+        "volume"
+      ])
+      |> put_speaker(speaker)
+
     Media.insert_asset(
       project,
       [
@@ -109,10 +175,19 @@ defmodule Exhub.Toonflow.Voice do
         path: result["path"],
         url: result["url"],
         prompt: text,
-        meta: Map.take(result, ["model", "voice", "speaker", "segments", "output_format"])
+        meta: meta
       ],
       server
     )
+  end
+
+  defp put_speaker(meta, nil), do: meta
+
+  defp put_speaker(meta, speaker) do
+    case meta["speaker"] do
+      kept when is_binary(kept) and kept != "" -> meta
+      _ -> Map.put(meta, "speaker", speaker)
+    end
   end
 
   defp put_opt(opts, _key, nil), do: opts
@@ -123,7 +198,7 @@ defmodule Exhub.Toonflow.Voice do
     if Exhub.TTS.Realtime.model?(model), do: "wav", else: @default_format
   end
 
-  defp media_config, do: Config.get("media", %{}) || %{}
+  defp media_config, do: Config.media()
 end
 
 defmodule Exhub.Toonflow.Voice.Client do
@@ -201,17 +276,24 @@ defmodule Exhub.Toonflow.Voice.Default do
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
          :ok <- File.write(path, audio.body) do
-      {:ok,
-       %{
-         "path" => path,
-         "url" => nil,
-         "model" => audio.model,
-         "voice" => audio.voice,
-         "output_format" => audio.format,
-         "segments" => 1
-       }}
+      result =
+        %{
+          "path" => path,
+          "url" => nil,
+          "model" => audio.model,
+          "voice" => audio.voice,
+          "output_format" => audio.format,
+          "segments" => 1
+        }
+        |> maybe_put("speech_rate", Keyword.get(opts, :speech_rate))
+        |> maybe_put("volume", Keyword.get(opts, :volume))
+
+      {:ok, result}
     end
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp reject_nil(opts), do: Enum.reject(opts, fn {_key, value} -> is_nil(value) end)
 end
