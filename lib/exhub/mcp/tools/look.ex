@@ -24,6 +24,7 @@ defmodule Exhub.MCP.Tools.Look do
     kimi-k2.5
     qwen3.5-122b-a10b
     qwen3.8-omni-flash
+    minimax-m3.1-flash
   )
 
   def name, do: "look"
@@ -42,6 +43,7 @@ defmodule Exhub.MCP.Tools.Look do
     - `kimi-k2.5` — Moonshot AI vision model
     - `qwen3.5-122b-a10b` — Alibaba Qwen3.5 vision model
     - `qwen3.8-omni-flash` — Alibaba Qwen3.8 native omni-modal model (1M context)
+    - `minimax-m3.1-flash` — MiniMax M3.1 Flash multimodal model (1M context)
 
     **Supported formats:** PNG, JPG, JPEG, GIF, WebP, BMP
 
