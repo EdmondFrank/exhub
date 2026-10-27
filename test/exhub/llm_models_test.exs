@@ -27,6 +27,12 @@ defmodule Exhub.LLMModelsTest do
       assert LLMModels.model_provider("GLM-5.3-Flash") == :giteeai
       assert LLMModels.known_model?("GLM-5.3-Flash")
     end
+
+    test "lists MiniMax-M3.1-Flash verbatim so the token pool applies" do
+      assert "MiniMax-M3.1-Flash" in LLMModels.giteeai_models()
+      assert LLMModels.model_provider("MiniMax-M3.1-Flash") == :giteeai
+      assert LLMModels.known_model?("MiniMax-M3.1-Flash")
+    end
   end
 
   describe "build_llms_config/1" do

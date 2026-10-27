@@ -176,6 +176,25 @@ defmodule Exhub.Router.TokenPoolTest do
       assert TokenPool.resolve_token("GLM-5.3-Flash", body, fallback: "fallback") == "token-key"
     end
 
+    test "uses the token-based pool for MiniMax-M3.1-Flash" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+
+      body = %{"messages" => [%{"content" => "short"}]}
+
+      assert TokenPool.resolve_token("MiniMax-M3.1-Flash", body, fallback: "fallback") ==
+               "token-key"
+    end
+
+    test "uses the request-based pool for MiniMax-M3.1-Flash at or above the threshold" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      body = %{"messages" => [%{"content" => String.duplicate("x", 400_001)}]}
+
+      assert TokenPool.resolve_token("MiniMax-M3.1-Flash", body, fallback: "fallback") ==
+               "request-key"
+    end
+
     test "uses the request-based pool at or above the threshold" do
       Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
       Application.put_env(:exhub, :giteeai_request_api_key, "request-key")

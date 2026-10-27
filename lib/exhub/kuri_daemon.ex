@@ -23,6 +23,16 @@ defmodule Exhub.KuriDaemon do
   running on the configured host:port. If a healthy kuri server is detected,
   the daemon will skip starting a new process and use the existing one instead.
 
+  ## Orphaned Chrome Recovery
+
+  Managed Chrome outlives its kuri parent when kuri is SIGKILLed (Exile's kill
+  escalation) or crashes hard: the child is reparented to launchd and keeps the
+  `~/.kuri/chrome-profile*` SingletonLock. Every later kuri launch then hands
+  off to that live Chrome instead of opening its own CDP port, so it fails with
+  `ConnectionRefused` while the daemon kill/restart loops forever. Before
+  spawning, the daemon reaps Chrome processes bound to kuri's profile directory
+  whose parent is gone (`ppid == 1`).
+
   ## Configuration (application env)
 
   | Key                 | Default                         | Description                        |
@@ -61,6 +71,7 @@ defmodule Exhub.KuriDaemon do
   @startup_timeout_ms 15_000
   @startup_poll_interval_ms 500
   @max_consecutive_failures 3
+  @orphan_reap_timeout_ms 3_000
 
   # ── Client API ──────────────────────────────────────────────────────────────
 
@@ -282,6 +293,7 @@ defmodule Exhub.KuriDaemon do
 
   defp start_new_daemon(state) do
     if is_binary(state.binary) and File.exists?(state.binary) do
+      reap_orphaned_profile_chrome(state)
       do_start_new_daemon(state)
     else
       Logger.warning(
@@ -602,6 +614,90 @@ defmodule Exhub.KuriDaemon do
 
       _ ->
         :error
+    end
+  end
+
+  # ── Orphaned managed-Chrome reaping ─────────────────────────────────────────
+
+  # A Chrome left behind by a previous kuri still holds the profile's
+  # SingletonLock, so the kuri we are about to start cannot open its own CDP
+  # port (Chrome hands off to the live instance and exits). Reap those orphans
+  # first, and wait for them to release the lock before spawning.
+  defp reap_orphaned_profile_chrome(state) do
+    profile_dir = chrome_profile_dir(state.headless)
+
+    profile_dir
+    |> orphaned_profile_chrome_pids()
+    |> Enum.each(fn pid ->
+      Logger.warning(
+        "[KuriDaemon] Reaping orphaned managed Chrome pid #{pid} holding #{profile_dir}"
+      )
+
+      System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
+      wait_for_process_exit(pid, @orphan_reap_timeout_ms)
+    end)
+  end
+
+  # kuri pins managed Chrome to `~/.kuri/chrome-profile-headless` (or
+  # `chrome-profile` when HEADLESS=false) — see chrome/launcher.zig.
+  defp chrome_profile_dir(headless) do
+    subdir = if headless, do: "chrome-profile-headless", else: "chrome-profile"
+    Path.join([System.user_home!(), ".kuri", subdir])
+  end
+
+  defp orphaned_profile_chrome_pids(profile_dir) do
+    case System.cmd("ps", ["-Ao", "pid=,ppid=,command="], stderr_to_stdout: true) do
+      {output, 0} -> parse_orphaned_profile_chrome_pids(output, profile_dir)
+      _ -> []
+    end
+  end
+
+  @doc false
+  # Chrome pids in `ps -Ao pid=,ppid=,command=` output that use `profile_dir` as
+  # their `--user-data-dir` and no longer have a parent (reparented to launchd,
+  # `ppid == 1`). The ppid filter keeps a healthy kuri-owned Chrome — whose ppid
+  # is the live kuri process — out of the kill list.
+  #
+  # The flag is compared as a whole argv token, not a substring: the
+  # `chrome-profile` dir is a prefix of `chrome-profile-headless`, so a
+  # `contains?` test would let a headless Chrome match the non-headless profile.
+  def parse_orphaned_profile_chrome_pids(ps_output, profile_dir) do
+    needle = "--user-data-dir=#{profile_dir}"
+
+    ps_output
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(fn line ->
+      case line |> String.trim_leading() |> String.split(~r/\s+/, parts: 3) do
+        [pid, "1", command] ->
+          with {pid, ""} <- Integer.parse(pid),
+               true <- String.contains?(command, "Chrome"),
+               true <- Enum.any?(String.split(command), &(&1 == needle)) do
+            [pid]
+          else
+            _ -> []
+          end
+
+        _ ->
+          []
+      end
+    end)
+  end
+
+  defp wait_for_process_exit(pid, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_process_exit(pid, deadline)
+  end
+
+  defp do_wait_for_process_exit(pid, deadline) do
+    if process_alive?(pid) and System.monotonic_time(:millisecond) < deadline do
+      Process.sleep(100)
+      do_wait_for_process_exit(pid, deadline)
+    end
+  end
+
+  defp process_alive?(pid) do
+    case System.cmd("ps", ["-p", Integer.to_string(pid), "-o", "pid="], stderr_to_stdout: true) do
+      {output, _status} -> String.trim(output) != ""
     end
   end
 

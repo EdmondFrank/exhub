@@ -124,6 +124,10 @@ defmodule Exhub.LLMModels do
     "minimax-m2.7",
     "minimax-m2-preview",
     "minimax-m3",
+    # Served under its capitalised canonical id (as exposed by the model
+    # catalog and sent by clients). The token pool matches ids exactly, so it
+    # must be listed verbatim to be billed through the Gitee AI pool.
+    "MiniMax-M3.1-Flash",
     "mimo-v2.5-pro",
     "mimo-v2.5"
   ]
