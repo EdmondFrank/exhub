@@ -46,6 +46,21 @@ defmodule Exhub.Router.ToonflowViewTest do
       assert html =~ "/toonflow/api/projects/"
     end
 
+    test "renders an editable inspector with per-kind re-render buttons" do
+      html = ToonflowView.render_project("demo")
+
+      assert html =~ ~s(id="insp-form")
+      assert html =~ "fieldInput(shot, 'dialogue', 'Dialogue', 2)"
+      assert html =~ "const CAMERA_HINTS = ["
+      assert html =~ "hintsFor = (name) =>"
+      assert html =~ "Keyframe prompts"
+      assert html =~ ~s(data-kind="video")
+      assert html =~ ~s(data-kind="voice")
+      assert html =~ ~s(id="insp-stale")
+      assert html =~ "/toonflow/api/projects/"
+      assert html =~ "/render"
+    end
+
     test "escapes the project name" do
       html = ToonflowView.render_project(~s(a"b<c))
 

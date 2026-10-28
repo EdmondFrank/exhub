@@ -182,6 +182,131 @@ defmodule Exhub.Toonflow.StoryboardTest do
     end
   end
 
+  describe "update_shot/4" do
+    setup do
+      root = Path.join(System.tmp_dir!(), "toonflow_edit_#{System.unique_integer([:positive])}")
+      server = :"toonflow_edit_store_#{System.unique_integer([:positive])}"
+      {:ok, pid} = Store.start_link(root_dir: root, name: server)
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm_rf(root)
+      end)
+
+      %{server: server}
+    end
+
+    test "updates columns and meta, and stamps the media the edit invalidates", %{
+      server: server
+    } do
+      shot_id = insert_shot(server, 1, %{"dialogue" => "我不走"})
+
+      assert {:ok, shot} =
+               Storyboard.update_shot(
+                 "demo",
+                 shot_id,
+                 %{
+                   "description" => "林昭立在门前",
+                   "size" => "近景",
+                   "motion" => "固定",
+                   "dialogue" => "我走了",
+                   "characters" => "林昭、阿禾"
+                 },
+                 server
+               )
+
+      assert shot["shot_desc"] == "林昭立在门前"
+      assert shot["size"] == "近景"
+      assert shot["motion"] == "固定"
+      assert shot["meta"]["dialogue"] == "我走了"
+      assert shot["meta"]["characters"] == ["林昭", "阿禾"]
+
+      # The line invalidates the voice and the clip paced to it; the framing the
+      # frames and the clip. `Snapshot.stale_kinds/2` groups these for the canvas.
+      at = shot["meta"]["edited_at"]
+      assert is_binary(at)
+      assert shot["meta"]["edited"]["audio"] == at
+      assert shot["meta"]["edited"]["video"] == at
+      assert shot["meta"]["edited"]["keyframe_start"] == at
+    end
+
+    test "ignores the keys a shot must not expose", %{server: server} do
+      shot_id = insert_shot(server, 1, %{})
+
+      assert {:ok, shot} =
+               Storyboard.update_shot(
+                 "demo",
+                 shot_id,
+                 %{"id" => "hack", "idx" => 99, "script_id" => "x", "nope" => 1},
+                 server
+               )
+
+      assert shot["id"] == shot_id
+      assert shot["idx"] == 1
+      assert shot["script_id"] == "scr_1"
+      assert shot["meta"]["edited"] == nil
+    end
+
+    test "clears a field, and a cleared end-frame prompt drops the end frames it described",
+         %{server: server} do
+      shot_id = insert_shot(server, 1, %{"keyframe_end_prompt" => "老盐举灯"})
+      assert {:ok, _asset} = insert_asset(server, shot_id, "keyframe_end")
+
+      assert {:ok, shot} =
+               Storyboard.update_shot(
+                 "demo",
+                 shot_id,
+                 %{"keyframe_end_prompt" => nil, "camera" => ""},
+                 server
+               )
+
+      assert Map.get(shot["meta"], "keyframe_end_prompt") == nil
+      assert shot["camera"] == nil
+      assert {:ok, nil} = Media.latest_asset("demo", shot_id, "keyframe_end", server)
+    end
+
+    test "a patch with nothing editable in it leaves the shot alone", %{server: server} do
+      shot_id = insert_shot(server, 1, %{})
+      assert {:ok, shot} = Storyboard.update_shot("demo", shot_id, %{}, server)
+      assert shot["meta"]["edited"] == nil
+    end
+
+    test "errors for an unknown shot", %{server: server} do
+      assert {:error, :shot_not_found} =
+               Storyboard.update_shot("demo", "nope", %{"prompt" => "x"}, server)
+    end
+  end
+
+  describe "inspector vocabulary" do
+    test "sizes and moves come from the prompt vocabulary" do
+      assert "特写" in Storyboard.size_options()
+      assert hd(Storyboard.motion_options()) == "固定"
+      assert "推" in Storyboard.motion_options()
+    end
+
+    test "camera hints are noun phrases the canvas autocompletes" do
+      hints = Storyboard.camera_options()
+      assert "俯拍" in hints
+      assert "过肩" in hints
+      assert Enum.all?(hints, &is_binary/1)
+    end
+
+    test "editable_fields/0 names only what a shot owns" do
+      fields = Storyboard.editable_fields()
+      assert "prompt" in fields
+      assert "keyframe_end_prompt" in fields
+      assert "shot_desc" not in fields
+      assert "idx" not in fields
+    end
+
+    test "split_characters/1 accepts a list or separated text" do
+      assert Storyboard.split_characters("林昭、阿禾, 老盐") == ["林昭", "阿禾", "老盐"]
+      assert Storyboard.split_characters(["林昭", " 林昭 ", ""]) == ["林昭"]
+      assert Storyboard.split_characters(nil) == []
+    end
+  end
+
   describe "split_shot/3" do
     setup do
       root = Path.join(System.tmp_dir!(), "toonflow_split_#{System.unique_integer([:positive])}")
@@ -253,6 +378,14 @@ defmodule Exhub.Toonflow.StoryboardTest do
       assert {:error, :missing_shot_id} = Storyboard.split_shot("demo", [], server)
       assert {:error, :shot_not_found} = Storyboard.split_shot("demo", [shot_id: "nope"], server)
     end
+  end
+
+  defp insert_asset(server, shot_id, kind) do
+    Media.insert_asset(
+      "demo",
+      [shot_id: shot_id, kind: kind, path: "/tmp/#{shot_id}_#{kind}.png"],
+      server
+    )
   end
 
   defp insert_shot(server, idx, meta) do

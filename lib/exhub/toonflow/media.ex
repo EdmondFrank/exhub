@@ -183,6 +183,25 @@ defmodule Exhub.Toonflow.Media do
     )
   end
 
+  @doc """
+  Drop a shot's asset rows of one `kind`; the files stay on disk.
+
+  Used when an edit removes the reason for an asset — clearing a shot's
+  end-frame prompt must stop `fl2va` from interpolating towards the frame it no
+  longer describes. Returns `:ok` or `{:error, reason}`.
+  """
+  @spec delete_assets(String.t(), String.t(), String.t(), GenServer.server()) ::
+          :ok | {:error, term()}
+  def delete_assets(project, shot_id, kind, server \\ Store) do
+    Store.run_project(
+      project,
+      fn conn ->
+        DB.execute(conn, "DELETE FROM assets WHERE shot_id = ? AND kind = ?", [shot_id, kind])
+      end,
+      server
+    )
+  end
+
   @doc "List assets, oldest first. `opts`: `:shot_id`, `:kind`, `:limit`."
   @spec list_assets(String.t(), keyword(), GenServer.server()) ::
           {:ok, [map()]} | {:error, term()}

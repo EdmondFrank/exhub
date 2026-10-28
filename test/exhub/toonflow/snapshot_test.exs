@@ -147,6 +147,41 @@ defmodule Exhub.Toonflow.SnapshotTest do
     end
   end
 
+  describe "stale_kinds/2" do
+    test "reports only media an edit stamped and that predates the stamp" do
+      shot = %{
+        "meta" => %{
+          "edited" => %{"video" => "2026-10-28T10:00:00Z", "audio" => "2026-10-28T10:00:00Z"}
+        }
+      }
+
+      assert Snapshot.stale_kinds(shot, %{
+               "video" => "2026-10-28T09:00:00Z",
+               "audio" => "2026-10-28T11:00:00Z"
+             }) == ["video"]
+
+      # the clip was re-rendered, but the edited audio has no asset at all
+      assert Snapshot.stale_kinds(shot, %{"video" => "2026-10-28T11:00:00Z"}) == ["audio"]
+    end
+
+    test "treats a missing asset as stale, and untouched media as fresh" do
+      assert Snapshot.stale_kinds(
+               %{"meta" => %{"edited" => %{"image" => "2026-10-28T10:00:00Z"}}},
+               %{}
+             ) == ["image"]
+
+      assert Snapshot.stale_kinds(%{"meta" => %{}}, %{}) == []
+      assert Snapshot.stale_kinds(%{}, %{}) == []
+    end
+
+    test "groups the two keyframes under one label" do
+      shot = %{"meta" => %{"edited" => %{"keyframe_end" => "2026-10-28T10:00:00Z"}}}
+
+      assert Snapshot.stale_kinds(shot, %{"keyframe_start" => "2026-10-28T11:00:00Z"}) ==
+               ["keyframe"]
+    end
+  end
+
   describe "asset_url/3" do
     test "rewrites an in-project path to a media URL" do
       dir = "/tmp/p"

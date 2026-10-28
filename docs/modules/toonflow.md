@@ -44,6 +44,8 @@ A read-mostly canvas for watching (and nudging) a project, rendered straight fro
 | `POST /toonflow/api/projects` | JSON | Create a project (`{name, description}`) |
 | `GET /toonflow/api/projects/:name` | JSON | Full `Snapshot.build/2` payload |
 | `POST /toonflow/api/projects/:name/run` | JSON | Run/resume the pipeline (`{stages, from, resume, recall, …}`) |
+| `POST /toonflow/api/projects/:name/shots/:shot_id` | JSON | Edit one shot from the inspector (`{scene, description, size, camera, lighting, motion, dialogue, speaker, characters[], prompt, keyframe_start_prompt, keyframe_end_prompt}`; returns `{shot}`) |
+| `POST /toonflow/api/projects/:name/shots/:shot_id/render` | JSON | Re-render media for one shot (`{kinds: [keyframe\|image\|video\|voice]}` or `"all"`; `202 {started}`) |
 | `GET /toonflow/media/:name/*path` | file | Serve a project file (see sandbox below) |
 | `WS /toonflow/ws?project=<name>` | websocket | Live snapshot + progress frames |
 
@@ -855,7 +857,8 @@ The memory index (`Exhub.Toonflow.Memory.Index`) reuses
 | `Exhub.Toonflow.Prompts` | `priv/toonflow/prompts/*` rendering + per-project versioned overrides (`resolve/4`, `set`/`history`/`revert`) |
 | `Exhub.Toonflow.Memory.Index` | `sqlite-vec` semantic index GenServer (global DB, per-project scoping) |
 | `Exhub.Toonflow.Pipeline` | Staged orchestration (`run`/`resume`/`plan` with per-shot pre-review) over `Jobs` |
-| `Exhub.Toonflow.Snapshot` | Canvas view-model (`build/2`) + sandboxed media-path resolution |
+| `Exhub.Toonflow.Renderer` | Per-shot media re-render (`start/4` async over `ToolTaskSupervisor`, pure `kinds/0`/`normalize_kinds/1`) |
+| `Exhub.Toonflow.Snapshot` | Canvas view-model (`build/2`, `shot_view/3`, pure `stale_kinds/2`) + sandboxed media-path resolution |
 | `Exhub.Toonflow.Progress` | Best-effort progress fan-out over a duplicate `Registry` |
 | `Exhub.Toonflow.SocketHandler` | Cowboy websocket for the canvas (`/toonflow/ws`) |
 | `Exhub.Router.ToonflowView` | Server-rendered canvas HTML (inline CSS/JS) |

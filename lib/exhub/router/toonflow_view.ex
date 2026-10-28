@@ -113,9 +113,25 @@ defmodule Exhub.Router.ToonflowView do
         .log .s-error { color: #f85149; }
         .log .s-started { color: #79c0ff; }
         .log .s-skipped { color: #d29922; }
-        .inspector dt { font-size: 11px; color: #8b949e; margin-top: 8px; }
-        .inspector dd { font-size: 13px; }
-        .inspector img, .inspector video { width: 100%; border-radius: 8px; margin-top: 6px; background: #0d1117; }
+        .inspector .field { margin-bottom: 8px; }
+        .inspector label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 3px; }
+        .inspector input[type=text], .inspector select, .inspector textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; padding: 5px 8px; font-size: 12px; font-family: inherit; }
+        .inspector textarea { resize: vertical; min-height: 52px; line-height: 1.45; }
+        .inspector input[type=text]:focus, .inspector select:focus, .inspector textarea:focus { outline: none; border-color: #58a6ff; }
+        .inspector .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .inspector .btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+        .inspector .btns button, .inspector .render-row button { padding: 4px 10px; font-size: 12px; }
+        .inspector .btns .dirty { font-size: 11px; color: #d29922; margin-left: auto; }
+        .inspector .render-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+        .inspector .render-row .label { font-size: 11px; color: #8b949e; }
+        .inspector .render-row button { background: transparent; border-color: #30363d; color: #c9d1d9; padding: 3px 8px; }
+        .inspector .render-row button:hover { border-color: #58a6ff; color: #58a6ff; }
+        .inspector .stale { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+        .inspector .stale span { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+        .inspector summary { font-size: 11px; color: #8b949e; cursor: pointer; margin: 10px 0 6px; }
+        .inspector .msg { font-size: 11px; min-height: 14px; }
+        .inspector img, .inspector video { width: 100%; border-radius: 8px; margin-top: 8px; background: #0d1117; }
+        .flag.stale { background: #d2992233; color: #d29922; }
         .outputs li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid #21262d; }
         .conn { font-size: 11px; color: #8b949e; }
         .conn.on { color: #3fb950; }
@@ -266,7 +282,10 @@ defmodule Exhub.Router.ToonflowView do
     """
     const project = document.body.dataset.project;
     const STAGES = #{Jason.encode!(Exhub.Toonflow.Pipeline.stages())};
-    const state = { snap: null, shots: [], selected: null, ws: null, stages: null, retries: 0 };
+    const SHOT_SIZES = #{Jason.encode!(Exhub.Toonflow.Storyboard.size_options())};
+    const SHOT_MOVES = #{Jason.encode!(Exhub.Toonflow.Storyboard.motion_options())};
+    const CAMERA_HINTS = #{Jason.encode!(Exhub.Toonflow.Storyboard.camera_options())};
+    const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0 };
 
     const el = (id) => document.getElementById(id);
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -335,9 +354,10 @@ defmodule Exhub.Router.ToonflowView do
     }
 
     function flags(shot) {
+      const stale = (shot.stale || []).length ? '<span class="flag stale">stale</span>' : '';
       return `<span class="flag ${shot.image ? 'on' : ''}">img</span>` +
              `<span class="flag ${shot.video ? 'on' : ''}">vid</span>` +
-             `<span class="flag ${shot.audio ? 'on' : ''}">aud</span>`;
+             `<span class="flag ${shot.audio ? 'on' : ''}">aud</span>` + stale;
     }
 
     function renderShots() {
@@ -354,27 +374,197 @@ defmodule Exhub.Router.ToonflowView do
           </div>
         </div>`).join('');
       box.querySelectorAll('.shot').forEach((node) => {
-        node.addEventListener('click', () => { state.selected = node.dataset.id; renderShots(); renderInspector(); });
+        node.addEventListener('click', () => {
+          if (state.dirty && state.selected !== node.dataset.id && !confirm('Discard unsaved edits?')) return;
+          state.selected = node.dataset.id; state.dirty = false; renderShots(); renderInspector();
+        });
       });
     }
 
-    function renderInspector() {
+    // The inspector edits a shot in place; `description`/`keyframe_*_prompt` are the
+    // canvas' names for `shot_desc`/`meta.keyframe_*_prompt` (see Storyboard.update_shot/4).
+    const SHOT_FIELDS = ['scene', 'description', 'size', 'motion', 'camera', 'lighting', 'characters', 'speaker', 'dialogue', 'prompt'];
+    const SHOT_ADVANCED = ['keyframe_start_prompt', 'keyframe_end_prompt'];
+
+    function shotValue(shot, name) {
+      const kf = shot.keyframe || {};
+      if (name === 'characters') return (shot.characters || []).join('、');
+      if (name === 'keyframe_start_prompt') return kf.start_prompt || '';
+      if (name === 'keyframe_end_prompt') return kf.end_prompt || '';
+      return shot[name] == null ? '' : String(shot[name]);
+    }
+
+    function optionList(values, current, blank) {
+      const all = values.slice();
+      if (current && all.indexOf(current) === -1) all.push(current);
+      const head = blank == null ? '' : `<option value="">${esc(blank)}</option>`;
+      return head + all.map((v) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    }
+
+    // Free-text fields with autocomplete: the list is a hint, anything typed is kept.
+    // `characters` reads the cast lazily — a new snapshot replaces state.cast.
+    const PLACEHOLDERS = { camera: '如 俯拍 / 过肩 / 低角度仰拍', characters: '名字，用、或,分隔' };
+    const hintsFor = (name) => (name === 'camera' ? CAMERA_HINTS : name === 'characters' ? state.cast : []);
+
+    function fieldInput(shot, name, label, rows) {
+      const value = shotValue(shot, name);
+      const hints = hintsFor(name) || [];
+      const list = hints.length ? ` list="${name}-options"` : '';
+      const ph = PLACEHOLDERS[name] ? ` placeholder="${PLACEHOLDERS[name]}"` : '';
+      let control;
+      if (name === 'size') control = `<select id="f-${name}">${optionList(SHOT_SIZES, value, '—')}</select>`;
+      else if (name === 'motion') control = `<select id="f-${name}">${optionList(SHOT_MOVES, value, '—')}</select>`;
+      else if (name === 'speaker') control = `<select id="f-${name}">${optionList(state.cast, value, '— none')}</select>`;
+      else if (rows) control = `<textarea id="f-${name}" rows="${rows}"${ph}>${esc(value)}</textarea>`;
+      else control = `<input id="f-${name}" type="text"${list}${ph} value="${esc(value)}">`;
+      const datalist = hints.length
+        ? `<datalist id="${name}-options">${hints.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`
+        : '';
+      return `<div class="field"><label for="f-${name}">${esc(label)}</label>${control}${datalist}</div>`;
+    }
+
+    function inspectorForm(shot) {
+      return `
+        <form id="insp-form" autocomplete="off">
+          <div class="field"><label>Shot #${shot.idx} · ${esc(shot.scene || '')}</label></div>
+          ${fieldInput(shot, 'scene', 'Scene')}
+          ${fieldInput(shot, 'description', 'Description', 2)}
+          <div class="pair">${fieldInput(shot, 'size', 'Shot size')}${fieldInput(shot, 'motion', 'Move')}</div>
+          <div class="pair">${fieldInput(shot, 'camera', 'Camera')}${fieldInput(shot, 'lighting', 'Lighting')}</div>
+          ${fieldInput(shot, 'characters', 'Characters')}
+          ${fieldInput(shot, 'speaker', 'Speaker')}
+          ${fieldInput(shot, 'dialogue', 'Dialogue', 2)}
+          ${fieldInput(shot, 'prompt', 'Prompt', 3)}
+          <details><summary>Keyframe prompts</summary>
+            ${fieldInput(shot, 'keyframe_start_prompt', 'Start frame', 3)}
+            ${fieldInput(shot, 'keyframe_end_prompt', 'End frame (blank = none)', 3)}
+          </details>
+          <div class="btns">
+            <button type="submit" id="insp-save" disabled>Save</button>
+            <button type="button" class="ghost" id="insp-reset">Reset</button>
+            <span class="dirty" id="insp-dirty"></span>
+          </div>
+          <div class="msg" id="insp-msg"></div>
+          <div class="stale" id="insp-stale"></div>
+          <div class="render-row">
+            <span class="label">re-render</span>
+            <button type="button" data-kind="keyframe">Keyframes</button>
+            <button type="button" data-kind="image">Still</button>
+            <button type="button" data-kind="video">Clip</button>
+            <button type="button" data-kind="voice">Voice</button>
+          </div>
+        </form>
+        <div id="insp-media"></div>`;
+    }
+
+    function shotPatch(shot) {
+      const patch = {};
+      SHOT_FIELDS.concat(SHOT_ADVANCED).forEach((name) => {
+        const node = el('f-' + name);
+        if (!node) return;
+        const value = node.value.trim();
+        if (value === shotValue(shot, name)) return;
+        if (name === 'characters') {
+          patch[name] = value ? value.split(/[,，、;；]/).map((s) => s.trim()).filter(Boolean) : [];
+        } else {
+          patch[name] = value === '' ? null : value;
+        }
+      });
+      return patch;
+    }
+
+    function renderInspectorMedia() {
+      const shot = state.shots.find((s) => s.id === state.selected);
+      const media = el('insp-media');
+      if (!shot || !media) return;
+      const picture = shot.image ? `<img src="${esc(shot.image)}" alt="">` :
+        (shot.video ? `<video controls src="${esc(shot.video)}"></video>` : '<p class="empty">No media yet.</p>');
+      const audio = shot.audio ? `<audio controls style="width:100%;margin-top:6px" src="${esc(shot.audio)}"></audio>` : '';
+      media.innerHTML = picture + audio;
+      const kinds = shot.stale || [];
+      el('insp-stale').innerHTML = kinds.map((k) => `<span>${esc(k)} stale</span>`).join('');
+    }
+
+    function renderInspector(force) {
       const shot = state.shots.find((s) => s.id === state.selected);
       const box = el('inspector');
-      if (!shot) { box.innerHTML = '<p class="empty">Select a shot.</p>'; return; }
-      const media = shot.image ? `<img src="${esc(shot.image)}" alt="">` :
-                    shot.video ? `<video controls src="${esc(shot.video)}"></video>` : '';
-      const audio = shot.audio ? `<audio controls style="width:100%;margin-top:6px" src="${esc(shot.audio)}"></audio>` : '';
-      box.innerHTML = `
-        <dl>
-          <dt>Shot #${shot.idx}</dt><dd>${esc(shot.scene || '')}</dd>
-          <dt>Description</dt><dd>${esc(shot.description || '')}</dd>
-          <dt>Camera / lighting</dt><dd>${esc([shot.size, shot.camera, shot.lighting, shot.motion].filter(Boolean).join(' · '))}</dd>
-          <dt>Characters</dt><dd>${esc((shot.characters || []).join(', '))}</dd>
-          <dt>Dialogue</dt><dd>${esc(shot.dialogue || '—')}</dd>
-          <dt>Prompt</dt><dd>${esc(shot.prompt || '')}</dd>
-        </dl>
-        ${media}${audio}`;
+      if (!shot) {
+        box.innerHTML = '<p class="empty">Select a shot.</p>';
+        state.inspFor = null; state.dirty = false;
+        return;
+      }
+      // A snapshot arrives after every shot event; rebuilding the form would
+      // throw away what is being typed, so only the media follows project state.
+      if (!force && state.inspFor === shot.id && box.querySelector('#insp-form')) {
+        renderInspectorMedia();
+        return;
+      }
+      state.inspFor = shot.id;
+      state.dirty = false;
+      box.innerHTML = inspectorForm(shot);
+      wireInspector(shot);
+      renderInspectorMedia();
+    }
+
+    function wireInspector(shot) {
+      const form = el('insp-form');
+
+      const update = () => {
+        const n = Object.keys(shotPatch(shot)).length;
+        state.dirty = n > 0;
+        el('insp-save').disabled = n === 0;
+        el('insp-dirty').textContent = n ? n + ' unsaved' : '';
+      };
+
+      form.addEventListener('input', update);
+      form.addEventListener('submit', (ev) => { ev.preventDefault(); saveShot(shot); });
+      el('insp-reset').addEventListener('click', () => {
+        state.dirty = false; state.inspFor = null; renderInspector(true);
+      });
+      form.querySelector('.render-row').addEventListener('click', (ev) => {
+        const kind = ev.target && ev.target.dataset ? ev.target.dataset.kind : null;
+        if (kind) renderShot(shot, kind);
+      });
+
+      update();
+    }
+
+    async function saveShot(shot) {
+      const patch = shotPatch(shot);
+      if (!Object.keys(patch).length) return;
+      const msg = el('insp-msg');
+      msg.className = 'msg'; msg.textContent = 'saving…';
+
+      try {
+        const data = await api(`/toonflow/api/projects/${encodeURIComponent(project)}/shots/${encodeURIComponent(shot.id)}`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch)
+        });
+        const fresh = data && data.shot;
+        if (fresh) {
+          const i = state.shots.findIndex((s) => s.id === fresh.id);
+          if (i >= 0) state.shots[i] = fresh;
+        }
+        state.dirty = false; state.inspFor = null;
+        renderShots(); renderInspector(true);
+        log(`shot #${shot.idx} edited: ${Object.keys(patch).join(', ')}`, 'ok');
+        const now = el('insp-msg');
+        if (now) { now.className = 'msg ok'; now.textContent = 'saved'; }
+      } catch (err) {
+        msg.className = 'msg error'; msg.textContent = String(err.message || err);
+        log(`edit failed: ${err.message}`, 'error');
+      }
+    }
+
+    async function renderShot(shot, kind) {
+      log(`re-render ${kind} for shot #${shot.idx}…`, 'started');
+      try {
+        const data = await api(`/toonflow/api/projects/${encodeURIComponent(project)}/shots/${encodeURIComponent(shot.id)}/render`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kinds: [kind] })
+        });
+        log(`queued ${(data.started || []).join(', ')} — watch the log for progress`, 'ok');
+      } catch (err) {
+        log(`re-render failed: ${err.message}`, 'error');
+      }
     }
 
     function renderOutputs() {
@@ -391,7 +581,7 @@ defmodule Exhub.Router.ToonflowView do
     async function load() {
       try {
         const snap = await api('/toonflow/api/projects/' + encodeURIComponent(project));
-        state.snap = snap; state.shots = snap.shots || [];
+        state.snap = snap; state.shots = snap.shots || []; state.cast = snap.cast || [];
         renderAll();
       } catch (err) {
         log('load failed: ' + err.message, 'error');
@@ -419,7 +609,7 @@ defmodule Exhub.Router.ToonflowView do
         let msg = null;
         try { msg = JSON.parse(ev.data); } catch (_) { return; }
         if (!msg || !msg.type) return;
-        if (msg.type === 'snapshot') { state.snap = msg; state.shots = msg.shots || []; renderAll(); log('snapshot updated'); return; }
+        if (msg.type === 'snapshot') { state.snap = msg; state.shots = msg.shots || []; state.cast = msg.cast || []; renderAll(); log('snapshot updated'); return; }
         if (msg.type === 'jobs' || msg.type === 'heartbeat') return;
         if (msg.type === 'pong') return;
         if (msg.type === 'error') { log('server error: ' + (msg.error || ''), 'error'); return; }

@@ -13,7 +13,8 @@ defmodule Exhub.Toonflow.Snapshot do
   media route and rejects anything that escapes the project directory.
   """
 
-  alias Exhub.Toonflow.{Jobs, Media, Pipeline, Store, Storyboard, Workspace}
+  alias Exhub.Toonflow
+  alias Exhub.Toonflow.{Assets, Jobs, Media, Pipeline, Store, Storyboard, Workspace}
 
   @media_prefix "/toonflow/media"
   # Only files under these project subdirectories may be served.
@@ -40,6 +41,7 @@ defmodule Exhub.Toonflow.Snapshot do
          "plan" => plan(project, server),
          "jobs" => jobs,
          "shots" => shots,
+         "cast" => cast(project, server),
          "outputs" => outputs(dir),
          "at" => now()
        }}
@@ -135,6 +137,7 @@ defmodule Exhub.Toonflow.Snapshot do
       {:ok,
        Enum.map(shots, fn shot ->
          id = shot["id"]
+         meta = shot["meta"] || %{}
 
          %{
            "id" => id,
@@ -148,7 +151,14 @@ defmodule Exhub.Toonflow.Snapshot do
            "motion" => shot["motion"],
            "prompt" => shot["prompt"],
            "dialogue" => dialogue(shot),
+           "speaker" => Toonflow.blank(meta["speaker"]),
            "characters" => characters(shot),
+           "keyframe" => %{
+             "start_prompt" => Toonflow.blank(meta["keyframe_start_prompt"]),
+             "end_prompt" => Toonflow.blank(meta["keyframe_end_prompt"])
+           },
+           "edited_at" => Toonflow.blank(meta["edited_at"]),
+           "stale" => stale_kinds(shot, asset_times(latest, id)),
            "image" => asset_url(Map.get(latest, {id, "image"}), name, dir),
            "video" => asset_url(Map.get(latest, {id, "video"}), name, dir),
            "audio" => asset_url(Map.get(latest, {id, "audio"}), name, dir)
@@ -157,6 +167,77 @@ defmodule Exhub.Toonflow.Snapshot do
     else
       _ -> {:ok, []}
     end
+  end
+
+  @doc """
+  One shot in `build/2`'s shape — what the canvas merges back after an edit, so
+  the inspector does not have to refetch the whole project.
+  """
+  @spec shot_view(String.t(), String.t(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  def shot_view(project, shot_id, server \\ Store) do
+    with {:ok, info} <- Store.project_info(project, server),
+         {:ok, shots} <-
+           shots_with_assets(project, info["project"]["name"], info["path"], server) do
+      case Enum.find(shots, &(&1["id"] == shot_id)) do
+        nil -> {:error, :shot_not_found}
+        shot -> {:ok, shot}
+      end
+    end
+  end
+
+  # The canvas offers the project's characters as the shot's cast and speaker.
+  defp cast(project, server) do
+    case Assets.list_characters(project, [], server) do
+      {:ok, characters} ->
+        characters
+        |> Enum.map(&Toonflow.blank(&1["name"]))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.sort()
+
+      _ ->
+        []
+    end
+  end
+
+  # `meta.edited` is stamped by `Storyboard.update_shot/4` with the asset kinds
+  # an edit invalidated; grouping them lets the canvas say "clip stale" rather
+  # than list keyframe_start and keyframe_end separately.
+  @stale_groups [
+    {"image", ["image"]},
+    {"keyframe", ["keyframe_start", "keyframe_end"]},
+    {"video", ["video"]},
+    {"audio", ["audio"]}
+  ]
+
+  @doc """
+  Which of a shot's media an edit invalidated. Pure.
+
+  `asset_at` maps an asset kind to the `created_at` of the shot's latest asset of
+  that kind. A kind is stale when an edit stamped it and there is no asset at all
+  or the asset predates the stamp.
+  """
+  @spec stale_kinds(map(), %{optional(String.t()) => String.t()}) :: [String.t()]
+  def stale_kinds(shot, asset_at) do
+    edited = (shot["meta"] || %{})["edited"] || %{}
+
+    @stale_groups
+    |> Enum.filter(fn {_group, kinds} ->
+      Enum.any?(kinds, fn kind ->
+        case Map.get(edited, kind) do
+          at when is_binary(at) -> is_nil(Map.get(asset_at, kind)) or Map.get(asset_at, kind) < at
+          _ -> false
+        end
+      end)
+    end)
+    |> Enum.map(fn {group, _kinds} -> group end)
+  end
+
+  defp asset_times(latest, id) do
+    for kind <- ~w(image keyframe_start keyframe_end video audio),
+        asset = Map.get(latest, {id, kind}),
+        at = Toonflow.blank(asset["created_at"]),
+        into: %{},
+        do: {kind, at}
   end
 
   # Assets are listed oldest-first, so later entries win.

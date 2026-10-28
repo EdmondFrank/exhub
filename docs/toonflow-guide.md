@@ -70,6 +70,40 @@ fed by websocket frames (`snapshot` / `stage` / `shot` / `jobs`).
 > (the app is also reachable over the VPN). A non-loopback `POST` returns
 > `403 forbidden (mutating endpoints are loopback-only)`. Reads are unrestricted.
 
+#### Editing shots in the inspector
+
+Click a shot in the grid and the right-hand **Inspector** becomes an editable form:
+scene/description, shot size (`SHOT_SIZES`), camera move (`SHOT_MOVES`),
+camera (free text with 机位 hints — 平视/俯拍/仰拍/过肩/主观视角… — anything typed is kept),
+lighting, characters (comma/、/; separated, autocompleted from the cast),
+speaker (select over the cast), dialogue, the shot prompt, and — under
+**Keyframe prompts** — the start/end frame prompts (a blank end prompt means the
+shot has no end frame).
+
+**Save** (`⌘S` / `Ctrl+S`) diffs the form against the shot and `POST`s only the
+changed fields to `/toonflow/api/projects/:name/shots/:shot_id`. The write is
+recorded on the shot as `meta.edited[kind] = <iso8601>` + `meta.edited_at`, which
+makes the affected media **stale** — the grid shows a `stale` flag and the
+inspector lists which media kinds it covers. Nothing is deleted: the old clip
+stays on disk until you re-render it.
+
+**re-render** buttons (`Keyframes` · `Still` · `Clip` · `Voice`) queue just that
+media kind for the shot via `POST …/shots/:shot_id/render {kinds: [...]}`; the
+job runs asynchronously and progress appears in the live log. Clearing an end
+keyframe prompt also drops the stored end-frame asset, so the shot renders as a
+single start-frame clip.
+
+Equivalent curl:
+
+```sh
+curl -s -X POST localhost:9069/toonflow/api/projects/my-drama/shots/shot_3 \
+  -H 'content-type: application/json' \
+  -d '{"dialogue":"你终于来了。","speaker":"林昭"}'      # -> {"shot": {...}}
+
+curl -s -X POST localhost:9069/toonflow/api/projects/my-drama/shots/shot_3/render \
+  -H 'content-type: application/json' -d '{"kinds":["video"]}'   # -> 202 {"started":["video"]}
+```
+
 ---
 
 ## 3. Quickstart — your first episode

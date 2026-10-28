@@ -719,6 +719,64 @@ defmodule Exhub.Router do
     end
   end
 
+  # The canvas inspector edits a shot's properties, then re-renders the media the
+  # edit invalidated. Both are loopback-only, like the other mutating endpoints.
+  post "/toonflow/api/projects/:name/shots/:shot_id" do
+    if toonflow_writable?(conn) do
+      name = conn.params["name"]
+      shot_id = conn.params["shot_id"]
+
+      case Exhub.Toonflow.Storyboard.update_shot(name, shot_id, conn.body_params) do
+        {:ok, shot} ->
+          view =
+            case Exhub.Toonflow.Snapshot.shot_view(name, shot["id"]) do
+              {:ok, view} -> view
+              _ -> shot
+            end
+
+          toonflow_json(conn, 200, %{shot: view})
+
+        {:error, :shot_not_found} ->
+          toonflow_json(conn, 404, %{error: "shot not found"})
+
+        {:error, reason} ->
+          toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
+      end
+    else
+      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+    end
+  end
+
+  post "/toonflow/api/projects/:name/shots/:shot_id/render" do
+    if toonflow_writable?(conn) do
+      name = conn.params["name"]
+      shot_id = conn.params["shot_id"]
+
+      kinds =
+        Exhub.Toonflow.Renderer.normalize_kinds(
+          conn.body_params["kinds"] || conn.body_params["kind"]
+        )
+
+      case Exhub.Toonflow.Renderer.start(name, shot_id, kinds) do
+        {:ok, _pid} ->
+          toonflow_json(conn, 202, %{started: kinds})
+
+        {:error, :shot_not_found} ->
+          toonflow_json(conn, 404, %{error: "shot not found"})
+
+        {:error, :no_kinds} ->
+          toonflow_json(conn, 400, %{
+            error: "kinds must name any of: " <> Enum.join(Exhub.Toonflow.Renderer.kinds(), ", ")
+          })
+
+        {:error, reason} ->
+          toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
+      end
+    else
+      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+    end
+  end
+
   get "/toonflow/media/:name/*path" do
     name = conn.params["name"]
 

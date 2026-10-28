@@ -24,6 +24,7 @@ defmodule Exhub.Toonflow.Storyboard do
     Json,
     Keyframe,
     LLM,
+    Media,
     Memory,
     Prompts,
     Schema,
@@ -351,6 +352,198 @@ defmodule Exhub.Toonflow.Storyboard do
       {key, nil}, acc -> Map.delete(acc, to_string(key))
       {key, value}, acc -> Map.put(acc, to_string(key), value)
     end)
+  end
+
+  # --- editing a shot (canvas inspector) ---
+
+  # The canvas names a field `description`; the column is `shot_desc`. Nothing
+  # else is addressable — a stray key in a request can never touch `id`, `idx`,
+  # `script_id` or another shot.
+  @column_fields %{
+    "scene" => "scene",
+    "description" => "shot_desc",
+    "size" => "size",
+    "camera" => "camera",
+    "lighting" => "lighting",
+    "motion" => "motion",
+    "prompt" => "prompt"
+  }
+
+  @meta_fields ~w(characters dialogue speaker keyframe_start_prompt keyframe_end_prompt)
+
+  # Which assets an edit invalidates. The canvas shows them as stale so an edit
+  # asks for a re-render instead of shipping a clip generated from the old
+  # values: a changed line invalidates the voice and the clip that was paced to
+  # it, a changed prompt the clip, a changed frame the keyframes and the clip
+  # interpolated between them.
+  @field_media %{
+    "scene" => ~w(image keyframe_start keyframe_end video),
+    "description" => ~w(image keyframe_start keyframe_end video),
+    "size" => ~w(image keyframe_start keyframe_end video),
+    "camera" => ~w(image keyframe_start keyframe_end video),
+    "lighting" => ~w(image keyframe_start keyframe_end video),
+    "motion" => ~w(keyframe_start keyframe_end video),
+    "prompt" => ~w(image video),
+    "characters" => ~w(image keyframe_start keyframe_end video),
+    "dialogue" => ~w(audio video),
+    "speaker" => ~w(audio),
+    "keyframe_start_prompt" => ~w(keyframe_start video),
+    "keyframe_end_prompt" => ~w(keyframe_end video)
+  }
+
+  @doc "The shot fields the canvas may edit, sorted. Pure."
+  @spec editable_fields() :: [String.t()]
+  def editable_fields, do: Enum.sort(Map.keys(@column_fields) ++ @meta_fields)
+
+  @doc "The 景别 values the canvas offers as a select. Pure."
+  @spec size_options() :: [String.t()]
+  def size_options, do: Enum.map(@shot_size_lenses, &elem(&1, 0))
+
+  @doc "The 运镜 values the canvas offers as a select (固定 first). Pure."
+  @spec motion_options() :: [String.t()]
+  def motion_options, do: ["固定" | Enum.map(@camera_moves, &elem(&1, 0))]
+
+  # A shot's 机位 is free text — the storyboard prompt does not ask for it — so
+  # the canvas offers these as autocomplete hints and accepts anything typed.
+  # Each is appended verbatim as `机位：<text>`, so keep them noun phrases.
+  @camera_options [
+    "平视",
+    "俯拍",
+    "仰拍",
+    "过肩",
+    "正面",
+    "侧面",
+    "背面",
+    "主观视角",
+    "鸟瞰",
+    "低角度贴地"
+  ]
+
+  @doc """
+  The 机位 hints the canvas offers as autocomplete (free text stays editable).
+  Pure.
+  """
+  @spec camera_options() :: [String.t()]
+  def camera_options, do: @camera_options
+
+  @doc """
+  Split a characters field into names: a list, or `、`/`,`/`;` separated text.
+
+  The canvas round-trips the cast as one text input, so this is what both the
+  request and the stored `meta.characters` go through. Pure.
+  """
+  @spec split_characters(term()) :: [String.t()]
+  def split_characters(list) when is_list(list) do
+    list
+    |> Enum.map(&(&1 |> to_string() |> String.trim()))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  def split_characters(text) when is_binary(text) do
+    text
+    |> String.split([",", "，", "、", ";", "；"])
+    |> split_characters()
+  end
+
+  def split_characters(_value), do: []
+
+  @doc """
+  Update a shot's editable properties from the canvas inspector.
+
+  `patch` uses the canvas field names (`description`, not `shot_desc`); unknown
+  keys are ignored, `nil`/`""` clears a field. Every edit stamps
+  `meta.edited` — the asset kinds it invalidated, with a timestamp — which
+  `Snapshot` turns into the canvas' stale flag. Clearing
+  `keyframe_end_prompt` also drops the end frames it described, since `fl2va`
+  would otherwise keep interpolating towards them.
+
+  Returns `{:ok, shot}` with the stored shot, or `{:error, :shot_not_found}`.
+  """
+  @spec update_shot(String.t(), String.t(), map(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def update_shot(project, shot_id, patch, server \\ Store) when is_map(patch) do
+    with {:ok, shot} <- get_shot(project, shot_id, server) do
+      {columns, meta_patch, edited} = split_edit(patch)
+      meta = (shot["meta"] || %{}) |> apply_meta_patch(meta_patch) |> stamp_edited(edited)
+
+      cond do
+        columns == [] and meta_patch == %{} ->
+          {:ok, shot}
+
+        true ->
+          params = Enum.map(columns, &elem(&1, 1)) ++ [Schema.encode_json(meta), shot_id]
+
+          case Store.run_project(
+                 project,
+                 fn conn -> DB.execute(conn, update_sql(columns), params) end,
+                 server
+               ) do
+            :ok ->
+              if cleared_end_keyframe?(meta_patch) do
+                _ = Media.delete_assets(project, shot_id, "keyframe_end", server)
+              end
+
+              get_shot(project, shot_id, server)
+
+            {:error, reason} ->
+              {:error, reason}
+          end
+      end
+    end
+  end
+
+  defp update_sql(columns) do
+    sets = Enum.map(columns, fn {column, _value} -> "#{column} = ?" end)
+    "UPDATE shots SET " <> Enum.join(sets ++ ["meta_json = ?"], ", ") <> " WHERE id = ?"
+  end
+
+  defp split_edit(patch) do
+    {columns, meta, edited} =
+      Enum.reduce(patch, {[], %{}, []}, fn {key, value}, {columns, meta, edited} ->
+        key = to_string(key)
+
+        cond do
+          column = @column_fields[key] ->
+            {[{column, Toonflow.blank(value)} | columns], meta, [key | edited]}
+
+          key in @meta_fields ->
+            {columns, Map.put(meta, key, meta_value(key, value)), [key | edited]}
+
+          true ->
+            {columns, meta, edited}
+        end
+      end)
+
+    {Enum.sort(columns), meta, affected_media(edited)}
+  end
+
+  defp meta_value("characters", value), do: split_characters(value)
+  defp meta_value(_key, value), do: Toonflow.blank(value)
+
+  defp affected_media(keys) do
+    keys
+    |> Enum.flat_map(&Map.get(@field_media, &1, []))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp stamp_edited(meta, []), do: meta
+
+  defp stamp_edited(meta, kinds) do
+    now = Toonflow.now_iso()
+    edited = Enum.reduce(kinds, meta["edited"] || %{}, &Map.put(&2, &1, now))
+
+    meta
+    |> Map.put("edited", edited)
+    |> Map.put("edited_at", now)
+  end
+
+  # `meta_patch` is normalized (`Toonflow.blank/1`), so a cleared end-frame
+  # prompt is an explicit `nil` there.
+  defp cleared_end_keyframe?(meta_patch) do
+    Map.has_key?(meta_patch, "keyframe_end_prompt") and
+      is_nil(meta_patch["keyframe_end_prompt"])
   end
 
   # --- shot splitting (Phase 8.5) ---
