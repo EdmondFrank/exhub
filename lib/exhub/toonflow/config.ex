@@ -90,11 +90,15 @@ defmodule Exhub.Toonflow.Config do
     },
     "ui" => %{
       # Canvas web view + live progress websocket (Phase 5).
-      # `require_local` restricts the mutating REST endpoints (create/run) to
-      # loopback clients, since the app is also reachable over the VPN.
+      # `require_local` restricts the mutating REST endpoints (create / run /
+      # edit / render / assist) to loopback or trusted addresses, since the app
+      # is also reachable over the VPN. `allowed_networks` lists IPv4 CIDRs (or
+      # bare addresses) for remote devices that may write, e.g.
+      # ["10.7.0.0/24"]. The host's own interface addresses always pass.
       "enabled" => true,
       "tick_ms" => 5000,
-      "require_local" => true
+      "require_local" => true,
+      "allowed_networks" => []
     }
   }
 
@@ -107,6 +111,21 @@ defmodule Exhub.Toonflow.Config do
   @doc "Fetch a top-level config value, with an optional default."
   @spec get(String.t(), term()) :: term()
   def get(key, default \\ nil), do: Map.get(config(), key, default)
+
+  @doc """
+  The model configured for a pipeline agent (`agents.<name>`), or `nil` when it
+  is unset or blank. `"director"` drives the storyboard and the canvas' AI
+  assist; `"script"` and `"qa"` are the other shipped entries.
+  """
+  @spec agent_model(String.t()) :: String.t() | nil
+  def agent_model(name) when is_binary(name) do
+    case get("agents", %{}) do
+      %{} = agents -> agents |> Map.get(name) |> normalize_agent_model()
+      _ -> nil
+    end
+  end
+
+  def agent_model(_name), do: nil
 
   @doc """
   The workspace root directory.
@@ -176,6 +195,15 @@ defmodule Exhub.Toonflow.Config do
   def voice_spec(_voice_map, _speaker), do: %{}
 
   # --- helpers ---
+
+  defp normalize_agent_model(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      model -> model
+    end
+  end
+
+  defp normalize_agent_model(_value), do: nil
 
   defp normalize_voice_map(map) when is_map(map) do
     Map.new(map, fn {name, spec} -> {to_string(name), normalize_spec(spec)} end)

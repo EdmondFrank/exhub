@@ -190,9 +190,12 @@ config :exhub, :toonflow, %{
   "ui" => %{
     "enabled" => true,
     "tick_ms" => 5000,
-    # Mutating REST endpoints (create project / run pipeline) are loopback-only
-    # by default — the app is also reachable over the VPN.
-    "require_local" => true
+    # Mutating REST endpoints (create project / run pipeline / edit shot /
+    # render / AI assist) are loopback-only by default — the app is also
+    # reachable over the VPN. The host's own interface addresses always pass;
+    # add IPv4 CIDRs (or bare addresses) for trusted remote devices here.
+    "require_local" => true,
+    "allowed_networks" => ["10.7.0.0/24"]
   }
 }
 

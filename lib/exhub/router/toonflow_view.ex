@@ -128,6 +128,15 @@ defmodule Exhub.Router.ToonflowView do
         .inspector .render-row button:hover { border-color: #58a6ff; color: #58a6ff; }
         .inspector .stale { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
         .inspector .stale span { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+        .inspector .ai-hint { font-size: 10px; color: #a371f7; margin-bottom: 6px; }
+        .inspector .ai-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+        .inspector .ai-row .ai-label { font-size: 10px; color: #a371f7; letter-spacing: .04em; }
+        .inspector .ai-row button { background: transparent; border: 1px solid #30363d; color: #8b949e; padding: 1px 7px; font-size: 10px; border-radius: 999px; }
+        .inspector .ai-row button:hover:not(:disabled) { border-color: #a371f7; color: #a371f7; }
+        .inspector .ai-row button:disabled { opacity: .45; cursor: default; }
+        .inspector .ai-row .ai-msg { font-size: 10px; color: #6e7681; margin-left: auto; }
+        .inspector .ai-row .ai-msg.busy { color: #a371f7; }
+        .inspector .ai-row .ai-msg.error { color: #f85149; }
         .inspector summary { font-size: 11px; color: #8b949e; cursor: pointer; margin: 10px 0 6px; }
         .inspector .msg { font-size: 11px; min-height: 14px; }
         .inspector img, .inspector video { width: 100%; border-radius: 8px; margin-top: 8px; background: #0d1117; }
@@ -285,6 +294,11 @@ defmodule Exhub.Router.ToonflowView do
     const SHOT_SIZES = #{Jason.encode!(Exhub.Toonflow.Storyboard.size_options())};
     const SHOT_MOVES = #{Jason.encode!(Exhub.Toonflow.Storyboard.motion_options())};
     const CAMERA_HINTS = #{Jason.encode!(Exhub.Toonflow.Storyboard.camera_options())};
+    // The inspector's AI buttons: the actions, the fields that accept them, and
+    // the configured director model they run on (see ShotAssist, toonflow.agents).
+    const DIRECTOR_MODEL = #{Jason.encode!(Exhub.Toonflow.Config.agent_model("director") || "default")};
+    const AI_FIELDS = #{Jason.encode!(Exhub.Toonflow.ShotAssist.fields())};
+    const AI_ACTIONS = #{Jason.encode!(Enum.map(Exhub.Toonflow.ShotAssist.actions(), &[&1, Exhub.Toonflow.ShotAssist.action_label(&1)]))};
     const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0 };
 
     const el = (id) => document.getElementById(id);
@@ -420,12 +434,23 @@ defmodule Exhub.Router.ToonflowView do
       const datalist = hints.length
         ? `<datalist id="${name}-options">${hints.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`
         : '';
-      return `<div class="field"><label for="f-${name}">${esc(label)}</label>${control}${datalist}</div>`;
+      return `<div class="field"><label for="f-${name}">${esc(label)}</label>${control}${datalist}${aiRow(name)}</div>`;
+    }
+
+    // The AI toolbar under one prose field. `aiAssist` writes its answer back
+    // into the textarea/input and marks the form dirty; Save is still explicit.
+    function aiRow(name) {
+      if (!AI_FIELDS.includes(name)) return '';
+      const buttons = AI_ACTIONS.map(([action, label]) =>
+        `<button type="button" data-action="${esc(action)}" title="导演模型：${esc(DIRECTOR_MODEL)}">${esc(label)}</button>`
+      ).join('');
+      return `<div class="ai-row" data-field="${esc(name)}"><span class="ai-label">AI</span>${buttons}<span class="ai-msg"></span></div>`;
     }
 
     function inspectorForm(shot) {
       return `
         <form id="insp-form" autocomplete="off">
+          <div class="ai-hint">AI 助手 · ${esc(DIRECTOR_MODEL)}</div>
           <div class="field"><label>Shot #${shot.idx} · ${esc(shot.scene || '')}</label></div>
           ${fieldInput(shot, 'scene', 'Scene')}
           ${fieldInput(shot, 'description', 'Description', 2)}
@@ -477,6 +502,7 @@ defmodule Exhub.Router.ToonflowView do
       const shot = state.shots.find((s) => s.id === state.selected);
       const media = el('insp-media');
       if (!shot || !media) return;
+
       const picture = shot.image ? `<img src="${esc(shot.image)}" alt="">` :
         (shot.video ? `<video controls src="${esc(shot.video)}"></video>` : '<p class="empty">No media yet.</p>');
       const audio = shot.audio ? `<audio controls style="width:100%;margin-top:6px" src="${esc(shot.audio)}"></audio>` : '';
@@ -526,7 +552,69 @@ defmodule Exhub.Router.ToonflowView do
         if (kind) renderShot(shot, kind);
       });
 
+      form.addEventListener('click', (ev) => {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('.ai-row button[data-action]') : null;
+        if (!btn) return;
+        const row = btn.closest('.ai-row');
+        aiAssist(shot, row.dataset.field, btn.dataset.action, row);
+      });
+
       update();
+    }
+
+    // One-click AI rewrite of the field being edited. The server returns the
+    // new text; `continue` appends it, every other action replaces the value.
+    // Nothing is saved here — the input event marks the form dirty as usual.
+    async function aiAssist(shot, field, action, row) {
+      const node = el('f-' + field);
+      if (!node || !row) return;
+      const msg = row.querySelector('.ai-msg');
+      const original = node.value;
+      const text = original.trim();
+      if (!text) {
+        msg.className = 'ai-msg error';
+        msg.textContent = '先输入内容';
+        return;
+      }
+
+      const buttons = Array.from(row.querySelectorAll('button'));
+      buttons.forEach((b) => { b.disabled = true; });
+      msg.className = 'ai-msg busy';
+      msg.textContent = '导演模型处理中…';
+
+      try {
+        const data = await api(`/toonflow/api/projects/${encodeURIComponent(project)}/shots/${encodeURIComponent(shot.id)}/assist`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ field, action, text })
+        });
+        const result = String((data && data.text) || '').trim();
+        if (!result) throw new Error('模型返回了空文本');
+        // The user may have switched shots or typed while the model was busy;
+        // never overwrite a field that moved on underneath the request.
+        if (state.selected !== shot.id || !document.body.contains(node)) return;
+        if (node.value !== original) {
+          msg.className = 'ai-msg error';
+          msg.textContent = '内容已变化，未覆盖';
+          return;
+        }
+        if (action === 'continue') {
+          const sep = /[\\n\\r]$/.test(original) ? '' : '\\n';
+          node.value = original + sep + result;
+        } else {
+          node.value = result;
+        }
+        node.dispatchEvent(new Event('input', { bubbles: true }));
+        node.focus();
+        msg.className = 'ai-msg';
+        msg.textContent = '✓ ' + ((data && data.model) || DIRECTOR_MODEL);
+        log(`AI ${action} · ${field}`, 'ok');
+      } catch (err) {
+        msg.className = 'ai-msg error';
+        msg.textContent = String(err.message || err);
+        log(`AI ${action} failed: ${err.message}`, 'error');
+      } finally {
+        buttons.forEach((b) => { b.disabled = false; });
+      }
     }
 
     async function saveShot(shot) {

@@ -93,7 +93,31 @@ job runs asynchronously and progress appears in the live log. Clearing an end
 keyframe prompt also drops the stored end-frame asset, so the shot renders as a
 single start-frame clip.
 
-Equivalent curl:
+#### AI 辅助编辑
+
+场景 / 画面描述 / 台词 / 提示词 / 首尾帧提示词下方有一排 **AI** 按钮：
+
+- **润色** — 保留原意，优化措辞、节奏和画面感；
+- **续写** — 接着原文往下写，只把新增部分追加到字段末尾；
+- **扩写** — 补足动作、环境、光线、情绪细节；
+- **精简** — 删去冗余，保留关键信息。
+
+点击后会用表单里**当前（可能尚未保存）的文本**调用配置好的导演模型
+（`toonflow.agents.director`，默认 `deepseek-v4.1-flash`），并把结果写回字段、
+把表单标记为 dirty；**不会自动保存**，确认无误后照常点 **Save**。上下文包括
+当前镜头、前后相邻镜头、角色形象库和项目世界观。提示词模板
+`shot.assist.system` / `shot.assist.user` 也可以像其他阶段一样用
+`toonflow_prompt_set` 按项目覆盖。
+
+AI assist curl:
+
+```sh
+curl -s -X POST localhost:9069/toonflow/api/projects/my-drama/shots/shot_3/assist \
+  -H 'content-type: application/json' \
+  -d '{"field":"dialogue","action":"polish","text":"你来了啊。"}'   # -> {"text": "...", "model": "..."}
+```
+
+Shot edit / re-render curl:
 
 ```sh
 curl -s -X POST localhost:9069/toonflow/api/projects/my-drama/shots/shot_3 \
@@ -399,7 +423,7 @@ config :exhub, :toonflow, %{
 | Symptom | Cause / fix |
 |---------|-------------|
 | `missing_source` on the `novel` stage | no `path`/`text` supplied (or resume with nothing to do). Pass a novel source. |
-| `403 forbidden (mutating endpoints are loopback-only)` | you POSTed to the canvas API from a non-loopback address. Set `ui.require_local => false`, or call from `localhost`. |
+| `403 forbidden (mutating endpoints are loopback-only)` | you POSTed to the canvas API from a non-loopback address. Add that address (or its CIDR) to `ui.allowed_networks`, set `ui.require_local => false`, or call from `localhost`. |
 | media/storyboard tool 404 on `/toonflow/media/...` | only `assets/`, `output/`, `storyboards/` are served; traversal/symlinks are rejected by design. |
 | WebSocket closes immediately after `101` | a socket handler replied with a bare binary instead of a Cowboy frame (`{:text, …}`). See the frame note in [docs/modules/toonflow.md](modules/toonflow.md). |
 | New `socket/3` route returns HTTP 200 instead of `101` | Cowboy's dispatch table is compiled at **listener start** — a hot-reloaded socket route only serves after the VM (or the `Exhub.Router.HTTP` listener child) restarts. Never reinstall the dispatch with `:cowboy.set_env/3` on a live listener. |

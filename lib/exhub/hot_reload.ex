@@ -66,7 +66,7 @@ defmodule Exhub.HotReload do
             :ok
 
           {:error, reason} ->
-            Logger.warning("[HotReload] ✗ #{mod}: #{inspect(reason)}")
+            Logger.warning("[HotReload] ✗ #{mod}: #{inspect(reason)}#{hint(mod, reason)}")
             :error
         end
       end)
@@ -78,6 +78,22 @@ defmodule Exhub.HotReload do
 
     %{ok: ok_count, errors: err_count}
   end
+
+  # A module keeps its old code while any process still runs it — a long-lived
+  # streaming request (LLM proxy SSE, websocket) pins every module on its stack,
+  # so `soft_purge/1` fails and the beam cannot be swapped in. Say so rather than
+  # reporting a bare `:not_purged`.
+  defp hint(mod, :not_purged) do
+    case Enum.count(Process.list(), fn pid -> :erlang.check_process_code(pid, mod) end) do
+      0 ->
+        ""
+
+      count ->
+        " — #{count} process(es) still run the old code (in-flight request/stream); retry when they finish"
+    end
+  end
+
+  defp hint(_mod, _reason), do: ""
 
   @doc """
   Returns a human-readable summary string suitable for sending back to Emacs.

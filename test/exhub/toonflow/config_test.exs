@@ -15,6 +15,23 @@ defmodule Exhub.Toonflow.ConfigTest do
     :ok
   end
 
+  describe "agent_model/1" do
+    test "reads agents.<name> and treats a blank entry as unset" do
+      Application.put_env(:exhub, :toonflow, %{"agents" => %{"director" => "deepseek-v4.1-flash"}})
+
+      assert Config.agent_model("director") == "deepseek-v4.1-flash"
+      assert Config.agent_model("script") == "deepseek-v4.1-flash"
+
+      Application.put_env(:exhub, :toonflow, %{"agents" => %{"director" => "  "}})
+      assert Config.agent_model("director") == nil
+    end
+
+    test "falls back to the shipped director when unset" do
+      Application.put_env(:exhub, :toonflow, %{})
+      assert Config.agent_model("director") == "deepseek-v4.1-flash"
+    end
+  end
+
   describe "voice_map/0" do
     test "stringifies keys and nested spec keys, defaulting to empty" do
       Application.put_env(:exhub, :toonflow, %{})

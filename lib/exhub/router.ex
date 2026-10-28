@@ -689,7 +689,7 @@ defmodule Exhub.Router do
         {:error, reason} -> toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
       end
     else
-      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+      toonflow_forbidden(conn)
     end
   end
 
@@ -715,7 +715,7 @@ defmodule Exhub.Router do
         {:error, report} -> toonflow_json(conn, 200, Map.put(report, "success", false))
       end
     else
-      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+      toonflow_forbidden(conn)
     end
   end
 
@@ -743,7 +743,56 @@ defmodule Exhub.Router do
           toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
       end
     else
-      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+      toonflow_forbidden(conn)
+    end
+  end
+
+  # The inspector's one-click AI help. It writes nothing: the rewritten text
+  # goes back to the editor, and the user saves when satisfied. Loopback-only
+  # like the other mutating endpoints because it spends model tokens.
+  post "/toonflow/api/projects/:name/shots/:shot_id/assist" do
+    if toonflow_writable?(conn) do
+      name = conn.params["name"]
+      shot_id = conn.params["shot_id"]
+      params = conn.body_params
+
+      opts = [
+        field: params["field"],
+        action: params["action"],
+        text: params["text"],
+        instruction: params["instruction"]
+      ]
+
+      case Exhub.Toonflow.ShotAssist.assist(name, shot_id, opts) do
+        {:ok, result} ->
+          toonflow_json(conn, 200, Map.put(result, "success", true))
+
+        {:error, :shot_not_found} ->
+          toonflow_json(conn, 404, %{error: "shot not found"})
+
+        {:error, :not_found} ->
+          toonflow_json(conn, 404, %{error: "project not found"})
+
+        {:error, {:invalid_field, field}} ->
+          toonflow_json(conn, 400, %{error: "unsupported field: #{field}"})
+
+        {:error, {:invalid_action, action}} ->
+          toonflow_json(conn, 400, %{error: "unsupported action: #{action}"})
+
+        {:error, :missing_field} ->
+          toonflow_json(conn, 400, %{error: "field is required"})
+
+        {:error, :missing_text} ->
+          toonflow_json(conn, 400, %{error: "text is required"})
+
+        {:error, {:llm_failed, _reason} = reason} ->
+          toonflow_json(conn, 502, %{error: toonflow_reason(reason)})
+
+        {:error, reason} ->
+          toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
+      end
+    else
+      toonflow_forbidden(conn)
     end
   end
 
@@ -773,7 +822,7 @@ defmodule Exhub.Router do
           toonflow_json(conn, 400, %{error: toonflow_reason(reason)})
       end
     else
-      toonflow_json(conn, 403, %{error: "forbidden (mutating endpoints are loopback-only)"})
+      toonflow_forbidden(conn)
     end
   end
 
@@ -1217,6 +1266,7 @@ defmodule Exhub.Router do
     |> send_resp(status, Jason.encode!(payload))
   end
 
+  defp toonflow_reason({:llm_failed, reason}) when is_binary(reason), do: reason
   defp toonflow_reason(reason) when is_binary(reason), do: reason
   defp toonflow_reason(reason), do: inspect(reason)
 
@@ -1245,16 +1295,31 @@ defmodule Exhub.Router do
   end
 
   # Mutating Toonflow endpoints are loopback-only by default (`ui.require_local`).
-  defp toonflow_writable?(conn) do
-    case Exhub.Toonflow.Config.get("ui") do
-      %{"require_local" => false} -> true
-      _ -> toonflow_local_ip?(conn.remote_ip)
-    end
+  # `Access` also accepts the host's own interface addresses and any networks a
+  # deployment explicitly trusts under `ui.allowed_networks`.
+  defp toonflow_forbidden(conn) do
+    ip = Exhub.Toonflow.Access.format(conn.remote_ip)
+
+    toonflow_json(conn, 403, %{
+      error:
+        "forbidden (mutating endpoints are loopback-only): #{ip} is not trusted — " <>
+          "add it (or its CIDR) to toonflow.ui.allowed_networks",
+      remote_ip: ip
+    })
   end
 
-  defp toonflow_local_ip?({127, _, _, _}), do: true
-  defp toonflow_local_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
-  defp toonflow_local_ip?(_), do: false
+  defp toonflow_writable?(conn) do
+    writable? = Exhub.Toonflow.Access.writable?(conn.remote_ip)
+
+    unless writable? do
+      Logger.warning(
+        "[Toonflow] denied #{conn.method} #{conn.request_path} from #{inspect(conn.remote_ip)}" <>
+          " (ui: #{inspect(Exhub.Toonflow.Config.get("ui"))})"
+      )
+    end
+
+    writable?
+  end
 
   # ============================================================================
   # Private Functions - Request Handlers

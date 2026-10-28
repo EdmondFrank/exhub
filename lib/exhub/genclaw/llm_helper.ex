@@ -21,11 +21,13 @@ defmodule Exhub.Genclaw.LLMHelper do
 
   ## Options
     * `:receive_timeout` — LLM receive timeout in ms (default 180_000)
+    * `:model` — an LLM name from `Exhub.Llm.LlmConfigServer`, or a bare model
+      name such as `"deepseek-v4.1-flash"`. Defaults to the current default LLM.
   """
   def call_llm(system_prompt, user_prompt, opts \\ []) do
     receive_timeout = Keyword.get(opts, :receive_timeout, @default_receive_timeout)
 
-    case LlmConfigServer.get_default_llm_config() do
+    case resolve_llm_config(Keyword.get(opts, :model)) do
       {:ok, llm_config} ->
         model = build_langchain_model(llm_config, receive_timeout: receive_timeout)
 
@@ -59,6 +61,37 @@ defmodule Exhub.Genclaw.LLMHelper do
         {:error, e, nil}
     end
   end
+
+  # `:model` may name an LLM config verbatim (`openai/deepseek-v4.1-flash`) or
+  # only its model (`deepseek-v4.1-flash`, the form `toonflow.agents.*` uses).
+  # Try the exact key, then the Gitee AI provider prefix, then any key whose
+  # model part matches, so a bare configured name still resolves.
+  defp resolve_llm_config(nil), do: LlmConfigServer.get_default_llm_config()
+
+  defp resolve_llm_config(name) when is_binary(name) do
+    case String.trim(name) do
+      "" ->
+        LlmConfigServer.get_default_llm_config()
+
+      name ->
+        candidates =
+          [name, "openai/" <> name] ++
+            Enum.filter(LlmConfigServer.list_llm_names(), &String.ends_with?(&1, "/" <> name))
+
+        Enum.find_value(
+          candidates,
+          {:error, "LLM '#{name}' not found in configuration"},
+          fn candidate ->
+            case LlmConfigServer.get_llm_config(candidate) do
+              {:ok, config} -> {:ok, config}
+              _ -> nil
+            end
+          end
+        )
+    end
+  end
+
+  defp resolve_llm_config(_name), do: LlmConfigServer.get_default_llm_config()
 
   @doc """
   Build a LangChain chat model struct from an LLM config map.

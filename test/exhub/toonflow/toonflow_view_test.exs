@@ -61,6 +61,17 @@ defmodule Exhub.Router.ToonflowViewTest do
       assert html =~ "/render"
     end
 
+    test "renders the one-click AI assist controls" do
+      html = ToonflowView.render_project("demo")
+
+      assert html =~ "AI 助手"
+      assert html =~ "const DIRECTOR_MODEL ="
+      assert html =~ "const AI_ACTIONS ="
+      assert html =~ ~s|data-action="${esc(action)}"|
+      assert html =~ "aiAssist(shot, row.dataset.field"
+      assert html =~ "/assist"
+    end
+
     test "escapes the project name" do
       html = ToonflowView.render_project(~s(a"b<c))
 
