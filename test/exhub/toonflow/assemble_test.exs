@@ -39,8 +39,41 @@ defmodule Exhub.Toonflow.AssembleTest do
              ]
   end
 
-  test "mix_audio_argv maps the video + supplied audio track explicitly" do
-    assert Assemble.mix_audio_argv("ffmpeg", "/o/v.mp4", "/o/a.m4a", "/o/m.mp4") ==
+  test "mix_audio_argv keeps the clip audio as an ambience bed" do
+    argv = Assemble.mix_audio_argv("ffmpeg", "/o/v.mp4", "/o/a.m4a", "/o/m.mp4")
+    filter = Enum.at(argv, Enum.find_index(argv, &(&1 == "-filter_complex")) + 1)
+
+    assert filter ==
+             "[0:a]volume=0.150[amb];" <>
+               "[amb][1:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]"
+
+    assert Enum.drop_while(argv, &(&1 != "-map")) == [
+             "-map",
+             "0:v:0",
+             "-map",
+             "[mixed]",
+             "-c:v",
+             "copy",
+             "-c:a",
+             "aac",
+             "-b:a",
+             "192k",
+             "-shortest",
+             "/o/m.mp4"
+           ]
+  end
+
+  test "mix_audio_argv honours an explicit ambience gain" do
+    argv =
+      Assemble.mix_audio_argv("ffmpeg", "/o/v.mp4", "/o/a.m4a", "/o/m.mp4", ambience_gain: 0.5)
+
+    filter = Enum.at(argv, Enum.find_index(argv, &(&1 == "-filter_complex")) + 1)
+
+    assert filter =~ "[0:a]volume=0.500[amb]"
+  end
+
+  test "silent_mix_argv replaces the audio of a video that has none" do
+    assert Assemble.silent_mix_argv("ffmpeg", "/o/v.mp4", "/o/a.m4a", "/o/m.mp4") ==
              [
                "ffmpeg",
                "-y",
@@ -59,6 +92,61 @@ defmodule Exhub.Toonflow.AssembleTest do
                "-shortest",
                "/o/m.mp4"
              ]
+  end
+
+  test "probe_audio_argv lists only audio streams" do
+    assert Assemble.probe_audio_argv("ffprobe", "/o/a.mp4") == [
+             "ffprobe",
+             "-v",
+             "error",
+             "-select_streams",
+             "a",
+             "-show_entries",
+             "stream=codec_name",
+             "-of",
+             "csv=p=0",
+             "/o/a.mp4"
+           ]
+  end
+
+  test "dissolve_argv crossfades picture and sound at staggered offsets" do
+    argv =
+      Assemble.dissolve_argv(
+        "ffmpeg",
+        ["/o/a.mp4", "/o/b.mp4", "/o/c.mp4"],
+        [6.0, 5.0, 4.0],
+        0.12,
+        "/o/ep.mp4"
+      )
+
+    assert Enum.take(argv, 6) == ["ffmpeg", "-y", "-i", "/o/a.mp4", "-i", "/o/b.mp4"]
+    assert List.last(argv) == "/o/ep.mp4"
+
+    filter = Enum.at(argv, Enum.find_index(argv, &(&1 == "-filter_complex")) + 1)
+
+    # 6.0 - 0.12, then 6.0 + 5.0 - 2 * 0.12
+    assert filter =~ "xfade=transition=fade:duration=0.120:offset=5.880[vx1]"
+    assert filter =~ "xfade=transition=fade:duration=0.120:offset=10.760[vout]"
+    assert filter =~ "[a0][a1]acrossfade=d=0.120:c1=tri:c2=tri[ax1]"
+    assert filter =~ "[ax1][a2]acrossfade=d=0.120:c1=tri:c2=tri[aout]"
+    assert filter =~ "[0:v]format=yuv420p,setsar=1[v0]"
+
+    assert Enum.drop_while(argv, &(&1 != "-map")) |> Enum.take(4) ==
+             ["-map", "[vout]", "-map", "[aout]"]
+  end
+
+  test "apply_transition shortens every entry but the last" do
+    entries = [
+      %{"shot" => %{"idx" => 1}, "duration" => 6.0},
+      %{"shot" => %{"idx" => 2}, "duration" => 5.0}
+    ]
+
+    assert Assemble.apply_transition(entries, 0.12) == [
+             %{"shot" => %{"idx" => 1}, "duration" => 5.88},
+             %{"shot" => %{"idx" => 2}, "duration" => 5.0}
+           ]
+
+    assert Assemble.apply_transition(entries, 0) == entries
   end
 
   test "voice_segment_argv trims silence and pads to the shot duration" do

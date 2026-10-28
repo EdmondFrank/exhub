@@ -68,6 +68,60 @@ defmodule Exhub.Toonflow.VideoTest do
              Video.generate_video("demo", [prompt: "boom"], server)
   end
 
+  describe "clip_duration/1" do
+    test "follows the line, not a fixed length" do
+      # a 1 s line no longer gets a 6 s clip of dead air
+      assert Video.clip_duration(0.87) == 4
+      # a 7.7 s line is no longer truncated by a 6 s clip
+      assert Video.clip_duration(7.74) == 9
+    end
+
+    test "clamps to what MiniMax-H3 accepts" do
+      assert Video.clip_duration(0) == 4
+      assert Video.clip_duration(20) == 15
+    end
+  end
+
+  describe "probe_seconds/1" do
+    test "reads a real file's duration" do
+      with ffmpeg when is_binary(ffmpeg) <- System.find_executable("ffmpeg"),
+           ffprobe when is_binary(ffprobe) <- System.find_executable("ffprobe") do
+        dir = Path.join(System.tmp_dir!(), "toonflow_probe_#{System.unique_integer([:positive])}")
+        File.mkdir_p!(dir)
+        on_exit(fn -> File.rm_rf(dir) end)
+        wav = Path.join(dir, "half.wav")
+
+        {_, 0} =
+          System.cmd(
+            ffmpeg,
+            ~w(-y -f lavfi -i anullsrc=r=16000:cl=mono -t 0.5) ++ [wav],
+            stderr_to_stdout: true
+          )
+
+        assert {:ok, seconds} = Video.probe_seconds(wav)
+        assert_in_delta seconds, 0.5, 0.1
+      else
+        _ -> :ok
+      end
+    end
+
+    test "is :error for a file it cannot read" do
+      assert :error = Video.probe_seconds("/nonexistent/nope.wav")
+    end
+  end
+
+  describe "dialogue_seconds/1" do
+    test "estimates Mandarin speech from the character count" do
+      assert Video.dialogue_seconds("他救不活了。") > 1.0
+      assert Video.dialogue_seconds("我从来不丢下同伴！") > Video.dialogue_seconds("姐姐……")
+    end
+
+    test "is zero without dialogue" do
+      assert Video.dialogue_seconds(nil) == 0.0
+      assert Video.dialogue_seconds("") == 0.0
+    end
+  end
+
   describe "poll_opts/1" do
     test "defaults to a budget long enough for a MiniMax-H3 clip" do
       assert Video.Default.poll_opts() == [interval_ms: 10_000, max_attempts: 110]

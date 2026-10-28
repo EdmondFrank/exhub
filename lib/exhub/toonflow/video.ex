@@ -31,9 +31,11 @@ defmodule Exhub.Toonflow.Video do
   When `:task` is unset it defaults to `fl2va` if the shot already has a frame,
   else `t2va`. Frames resolve from the shot's assets: the first is the
   `keyframe_start` when present, else the latest `image`; the last is
-  `keyframe_end` (only while `media.last_frame` is enabled). `:first_frame` /
-  `:last_frame` override both, and `fl2va` needs a first frame. Returns
-  `{:ok, asset}` or `{:error, reason}`.
+  `keyframe_end` (only for a fixed-camera shot, and only while
+  `media.last_frame` is enabled). `:first_frame` / `:last_frame` override both,
+  and `fl2va` needs a first frame. Without `:duration_seconds` the clip is cut
+  to the shot's dialogue (see `clip_duration/1`). Returns `{:ok, asset}` or
+  `{:error, reason}`.
   """
   @spec generate_video(String.t(), keyword(), GenServer.server()) ::
           {:ok, map()} | {:error, term()}
@@ -44,23 +46,176 @@ defmodule Exhub.Toonflow.Video do
     with {:ok, meta} <- Store.get_project(project, server),
          {:ok, shot, characters} <- load_shot(project, shot_id, server),
          {:ok, task, first_frame, last_frame} <- resolve_frames(project, shot, opts, server),
-         {:ok, final_prompt} <- resolve_prompt(prompt, shot, characters, task) do
+         {:ok, task, last_frame, endpoint} <-
+           endpoint_guard(task, shot, last_frame, Keyword.get(opts, :last_frame)),
+         {:ok, final_prompt} <- resolve_prompt(prompt, shot, characters, task, last_frame) do
       model = Keyword.get(opts, :model) || media_config()["video_model"] || @default_model
       key = shot_id || Toonflow.new_id("vid")
       out_path = video_path(meta["root_dir"], key)
+      duration = Keyword.get(opts, :duration_seconds) || shot_duration(project, shot, server)
 
       client_opts =
         [model: model, task: task, out_path: out_path]
-        |> put_opt(:duration_seconds, Keyword.get(opts, :duration_seconds))
+        |> put_opt(:duration_seconds, duration)
         |> put_opt(:aspect_ratio, Keyword.get(opts, :aspect_ratio) || Config.aspect_ratio())
         |> put_opt(:seed, Keyword.get(opts, :seed))
         |> put_opt(:first_frame, first_frame)
         |> put_opt(:last_frame, last_frame)
 
       case video_client().generate_video(final_prompt, client_opts) do
-        {:ok, result} -> record(project, shot_id, final_prompt, result, server)
+        {:ok, result} -> record(project, shot_id, final_prompt, result, endpoint, server)
         {:error, reason} -> {:error, {:video_failed, reason}}
       end
+    end
+  end
+
+  # --- pacing ---
+
+  # MiniMax-H3 accepts 4–15 s. A fixed length is what makes an episode drag: a
+  # 1 s line inside a 6 s clip leaves 5 s of dead air, and a 7 s line inside the
+  # same clip is cut off. The clip follows its line instead.
+  @min_clip_seconds 4
+  @max_clip_seconds 15
+  # The clip also carries the line's lead-in and the breath before the cut.
+  @clip_tail_seconds 1.2
+  # Mandarin TTS speaks roughly 4 characters per second (measured on MoArk).
+  @chars_per_second 4.2
+
+  @doc """
+  Spoken seconds estimated from a line of dialogue. Pure.
+
+  Counts CJK characters (one syllable each) and latin/digit words (two), since
+  a clip has to be scheduled before its voice exists (`videos` runs ahead of
+  `voices` in the pipeline).
+  """
+  @spec dialogue_seconds(String.t() | nil) :: float()
+  def dialogue_seconds(text) when is_binary(text) do
+    case spoken_units(text) do
+      0 -> 0.0
+      units -> units / @chars_per_second + 0.6
+    end
+  end
+
+  def dialogue_seconds(_text), do: 0.0
+
+  @doc ~S"""
+  Clip length for a line of `speech_seconds`: the line plus a tail, rounded up
+  and clamped to what MiniMax-H3 accepts (4–15 s). Pure.
+  """
+  @spec clip_duration(number()) :: pos_integer()
+  def clip_duration(speech_seconds) when is_number(speech_seconds) do
+    speech_seconds
+    |> Kernel.+(@clip_tail_seconds)
+    |> Float.ceil()
+    |> round()
+    |> max(@min_clip_seconds)
+    |> min(@max_clip_seconds)
+  end
+
+  # The clip length for a shot: its real voice track when one already exists
+  # (a re-render), else the estimate from its dialogue. A free prompt with no
+  # shot keeps the provider default.
+  defp shot_duration(_project, nil, _server), do: nil
+
+  defp shot_duration(project, shot, server) do
+    speech =
+      case speech_seconds(project, shot, server) do
+        {:ok, seconds} when seconds > 0 -> seconds
+        _ -> dialogue_seconds(dialogue(shot))
+      end
+
+    clip_duration(speech)
+  end
+
+  defp speech_seconds(project, shot, server) do
+    case Media.latest_asset(project, shot["id"], "audio", server) do
+      {:ok, %{"path" => path}} when is_binary(path) -> probe_seconds(path)
+      _ -> :error
+    end
+  end
+
+  defp dialogue(shot) do
+    meta = (shot && shot["meta"]) || %{}
+    Enum.find([meta["dialogue"], meta["台词"]], &(is_binary(&1) and String.trim(&1) != ""))
+  end
+
+  defp spoken_units(text) do
+    cjk = length(Regex.scan(~r/[\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{F900}-\x{FAFF}]/u, text))
+    words = length(Regex.scan(~r/[A-Za-z0-9]+/u, text))
+    cjk + words * 2
+  end
+
+  @doc """
+  Duration of a media file in seconds, via `ffprobe`. `:error` when the file is
+  missing or unreadable, so callers can fall back to an estimate.
+  """
+  @spec probe_seconds(String.t()) :: {:ok, float()} | :error
+  def probe_seconds(path) when is_binary(path) do
+    argv = [
+      ffprobe_path(),
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "csv=p=0",
+      path
+    ]
+
+    case run(argv) do
+      {0, output} ->
+        case Float.parse(String.trim(output)) do
+          {seconds, _rest} when seconds > 0 -> {:ok, seconds}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp ffprobe_path do
+    (Config.get("assembly", %{}) || %{})["ffprobe_path"] || "ffprobe"
+  end
+
+  defp run(argv) do
+    # `Exile` needs its supervision tree; tests that run with `--no-start` must
+    # not crash the caller.
+    _ = Application.ensure_all_started(:exile)
+
+    {out, code} =
+      Exile.stream(argv, stderr: :consume, env: Exhub.MCP.Desktop.Helpers.clean_env())
+      |> Enum.reduce({"", 0}, fn
+        {:stdout, data}, {o, c} -> {o <> data, c}
+        {:exit, {:status, c}}, {o, _c} -> {o, c}
+        {:exit, :epipe}, {o, c} -> {o, c}
+        _other, acc -> acc
+      end)
+
+    {code || 0, out}
+  rescue
+    _e -> {nil, ""}
+  end
+
+  # --- endpoint guard ---
+
+  # `fl2va` honours the first frame but not the last: on a measured episode the
+  # opening frame matched its keyframe at 32 dB PSNR while the final frame landed
+  # at 21 dB — the model drifts off a distant end frame, and that drift reads as
+  # an unintended cut inside the take. A camera move makes it worse: the prompt
+  # asks for one thing while the end frame pins another. So only a fixed-camera
+  # shot keeps its end frame; a moving shot interpolates from the first frame
+  # alone (MiniMax accepts `fl2va` with a single frame), which is image-to-video.
+  defp endpoint_guard(task, _shot, last_frame, explicit) when is_binary(explicit),
+    do: {:ok, task, last_frame, %{}}
+
+  defp endpoint_guard(task, _shot, nil, _explicit), do: {:ok, task, nil, %{}}
+
+  defp endpoint_guard(task, shot, last_frame, _explicit) do
+    if Storyboard.fixed_camera?(shot) do
+      {:ok, task, last_frame, %{}}
+    else
+      {:ok, task, nil, %{"last_frame_dropped" => "camera_move"}}
     end
   end
 
@@ -80,15 +235,19 @@ defmodule Exhub.Toonflow.Video do
     end
   end
 
-  defp resolve_prompt(prompt, _shot, _characters, _task) when is_binary(prompt),
+  defp resolve_prompt(prompt, _shot, _characters, _task, _last) when is_binary(prompt),
     do: {:ok, prompt}
 
-  defp resolve_prompt(_prompt, nil, _characters, _task), do: {:error, :missing_prompt}
+  defp resolve_prompt(_prompt, nil, _characters, _task, _last), do: {:error, :missing_prompt}
 
-  # `fl2va` interpolates between the shot's two keyframes, so the prompt must not
-  # ask for a camera move of its own — see `Storyboard.shot_prompt/4`.
-  defp resolve_prompt(_prompt, shot, characters, task) do
-    case Storyboard.shot_prompt(shot, characters, [], lock_framing: task == "fl2va") do
+  # Frame the prompt against what the model is actually given. Two pinned frames
+  # interpolate to a fixed composition, so a camera move would fight them; a
+  # fixed-camera shot wants the same clause regardless. Every other shot carries
+  # its 运镜 (bounded by `Storyboard`), which is what gives the cut its energy.
+  defp resolve_prompt(_prompt, shot, characters, task, last_frame) do
+    lock? = task == "fl2va" and (not is_nil(last_frame) or Storyboard.fixed_camera?(shot))
+
+    case Storyboard.shot_prompt(shot, characters, [], lock_framing: lock?) do
       "" -> {:error, :missing_prompt}
       prompt -> {:ok, prompt}
     end
@@ -167,7 +326,12 @@ defmodule Exhub.Toonflow.Video do
 
   # --- persistence ---
 
-  defp record(project, shot_id, prompt, result, server) do
+  defp record(project, shot_id, prompt, result, endpoint, server) do
+    meta =
+      result
+      |> Map.take(["model", "task", "task_id", "duration_seconds", "aspect_ratio"])
+      |> Map.merge(endpoint)
+
     Media.insert_asset(
       project,
       [
@@ -176,7 +340,7 @@ defmodule Exhub.Toonflow.Video do
         path: result["path"],
         url: result["url"],
         prompt: prompt,
-        meta: Map.take(result, ["model", "task", "task_id", "duration_seconds", "aspect_ratio"])
+        meta: meta
       ],
       server
     )

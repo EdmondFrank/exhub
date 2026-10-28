@@ -177,7 +177,15 @@ config :exhub, :toonflow, %{
   },
   "assembly" => %{
     "ffmpeg_path" => "ffmpeg",
-    "subtitles" => true
+    "subtitles" => true,
+    # Cross-dissolve between clips, in seconds (0 = hard cuts only). A join is
+    # shortened by this much and the subtitle/voice timeline follows it; keep the
+    # value a whole number of frames (0.125 = 3 frames at 24 fps) so the joins do
+    # not stretch the episode.
+    "transition_seconds" => 0.125,
+    # Gain applied to each clip's own audio before the voiceover is mixed over
+    # it — the ambience bed that keeps a cut from dropping into silence.
+    "ambience_gain" => 0.15
   },
   "ui" => %{
     "enabled" => true,

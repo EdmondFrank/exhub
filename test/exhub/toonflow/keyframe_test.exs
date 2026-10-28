@@ -32,6 +32,24 @@ defmodule Exhub.Toonflow.KeyframeTest do
       assert Keyframe.keyframe_prompt(nil, "start") == nil
     end
 
+    test "fit_argv crops the frame to the delivery aspect" do
+      argv = Keyframe.fit_argv("ffmpeg", "/o/k.png", "/o/k.fit.png", "16:9")
+      filter = Enum.at(argv, Enum.find_index(argv, &(&1 == "-vf")) + 1)
+
+      # min(iw, ih * 16/9) wide — a 1536x1024 keyframe becomes 1536x864
+      assert filter =~ "trunc(min(iw\\,ih*16/9)/2)*2"
+      assert filter =~ "trunc(min(ih\\,iw*9/16)/2)*2"
+      assert List.last(argv) == "/o/k.fit.png"
+    end
+
+    test "fit_argv leaves the frame alone when the aspect is unknown" do
+      assert Keyframe.fit_argv("ffmpeg", "/o/k.png", "/o/k.fit.png", nil) ==
+               ["ffmpeg", "-y", "-i", "/o/k.png", "/o/k.fit.png"]
+
+      assert Keyframe.fit_argv("ffmpeg", "/o/k.png", "/o/k.fit.png", "adaptive") ==
+               ["ffmpeg", "-y", "-i", "/o/k.png", "/o/k.fit.png"]
+    end
+
     test "adjacent/2 returns the neighbouring shots" do
       shots = [%{"id" => "a"}, %{"id" => "b"}, %{"id" => "c"}]
 

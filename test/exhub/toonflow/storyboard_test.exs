@@ -71,7 +71,9 @@ defmodule Exhub.Toonflow.StoryboardTest do
         "lighting" => "冷光"
       }
 
-      assert Storyboard.shot_prompt(shot) == "祖宅，林昭立于门前，中景，推，冷光"
+      # The bare 推 is bounded, so the model cannot read it as a whole-scene zoom.
+      assert Storyboard.shot_prompt(shot) ==
+               "祖宅，林昭立于门前，中景，推，冷光；运镜：缓慢推近，幅度不超过画面的5%，人物大小基本不变"
     end
 
     test "appends the scene description when one is known" do
@@ -98,7 +100,7 @@ defmodule Exhub.Toonflow.StoryboardTest do
 
       prompt = Storyboard.shot_prompt(shot)
       assert prompt =~ "中景：人物膝盖以上入画"
-      assert prompt =~ "运镜：推"
+      assert prompt =~ "运镜：缓慢推近，幅度不超过画面的5%"
       assert prompt =~ "光线：青灰橙光"
     end
 
@@ -117,8 +119,30 @@ defmodule Exhub.Toonflow.StoryboardTest do
 
       prompt = Storyboard.shot_prompt(shot, [], [], lock_framing: true)
       assert prompt =~ "近景：人物胸部以上入画"
-      refute prompt =~ "运镜：推"
+      refute prompt =~ "运镜："
       assert prompt =~ "禁止变焦"
+    end
+
+    test "a 固定 运镜 renders the fixed-camera clause without lock_framing" do
+      shot = %{"prompt" => "夜雾甲板", "motion" => "固定"}
+
+      prompt = Storyboard.shot_prompt(shot)
+      assert prompt =~ "固定机位一镜到底"
+      refute prompt =~ "运镜："
+    end
+  end
+
+  describe "fixed_camera?/1" do
+    test "treats 固定/静止 and a missing 运镜 as a fixed camera" do
+      assert Storyboard.fixed_camera?(%{"motion" => "固定"})
+      assert Storyboard.fixed_camera?(%{"motion" => "静止不动"})
+      assert Storyboard.fixed_camera?(%{})
+      assert Storyboard.fixed_camera?(nil)
+    end
+
+    test "recognises a camera move" do
+      refute Storyboard.fixed_camera?(%{"motion" => "推"})
+      refute Storyboard.fixed_camera?(%{"motion" => "摇"})
     end
   end
 

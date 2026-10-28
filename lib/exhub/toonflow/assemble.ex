@@ -12,11 +12,16 @@ defmodule Exhub.Toonflow.Assemble do
   first clip's frame (`normalize_argv/4`) — otherwise the episode would smear
   instead of letterboxing.
 
+  Clips can instead be cross-dissolved (`dissolve_argv/5`) — each join is
+  shortened by the transition, and `apply_transition/2` moves the subtitle and
+  voice timeline with it.
+
   The FFmpeg/FFprobe argv builders (`concat_argv/3`, `concat_audio_argv/3`,
-  `mix_audio_argv/4`, `subtitle_argv/4`, `probe_argv/2`, `probe_size_argv/2`,
-  `normalize_argv/4`, `concat_list/1`, `srt/1`, `cues/1`, `parse_duration/1`,
-  `parse_size/1`, `timestamp/1`) are pure and unit-tested; execution shells out
-  via `Exile`.
+  `dissolve_argv/5`, `mix_audio_argv/5`, `silent_mix_argv/4`, `subtitle_argv/4`,
+  `probe_argv/2`, `probe_audio_argv/2`, `probe_size_argv/2`, `normalize_argv/4`,
+  `concat_list/1`, `srt/1`, `cues/1`, `parse_duration/1`, `parse_size/1`,
+  `apply_transition/2`, `timestamp/1`) are pure and unit-tested; execution
+  shells out via `Exile`.
   """
 
   alias Exhub.Toonflow
@@ -30,14 +35,20 @@ defmodule Exhub.Toonflow.Assemble do
 
   @voice_lead_in_ms 150
 
+  # The clips' own audio (fog, wind, footsteps) is the only room tone the episode
+  # has; under the voices at this gain it keeps a cut from dropping into silence.
+  @ambience_gain 0.15
+
   @doc """
   Assemble a script's clips into an episode.
 
   `opts`: `:script_id` (default: the latest), `:scene` (limit to one scene),
   `:subtitles` (soft-mux the generated `.srt`; default from
   `assembly.subtitles`), `:mix_audio` (mix per-shot voiceover; default false),
-  `:name` (artifact stem, default the script id). Every shot must already have
-  a generated video clip.
+  `:transition` (cross-dissolve seconds between clips; default from
+  `assembly.transition_seconds`, `0` disables), `:name` (artifact stem, default
+  the script id). Every shot must already have a generated video clip.
+  `:mix_audio` keeps each clip's own audio as a low ambient bed under the voices.
   """
   @spec assemble(String.t(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   def assemble(project, opts \\ [], server \\ Store) do
@@ -46,13 +57,16 @@ defmodule Exhub.Toonflow.Assemble do
     subtitles = Keyword.get(opts, :subtitles, assembly_config()["subtitles"] != false)
     mix_audio = Keyword.get(opts, :mix_audio, false)
 
+    transition =
+      transition_seconds(Keyword.get(opts, :transition, assembly_config()["transition_seconds"]))
+
     with {:ok, meta} <- Store.get_project(project, server),
          {:ok, script} <- fetch_script(project, script_id, server),
          {:ok, shots} <-
            Storyboard.list_shots(project, [script_id: script["id"], scene: scene], server),
          {:ok, clips} <- collect_clips(project, shots, server) do
       name = Toonflow.blank(Keyword.get(opts, :name)) || script["id"]
-      build(project, meta["root_dir"], name, clips, subtitles, mix_audio, server)
+      build(project, meta["root_dir"], name, clips, subtitles, mix_audio, transition, server)
     end
   end
 
@@ -90,7 +104,7 @@ defmodule Exhub.Toonflow.Assemble do
 
   # --- build pipeline ---
 
-  defp build(project, dir, name, clips, subtitles, mix_audio, server) do
+  defp build(project, dir, name, clips, subtitles, mix_audio, transition, server) do
     out_dir = Path.join(dir, "output")
     File.mkdir_p!(out_dir)
 
@@ -102,8 +116,10 @@ defmodule Exhub.Toonflow.Assemble do
     with :ok <- check_tool(ffmpeg, :ffmpeg),
          {:ok, paths, normalized} <- normalize_clips(ffmpeg, out_dir, name, clips),
          :ok <- File.write(list_path, concat_list(paths)),
-         {:ok, _} <- run(concat_argv(ffmpeg, list_path, video_path)),
          {:ok, entries} <- with_durations(clips),
+         {mode, argv, entries} <-
+           sequence(ffmpeg, paths, list_path, entries, transition, video_path),
+         {:ok, _} <- run(argv),
          :ok <- File.write(srt_path, srt(cues(entries))) do
       {final, audio} =
         maybe_mix(project, ffmpeg, video_path, entries, mix_audio, out_dir, name, server)
@@ -124,8 +140,42 @@ defmodule Exhub.Toonflow.Assemble do
          "duration" => total_duration(entries),
          "audio" => audio,
          "normalized" => normalized,
+         "transition" => mode,
          "output_dir" => out_dir
        }}
+    end
+  end
+
+  # Concatenation alone leaves every join hard, and a cut between two
+  # independently generated compositions is exactly where an episode reads as
+  # stitched. A short cross-dissolve softens the join; it needs audio in every
+  # clip because the audio is acrossfaded at the same offsets, so picture and
+  # sound stay in sync. Anything else falls back to a straight concat.
+  defp sequence(ffmpeg, paths, list_path, entries, transition, out) do
+    durations = Enum.map(entries, & &1["duration"])
+
+    if transition > 0 and length(paths) > 1 and Enum.all?(paths, &has_audio?/1) do
+      entries = apply_transition(entries, transition)
+      {:dissolve, dissolve_argv(ffmpeg, paths, durations, transition, out), entries}
+    else
+      {:concat, concat_argv(ffmpeg, list_path, out), entries}
+    end
+  end
+
+  defp has_audio?(path) do
+    case execute(probe_audio_argv(ffprobe_path(), path)) do
+      {0, output} -> String.trim(output) != ""
+      _ -> false
+    end
+  end
+
+  defp transition_seconds(value) when is_number(value) and value > 0, do: value * 1.0
+  defp transition_seconds(_value), do: 0.0
+
+  defp ambience_gain do
+    case assembly_config()["ambience_gain"] do
+      value when is_number(value) and value >= 0 -> value * 1.0
+      _ -> @ambience_gain
     end
   end
 
@@ -233,11 +283,19 @@ defmodule Exhub.Toonflow.Assemble do
          {:ok, segments} <- build_segments(ffmpeg, voices, out_dir, name),
          :ok <- File.write(audio_list, concat_list(segments)),
          {:ok, _} <- run(concat_audio_argv(ffmpeg, audio_list, audio_path)),
-         {:ok, _} <- run(mix_audio_argv(ffmpeg, video_path, audio_path, mixed)) do
+         {:ok, _} <- run(mix_argv(ffmpeg, video_path, audio_path, mixed)) do
       _ = File.rename(mixed, video_path)
       {video_path, segments}
     else
       {:error, reason} -> {video_path, {:skipped, reason}}
+    end
+  end
+
+  defp mix_argv(ffmpeg, video, audio, out) do
+    if has_audio?(video) do
+      mix_audio_argv(ffmpeg, video, audio, out, ambience_gain: ambience_gain())
+    else
+      silent_mix_argv(ffmpeg, video, audio, out)
     end
   end
 
@@ -389,7 +447,108 @@ defmodule Exhub.Toonflow.Assemble do
       out
     ]
 
-  @doc """
+  @doc "ffprobe argv listing a file's audio streams (empty output = none)."
+  @spec probe_audio_argv(String.t(), String.t()) :: [String.t()]
+  def probe_audio_argv(ffprobe, path),
+    do: [
+      ffprobe,
+      "-v",
+      "error",
+      "-select_streams",
+      "a",
+      "-show_entries",
+      "stream=codec_name",
+      "-of",
+      "csv=p=0",
+      path
+    ]
+
+  @doc ~S"""
+  ffmpeg argv that cross-dissolves `paths` — `durations` seconds each — into
+  `out`, picture and sound together. Pure.
+
+  `xfade` shortens each join by `fade` and `acrossfade` trims the audio by the
+  same amount, so the tracks stay aligned; the output is `sum(durations) -
+  (length - 1) * fade` long, which is what `apply_transition/2` gives the
+  timeline the subtitles and voice segments are built from. Keep `fade` a whole
+  number of frames — a frame-aligned value reproduces that length exactly, while
+  e.g. 0.12 s at 24 fps rounds every join up and lengthens the episode.
+  """
+  @spec dissolve_argv(String.t(), [String.t()], [number()], number(), String.t()) :: [String.t()]
+  def dissolve_argv(ffmpeg, paths, durations, fade, out) do
+    count = length(paths)
+    inputs = Enum.flat_map(paths, &["-i", &1])
+
+    prepares =
+      Enum.flat_map(0..(count - 1), fn index ->
+        [
+          "[#{index}:v]format=yuv420p,setsar=1[v#{index}]",
+          "[#{index}:a]aformat=sample_rates=48000:channel_layouts=stereo[a#{index}]"
+        ]
+      end)
+
+    {joins, video_label, audio_label, _end_at} =
+      Enum.reduce(1..(count - 1), {[], "v0", "a0", hd(durations)}, fn index,
+                                                                      {acc, prev_video,
+                                                                       prev_audio, end_at} ->
+        final? = index == count - 1
+        video_out = if final?, do: "vout", else: "vx#{index}"
+        audio_out = if final?, do: "aout", else: "ax#{index}"
+        offset = end_at - fade
+
+        step = [
+          "[#{prev_video}][v#{index}]xfade=transition=fade:duration=#{format_seconds(fade)}:" <>
+            "offset=#{format_seconds(offset)}[#{video_out}]",
+          "[#{prev_audio}][a#{index}]acrossfade=d=#{format_seconds(fade)}:c1=tri:c2=tri[#{audio_out}]"
+        ]
+
+        {acc ++ step, video_out, audio_out, end_at + Enum.at(durations, index) - fade}
+      end)
+
+    [ffmpeg, "-y"]
+    |> Kernel.++(inputs)
+    |> Kernel.++([
+      "-filter_complex",
+      Enum.join(prepares ++ joins, ";"),
+      "-map",
+      "[#{video_label}]",
+      "-map",
+      "[#{audio_label}]",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "18",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      out
+    ])
+  end
+
+  @doc ~S"""
+  Shorten every entry but the last by the crossfade so the timeline matches the
+  dissolved picture. Pure.
+  """
+  @spec apply_transition([map()], number()) :: [map()]
+  def apply_transition(entries, fade) when is_number(fade) and fade > 0 do
+    last = length(entries) - 1
+
+    entries
+    |> Enum.with_index()
+    |> Enum.map(fn
+      {entry, ^last} -> entry
+      {entry, _index} -> %{entry | "duration" => max(entry["duration"] - fade, 0.1)}
+    end)
+  end
+
+  def apply_transition(entries, _fade), do: entries
+
+  @doc ~S"""
   ffmpeg argv to turn a voice clip into a segment that fills exactly `duration`
   seconds: leading/trailing silence is trimmed, a short lead-in is inserted, and
   the rest is padded with silence (or cut when the clip is longer).
@@ -412,13 +571,55 @@ defmodule Exhub.Toonflow.Assemble do
   end
 
   @doc """
-  ffmpeg argv to replace a video's audio track with `audio` (video copied).
+  ffmpeg argv to mix `audio` over the video's own audio track (video copied).
 
-  The explicit `-map` matters: without it ffmpeg's default stream selection
-  picks the video's *own* audio (input 0) and silently drops the supplied track.
+  The clip audio is not discarded: at `:ambience_gain` (default 0.15, ≈ −16 dB)
+  it is the room tone that stops a cut from dropping into digital silence. Use
+  `silent_mix_argv/4` for a video with no audio track.
+
+  The explicit `-map`s matter: without them ffmpeg's default stream selection
+  picks the video's *own* audio and silently drops the supplied track.
   """
-  @spec mix_audio_argv(String.t(), String.t(), String.t(), String.t()) :: [String.t()]
-  def mix_audio_argv(ffmpeg, video, audio, out),
+  @spec mix_audio_argv(String.t(), String.t(), String.t(), String.t(), keyword()) :: [String.t()]
+  def mix_audio_argv(ffmpeg, video, audio, out, opts \\ []) do
+    gain = Keyword.get(opts, :ambience_gain, @ambience_gain)
+
+    filter =
+      "[0:a]volume=#{format_seconds(gain)}[amb];" <>
+        "[amb][1:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]"
+
+    [
+      ffmpeg,
+      "-y",
+      "-i",
+      video,
+      "-i",
+      audio,
+      "-filter_complex",
+      filter,
+      "-map",
+      "0:v:0",
+      "-map",
+      "[mixed]",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-shortest",
+      out
+    ]
+  end
+
+  @doc """
+  ffmpeg argv to give a silent video the `audio` track (video copied).
+
+  Used when the clips carry no audio of their own, so there is no ambience to
+  keep.
+  """
+  @spec silent_mix_argv(String.t(), String.t(), String.t(), String.t()) :: [String.t()]
+  def silent_mix_argv(ffmpeg, video, audio, out),
     do: [
       ffmpeg,
       "-y",

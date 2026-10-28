@@ -188,6 +188,39 @@ defmodule Exhub.Toonflow.Storyboard do
 
   @locked_framing "固定机位一镜到底，保持与首帧相同的构图、景别与人物大小，禁止变焦、推拉、裁切与画面缩放"
 
+  # A storyboard's 运镜 is a single character (推/摇/移/跟/拉). Passed through
+  # verbatim it invites a whole-scene zoom, which lands as a subject-size jump —
+  # the very thing the cut is judged on. Each clause bounds the move so it
+  # cannot re-frame the shot.
+  @camera_moves [
+    {"推", "运镜：缓慢推近，幅度不超过画面的5%，人物大小基本不变"},
+    {"拉", "运镜：缓慢拉远，幅度不超过画面的5%，人物大小基本不变"},
+    {"摇", "运镜：水平方向缓摇约10度，人物始终留在画面内"},
+    {"移", "运镜：横向平移约半个人物宽度，人物大小不变"},
+    {"跟", "运镜：随人物轻微横向跟随，人物大小不变"},
+    {"升", "运镜：缓慢升高，幅度不超过画面高度的5%"},
+    {"降", "运镜：缓慢降低，幅度不超过画面高度的5%"}
+  ]
+
+  @fixed_moves ~w(固定 静 静止 不动)
+
+  @doc ~S"""
+  Whether the shot holds a fixed camera — an explicit 固定/静止 运镜, or none at
+  all. Pure.
+
+  Drives two decisions: a fixed shot is rendered with the locked-framing clause,
+  and only a fixed shot keeps its end keyframe (`fl2va` pins both frames; a
+  camera move and a pinned end frame fight each other).
+  """
+  @spec fixed_camera?(map() | nil) :: boolean()
+  def fixed_camera?(shot) do
+    case Json.text(shot && shot["motion"]) do
+      nil -> true
+      "" -> true
+      motion -> Enum.any?(@fixed_moves, &String.contains?(motion, &1))
+    end
+  end
+
   defp framing_notes(base, shot, opts) do
     size = Json.text(shot["size"])
 
@@ -196,11 +229,23 @@ defmodule Exhub.Toonflow.Storyboard do
       prefixed("机位", shot["camera"], base),
       if(Keyword.get(opts, :lock_framing),
         do: @locked_framing,
-        else: prefixed("运镜", shot["motion"], base)
+        else: camera_move_note(shot["motion"])
       ),
       prefixed("光线", shot["lighting"], base)
     ]
     |> Enum.reject(&(is_nil(&1) or &1 == "" or String.contains?(base, &1)))
+  end
+
+  defp camera_move_note(motion) do
+    with text when is_binary(text) <- Json.text(motion) do
+      if Enum.any?(@fixed_moves, &String.contains?(text, &1)) do
+        @locked_framing
+      else
+        Enum.find_value(@camera_moves, "运镜：#{text}", fn {key, clause} ->
+          if String.contains?(text, key), do: clause
+        end)
+      end
+    end
   end
 
   defp shot_size_lens(size) when is_binary(size) do

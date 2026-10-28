@@ -81,7 +81,12 @@ defmodule Exhub.Toonflow.Config do
     "assembly" => %{
       "ffmpeg_path" => "ffmpeg",
       "ffprobe_path" => "ffprobe",
-      "subtitles" => true
+      "subtitles" => true,
+      # Cross-dissolve between clips (0 = hard cuts). Keep it a whole number of
+      # frames so the joins do not stretch the episode.
+      "transition_seconds" => 0.125,
+      # Gain on each clip's own audio, mixed under the voiceover as room tone.
+      "ambience_gain" => 0.15
     },
     "ui" => %{
       # Canvas web view + live progress websocket (Phase 5).

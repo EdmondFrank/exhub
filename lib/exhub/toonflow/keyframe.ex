@@ -21,15 +21,19 @@ defmodule Exhub.Toonflow.Keyframe do
   `select_candidate/3` is the other way in: crop a cell out of a candidate grid
   (`Media.generate_candidates/3`) and record it as the keyframe.
 
+  A generated keyframe is cropped to the delivery canvas
+  (`fit_argv/4`, `media.aspect_ratio`) so the clip is not stretched from 3:2
+  into 16:9 by the video model.
+
   Pure helpers (`types/0`, `normalize_type/1`, `normalize_direction/1`,
   `asset_kind/1`, `keyframe_prompt/2`, `adjacent/2`, `continuity_attrs/3`,
-  `normalize_cell/1`) are unit-tested; `generate/3`, `copy/3`,
+  `fit_argv/4`, `normalize_cell/1`) are unit-tested; `generate/3`, `copy/3`,
   `select_candidate/3`, `list_for_shot/3`, `set_prompt/5`, `next_shot/3` and
   `previous_shot/3` touch the project database.
   """
 
   alias Exhub.Toonflow
-  alias Exhub.Toonflow.{DB, Media, Schema, Store, Storyboard}
+  alias Exhub.Toonflow.{Config, DB, Media, Schema, Store, Storyboard}
 
   @types ~w(start end)
 
@@ -276,8 +280,107 @@ defmodule Exhub.Toonflow.Keyframe do
         |> put_opt(:model, Keyword.get(opts, :model))
         |> put_opt(:size, Keyword.get(opts, :size))
 
-      Media.generate_image(project, media_opts, server)
+      with {:ok, asset} <- Media.generate_image(project, media_opts, server) do
+        {:ok, fit_to_canvas(asset)}
+      end
     end
+  end
+
+  # --- delivery canvas ---
+
+  @doc ~S"""
+  ffmpeg argv that crops a frame to the delivery `aspect` (`"16:9"`), centred.
+  Pure. `nil` (or `"auto"`) leaves the frame alone.
+
+  The image model offers no 16:9 size (`gpt-image-2` tops out at 3:2 1536x1024),
+  and a 16:9 clip handed a 3:2 frame is stretched ~17% horizontally — faces and
+  props come out wide. Cropping the keyframe to the ratio the clip is rendered at
+  is what makes the clip's first frame the frame that was composed.
+
+  The crop box is expressed in `iw`/`ih` (`min(iw, ih * 16/9)`), so re-running it
+  is a no-op and no dimension probe is needed.
+  """
+  @spec fit_argv(String.t(), String.t(), String.t(), String.t() | nil) :: [String.t()]
+  def fit_argv(ffmpeg, input, out, aspect) do
+    case aspect_terms(aspect) do
+      nil ->
+        [ffmpeg, "-y", "-i", input, out]
+
+      {width, height} ->
+        filter =
+          "crop=w='trunc(min(iw\\,ih*#{width}/#{height})/2)*2':" <>
+            "h='trunc(min(ih\\,iw*#{height}/#{width})/2)*2'"
+
+        [ffmpeg, "-y", "-i", input, "-vf", filter, "-frames:v", "1", "-update", "1", out]
+    end
+  end
+
+  defp aspect_terms(aspect) when is_binary(aspect) do
+    with [width, height] <- String.split(String.trim(aspect), ":"),
+         {w, ""} <- Integer.parse(width),
+         {h, ""} <- Integer.parse(height),
+         true <- w > 0 and h > 0 do
+      {w, h}
+    else
+      _ -> nil
+    end
+  end
+
+  defp aspect_terms(_aspect), do: nil
+
+  # Best effort: a frame that cannot be cropped is still a usable frame.
+  defp fit_to_canvas(%{"path" => path} = asset) when is_binary(path) do
+    aspect = Config.aspect_ratio()
+    tmp = path <> ".fit.png"
+    argv = fit_argv(ffmpeg_path(), path, tmp, aspect)
+
+    with true <- aspect_terms(aspect) != nil,
+         true <- image_file?(path),
+         {0, _output} <- run(argv),
+         :ok <- File.rename(tmp, path) do
+      asset
+    else
+      _ ->
+        _ = File.rm(tmp)
+        asset
+    end
+  end
+
+  defp fit_to_canvas(asset), do: asset
+
+  # A failed generation leaves a non-image on disk; cropping it would only
+  # produce a second broken file.
+  @image_signatures [<<0x89, "PNG", 0x0D, 0x0A, 0x1A, 0x0A>>, <<0xFF, 0xD8>>]
+
+  defp image_file?(path) do
+    with {:ok, head} when is_binary(head) <- File.open(path, [:read, :binary], &IO.binread(&1, 8)) do
+      Enum.any?(@image_signatures, &String.starts_with?(head, &1))
+    else
+      _ -> false
+    end
+  end
+
+  defp ffmpeg_path do
+    (Config.get("assembly", %{}) || %{})["ffmpeg_path"] || "ffmpeg"
+  end
+
+  defp run(argv) do
+    # `Exile` needs its supervision tree; tests that run with `--no-start` (and a
+    # stub image client) must not crash the caller.
+    _ = Application.ensure_all_started(:exile)
+
+    {out, _err, code} =
+      Exile.stream(argv, stderr: :consume, env: Exhub.MCP.Desktop.Helpers.clean_env())
+      |> Enum.reduce({"", 0}, fn
+        {:stdout, data}, {o, c} -> {o <> data, c}
+        {:exit, {:status, c}}, {o, _c} -> {o, c}
+        {:exit, :epipe}, {o, c} -> {o, c}
+        _other, acc -> acc
+      end)
+
+    {code || 0, out}
+  rescue
+    _e -> {nil, ""}
   end
 
   # --- continuity ---
