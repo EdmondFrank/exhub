@@ -27,7 +27,9 @@ defmodule Exhub.Toonflow.Video do
   Generate a video clip for a shot (or from a free `prompt`).
 
   `opts`: `:shot_id`, `:prompt`, `:model`, `:task` (`\"t2va\"` | `\"fl2va\"`),
-  `:duration_seconds`, `:aspect_ratio`, `:seed`, `:first_frame`, `:last_frame`.
+  `:duration_seconds`, `:aspect_ratio`, `:seed`, `:first_frame`, `:last_frame`,
+  `:on_progress` (a `(attempt, payload)` fun handed to `HTTP.poll/4`, so a
+  minutes-long clip can report live progress).
   When `:task` is unset it defaults to `fl2va` if the shot already has a frame,
   else `t2va`. Frames resolve from the shot's assets: the first is the
   `keyframe_start` when present, else the latest `image`; the last is
@@ -61,6 +63,7 @@ defmodule Exhub.Toonflow.Video do
         |> put_opt(:seed, Keyword.get(opts, :seed))
         |> put_opt(:first_frame, first_frame)
         |> put_opt(:last_frame, last_frame)
+        |> put_opt(:on_progress, Keyword.get(opts, :on_progress))
 
       case video_client().generate_video(final_prompt, client_opts) do
         {:ok, result} -> record(project, shot_id, final_prompt, result, endpoint, server)
@@ -420,7 +423,11 @@ defmodule Exhub.Toonflow.Video.Default do
              task_id,
              key,
              &VideoGen.interpret_poll/1,
-             poll_opts(Config.get("media", %{}) || %{})
+             Keyword.put(
+               poll_opts(Config.get("media", %{}) || %{}),
+               :on_progress,
+               Keyword.get(opts, :on_progress)
+             )
            ),
          {:ok, url} <- video_url(result),
          {:ok, data} <- HTTP.download(url),

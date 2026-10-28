@@ -97,6 +97,43 @@ defmodule Exhub.Toonflow.ProgressTest do
     assert {:ok, _} = Jason.encode(%{"detail" => detail})
   end
 
+  describe "poll_fn/3" do
+    test "turns a poll tick into a running shot event" do
+      Progress.subscribe("demo")
+      fun = Progress.poll_fn("demo", "video", "sht_1")
+      assert is_function(fun, 2)
+
+      assert :ok = fun.(3, %{"status" => "running"})
+
+      assert_receive {:toonflow_progress, "demo",
+                      %{
+                        "type" => "shot",
+                        "stage" => "video",
+                        "shot_id" => "sht_1",
+                        "status" => "running",
+                        "detail" => %{
+                          "status" => "running",
+                          "attempt" => 3,
+                          "elapsed_s" => elapsed
+                        }
+                      }}
+
+      assert is_integer(elapsed) and elapsed >= 0
+    end
+
+    test "defaults the provider status when the payload has none" do
+      Progress.subscribe("demo")
+      Progress.poll_fn("demo", "video", "sht_1").(0, %{})
+
+      assert_receive {:toonflow_progress, "demo", %{"detail" => %{"status" => "pending"}}}
+    end
+
+    test "is nil for a blank project, so it can be passed through unconditionally" do
+      assert Progress.poll_fn(nil, "video", "sht_1") == nil
+      assert Progress.poll_fn("demo", "video", nil) == nil
+    end
+  end
+
   test "is a no-op for a nil project" do
     assert :ok = Progress.subscribe(nil)
     assert :ok = Progress.broadcast(nil, %{"type" => "stage"})

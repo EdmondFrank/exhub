@@ -100,6 +100,16 @@ Client messages: `{"action":"subscribe","project":"…"}`, `"unsubscribe"`,
 > same project; every call is best-effort (`try/rescue`) and a no-op when the
 > registry is absent.
 
+> **A render reports heartbeats, not a percentage.** MoArk's task payload
+> carries only `status` (`queued` → `running` → `success`) plus timestamps — no
+> progress field — and a MiniMax clip takes 3–8 minutes. So
+> `Exhub.Toonflow.HTTP.poll/4` takes `:on_progress` (called on submission and
+> after every still-pending poll), `Progress.poll_fn/3` turns those ticks into
+> `running` shot events carrying the provider status, the attempt and the
+> elapsed seconds, and the canvas closes the loop with a per-shot badge that
+> ticks once a second on its own. `Renderer` and the `videos` pipeline stage both
+> pass the callback, so a re-render no longer looks silent until it ends.
+
 > **Adding a `socket/3` route needs a listener (re)start.** Cowboy compiles the
 > dispatch table when the listener starts, so a hot-reloaded `socket/3` route is
 > **not** picked up by `Exhub.HotReload.reload/0` — it only serves after the VM

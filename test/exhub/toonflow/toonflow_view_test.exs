@@ -34,6 +34,22 @@ defmodule Exhub.Router.ToonflowViewTest do
   end
 
   describe "render_project/1" do
+    test "previews every kind of shot media and tracks a live render" do
+      html = ToonflowView.render_project("demo")
+
+      # The clip is shown next to the still — it used to be unreachable once a
+      # still existed.
+      assert html =~ "<video controls preload="
+      assert html =~ "media.dataset.sig"
+
+      # Continuous progress: a per-shot badge that ticks between poll events.
+      assert html =~ "function liveBadge(shot)"
+      assert html =~ "flag live"
+      assert html =~ "setInterval(paintLive, 1000)"
+      assert html =~ "function onShotEvent(msg)"
+      assert html =~ "requestRefresh()"
+    end
+
     test "embeds the project, the stage list and the websocket wiring" do
       html = ToonflowView.render_project("demo")
 

@@ -84,7 +84,10 @@ defmodule Exhub.Toonflow.SnapshotTest do
       assert shot["description"] == "林昭立于门前"
       assert shot["dialogue"] == "你好"
       assert shot["characters"] == ["林昭"]
-      assert shot["image"] == "/toonflow/media/demo/assets/images/sht_1.png"
+
+      assert shot["image"] ==
+               "/toonflow/media/demo/assets/images/sht_1.png?v=2026-09-30T00%3A00%3A00Z"
+
       assert shot["video"] == nil
 
       assert [output] = snapshot["outputs"]
@@ -187,6 +190,21 @@ defmodule Exhub.Toonflow.SnapshotTest do
       dir = "/tmp/p"
       asset = %{"path" => "/tmp/p/assets/images/x.png", "url" => nil}
       assert Snapshot.asset_url(asset, "demo", dir) == "/toonflow/media/demo/assets/images/x.png"
+    end
+
+    test "versions a local URL with the asset's created_at" do
+      dir = "/tmp/p"
+
+      asset = %{
+        "path" => "/tmp/p/assets/videos/sht_1.mp4",
+        "url" => nil,
+        "created_at" => "2026-10-28T16:26:20Z"
+      }
+
+      # A re-render overwrites the same file name, so the URL has to change or the
+      # browser keeps serving the previous clip from its cache.
+      assert Snapshot.asset_url(asset, "demo", dir) ==
+               "/toonflow/media/demo/assets/videos/sht_1.mp4?v=2026-10-28T16%3A26%3A20Z"
     end
 
     test "falls back to the remote url, then nil" do

@@ -95,7 +95,7 @@ defmodule Exhub.Router.ToonflowView do
         .stage-pick { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: #8b949e; }
         .stage-pick label { display: inline-flex; align-items: center; gap: 4px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-        .shot { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
+        .shot { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; }
         .shot:hover { border-color: #58a6ff; transform: translateY(-2px); }
         .shot.selected { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff; }
         .thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #21262d; display: block; }
@@ -141,6 +141,8 @@ defmodule Exhub.Router.ToonflowView do
         .inspector .msg { font-size: 11px; min-height: 14px; }
         .inspector img, .inspector video { width: 100%; border-radius: 8px; margin-top: 8px; background: #0d1117; }
         .flag.stale { background: #d2992233; color: #d29922; }
+        .flag.live { background: #1f6feb; color: #fff; font-variant-numeric: tabular-nums; }
+        .shot .play { position: absolute; left: 8px; top: 8px; font-size: 11px; color: #fff; background: #000a; border-radius: 999px; padding: 1px 7px; }
         .outputs li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid #21262d; }
         .conn { font-size: 11px; color: #8b949e; }
         .conn.on { color: #3fb950; }
@@ -299,7 +301,7 @@ defmodule Exhub.Router.ToonflowView do
     const DIRECTOR_MODEL = #{Jason.encode!(Exhub.Toonflow.Config.agent_model("director") || "default")};
     const AI_FIELDS = #{Jason.encode!(Exhub.Toonflow.ShotAssist.fields())};
     const AI_ACTIONS = #{Jason.encode!(Enum.map(Exhub.Toonflow.ShotAssist.actions(), &[&1, Exhub.Toonflow.ShotAssist.action_label(&1)]))};
-    const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0 };
+    const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0, live: {} };
 
     const el = (id) => document.getElementById(id);
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -322,6 +324,54 @@ defmodule Exhub.Router.ToonflowView do
       box.appendChild(line);
       box.scrollTop = box.scrollHeight;
       while (box.childNodes.length > 400) box.removeChild(box.firstChild);
+    }
+
+    // Renders have no percentage to show: MoArk reports only queued → running →
+    // success, and a clip takes minutes. So the canvas keeps its own per-shot
+    // clock — a `started`/`running` event sets the mark and a 1s ticker walks it
+    // forward, which keeps the badge alive even between 10s poll ticks.
+    const fmtClock = (secs) => {
+      const s = Math.max(0, Math.floor(secs));
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    };
+
+    function markLive(id, stage, status) {
+      const prev = state.live[id];
+      const same = prev && prev.stage === stage;
+      state.live[id] = { stage, status: status || 'running', at: same ? prev.at : Date.now() };
+      return prev;
+    }
+
+    function clearLive(id) { delete state.live[id]; }
+
+    function liveBadge(shot) {
+      const l = state.live[shot.id];
+      if (!l) return '';
+      const secs = (Date.now() - l.at) / 1000;
+      const title = `${l.stage} ${l.status} · ${fmtClock(secs)}`;
+      return `<span class="flag live" title="${esc(title)}">▶ ${esc(l.stage)} ${fmtClock(secs)}</span>`;
+    }
+
+    // Repaint only the flags cell of the shots that are rendering, so the badge
+    // ticks without rebuilding the grid (or the inspector form being typed in).
+    function paintLive() {
+      Object.keys(state.live).forEach((id) => {
+        const node = document.querySelector('.shot[data-id="' + id + '"] .flags');
+        const shot = state.shots.find((s) => s.id === id);
+        if (node && shot) node.innerHTML = flags(shot);
+      });
+    }
+    setInterval(paintLive, 1000);
+
+    // A snapshot is the only thing that carries new asset URLs, so a finished
+    // render asks for one instead of waiting for the next reconnect.
+    let refreshTimer = null;
+    function requestRefresh() {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ action: 'refresh' }));
+      }, 800);
     }
 
     async function api(path, opts) {
@@ -362,8 +412,11 @@ defmodule Exhub.Router.ToonflowView do
     }
 
     function thumb(shot) {
-      if (shot.image) return `<img class="thumb" loading="lazy" src="${esc(shot.image)}" alt="">`;
-      if (shot.video) return `<video class="thumb" muted preload="metadata" src="${esc(shot.video)}"></video>`;
+      // The still stands in for the clip (a <video> per card would hammer the
+      // disk), but a play hint says the clip is there and is previewable.
+      const play = shot.video ? '<span class="play">▶ clip</span>' : '';
+      if (shot.image) return `<img class="thumb" loading="lazy" src="${esc(shot.image)}" alt="">` + play;
+      if (shot.video) return `<video class="thumb" muted preload="metadata" src="${esc(shot.video)}"></video>` + play;
       return `<div class="thumb placeholder">no frame</div>`;
     }
 
@@ -371,7 +424,7 @@ defmodule Exhub.Router.ToonflowView do
       const stale = (shot.stale || []).length ? '<span class="flag stale">stale</span>' : '';
       return `<span class="flag ${shot.image ? 'on' : ''}">img</span>` +
              `<span class="flag ${shot.video ? 'on' : ''}">vid</span>` +
-             `<span class="flag ${shot.audio ? 'on' : ''}">aud</span>` + stale;
+             `<span class="flag ${shot.audio ? 'on' : ''}">aud</span>` + stale + liveBadge(shot);
     }
 
     function renderShots() {
@@ -503,10 +556,20 @@ defmodule Exhub.Router.ToonflowView do
       const media = el('insp-media');
       if (!shot || !media) return;
 
-      const picture = shot.image ? `<img src="${esc(shot.image)}" alt="">` :
-        (shot.video ? `<video controls src="${esc(shot.video)}"></video>` : '<p class="empty">No media yet.</p>');
-      const audio = shot.audio ? `<audio controls style="width:100%;margin-top:6px" src="${esc(shot.audio)}"></audio>` : '';
-      media.innerHTML = picture + audio;
+      // Every kind is shown, not just one: a shot normally has a still *and* a
+      // clip, and the clip used to be unreachable once the still existed.
+      // Re-rendering only on a media change keeps a playing clip from restarting
+      // on the next snapshot.
+      const sig = [shot.id, shot.image, shot.video, shot.audio].join('|');
+      if (media.dataset.sig !== sig) {
+        const parts = [];
+        if (shot.image) parts.push(`<img src="${esc(shot.image)}" alt="">`);
+        if (shot.video) parts.push(`<video controls preload="metadata" src="${esc(shot.video)}"></video>`);
+        if (shot.audio) parts.push(`<audio controls style="width:100%;margin-top:6px" src="${esc(shot.audio)}"></audio>`);
+        media.dataset.sig = sig;
+        media.innerHTML = parts.length ? parts.join('') : '<p class="empty">No media yet.</p>';
+      }
+
       const kinds = shot.stale || [];
       el('insp-stale').innerHTML = kinds.map((k) => `<span>${esc(k)} stale</span>`).join('');
     }
@@ -649,7 +712,7 @@ defmodule Exhub.Router.ToonflowView do
         const data = await api(`/toonflow/api/projects/${encodeURIComponent(project)}/shots/${encodeURIComponent(shot.id)}/render`, {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kinds: [kind] })
         });
-        log(`queued ${(data.started || []).join(', ')} — watch the log for progress`, 'ok');
+        log(`queued ${(data.started || []).join(', ')} — watch the shot badge`, 'ok');
       } catch (err) {
         log(`re-render failed: ${err.message}`, 'error');
       }
@@ -676,6 +739,46 @@ defmodule Exhub.Router.ToonflowView do
       }
     }
 
+    // A shot event opens, refreshes or closes the live badge. A clip reports
+    // `running` once per poll tick (~10s), so the log records the transition and
+    // then at most one line every 30s — the badge carries the elapsed time.
+    let liveLogAt = 0;
+    function onShotEvent(msg) {
+      const detail = msg.detail || {};
+      const status = msg.status;
+      const label = `  ${msg.stage} ${msg.shot_id}: `;
+
+      if (status === 'started') {
+        markLive(msg.shot_id, msg.stage, 'started');
+        log(label + 'started', 'started');
+      } else if (status === 'running') {
+        const prev = markLive(msg.shot_id, msg.stage, detail.status || 'running');
+        const current = state.live[msg.shot_id].status;
+        const changed = !prev || prev.stage !== msg.stage || prev.status !== current;
+        const now = Date.now();
+        if (changed || now - liveLogAt > 30000) {
+          liveLogAt = now;
+          const secs = detail.elapsed_s != null ? detail.elapsed_s : (now - state.live[msg.shot_id].at) / 1000;
+          log(label + current + ' · ' + fmtClock(secs), 'started');
+        }
+      } else {
+        clearLive(msg.shot_id);
+        log(label + status + (msg.detail ? ' ' + JSON.stringify(msg.detail) : ''), status);
+        // Fresh asset URLs only arrive in a snapshot, so ask for one now.
+        requestRefresh();
+      }
+      paintLive();
+    }
+
+    // A badge left over from a tab that missed the `ok` event would tick
+    // forever; snapshots arrive on every reconnect, so prune the old ones.
+    function pruneLive() {
+      const cutoff = Date.now() - 20 * 60 * 1000;
+      Object.keys(state.live).forEach((id) => {
+        if (state.live[id].at < cutoff) delete state.live[id];
+      });
+    }
+
     function setConn(on) {
       const c = el('conn');
       c.textContent = on ? 'connected' : 'disconnected';
@@ -697,12 +800,16 @@ defmodule Exhub.Router.ToonflowView do
         let msg = null;
         try { msg = JSON.parse(ev.data); } catch (_) { return; }
         if (!msg || !msg.type) return;
-        if (msg.type === 'snapshot') { state.snap = msg; state.shots = msg.shots || []; state.cast = msg.cast || []; renderAll(); log('snapshot updated'); return; }
+        if (msg.type === 'snapshot') {
+          state.snap = msg; state.shots = msg.shots || []; state.cast = msg.cast || [];
+          pruneLive();
+          renderAll(); log('snapshot updated'); return;
+        }
         if (msg.type === 'jobs' || msg.type === 'heartbeat') return;
         if (msg.type === 'pong') return;
         if (msg.type === 'error') { log('server error: ' + (msg.error || ''), 'error'); return; }
         if (msg.type === 'stage') { log(`stage ${msg.stage}: ${msg.status}` + (msg.detail ? ' ' + JSON.stringify(msg.detail) : ''), msg.status); return; }
-        if (msg.type === 'shot') { log(`  ${msg.stage} ${msg.shot_id}: ${msg.status}`, msg.status); return; }
+        if (msg.type === 'shot') { onShotEvent(msg); return; }
         if (msg.type === 'job') { log(`job ${msg.status}`, msg.status); return; }
       };
     }

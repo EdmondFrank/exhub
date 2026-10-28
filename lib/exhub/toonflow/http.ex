@@ -78,6 +78,12 @@ defmodule Exhub.Toonflow.HTTP do
   `{:ok, result}`, `{:error, message}` or `:pending`. Returns
   `{:error, {:poll_timeout, task_id, attempts}}` when the attempt budget runs
   out.
+
+  `opts`: `:interval_ms`, `:max_attempts` and `:on_progress` — a 2-arity fun
+  called as `(attempt, payload)` before the first wait (`attempt` 0, payload
+  `%{"status" => "submitted"}`) and after every poll that is still pending, so
+  a caller can report live progress. A raising callback is swallowed: a UI
+  concern must never break a generation.
   """
   @spec poll(
           String.t(),
@@ -87,13 +93,17 @@ defmodule Exhub.Toonflow.HTTP do
         ) ::
           {:ok, map()} | {:error, term()}
   def poll(task_id, key, interpret, opts \\ []) when is_function(interpret, 1) do
+    on_progress = Keyword.get(opts, :on_progress)
+    notify(on_progress, 0, %{"status" => "submitted"})
+
     do_poll(
       task_id,
       key,
       interpret,
       Keyword.get(opts, :interval_ms, @default_interval_ms),
       Keyword.get(opts, :max_attempts, @default_max_attempts),
-      0
+      0,
+      on_progress
     )
   end
 
@@ -130,22 +140,39 @@ defmodule Exhub.Toonflow.HTTP do
 
   # --- internals ---
 
-  defp do_poll(task_id, _key, _interpret, _interval, max, attempt) when attempt >= max,
-    do: {:error, {:poll_timeout, task_id, max}}
+  defp do_poll(task_id, _key, _interpret, _interval, max, attempt, _on_progress)
+       when attempt >= max,
+       do: {:error, {:poll_timeout, task_id, max}}
 
-  defp do_poll(task_id, key, interpret, interval, max, attempt) do
+  defp do_poll(task_id, key, interpret, interval, max, attempt, on_progress) do
     :timer.sleep(interval)
 
     case get_json(@task_url <> "/" <> task_id, key) do
       {:ok, result} ->
         case interpret.(result) do
-          {:ok, _} = ok -> ok
-          {:error, _} = error -> error
-          :pending -> do_poll(task_id, key, interpret, interval, max, attempt + 1)
+          {:ok, _} = ok ->
+            ok
+
+          {:error, _} = error ->
+            error
+
+          :pending ->
+            notify(on_progress, attempt + 1, result)
+            do_poll(task_id, key, interpret, interval, max, attempt + 1, on_progress)
         end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp notify(fun, attempt, payload) when is_function(fun, 2) do
+    fun.(attempt, payload)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
+
+  defp notify(_fun, _attempt, _payload), do: :ok
 end

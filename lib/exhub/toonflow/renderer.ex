@@ -19,6 +19,8 @@ defmodule Exhub.Toonflow.Renderer do
   alias Exhub.Toonflow
   alias Exhub.Toonflow.{Keyframe, Media, Progress, Store, Storyboard, Video, Voice}
 
+  require Logger
+
   @kinds ~w(keyframe image video voice)
   @supervisor Exhub.MCP.ToolTaskSupervisor
 
@@ -77,21 +79,35 @@ defmodule Exhub.Toonflow.Renderer do
       kinds
       |> normalize_kinds()
       |> Enum.map(fn kind ->
+        started = System.monotonic_time(:millisecond)
         Progress.shot_event(project, kind, shot_id, "started")
         result = render(project, shot_id, kind, server)
-        report(project, shot_id, kind, result)
+        report(project, shot_id, kind, result, elapsed_s(started))
         {kind, result}
       end)
 
     {:ok, Map.new(results)}
   end
 
-  defp report(project, shot_id, kind, result) do
+  # The progress event carries the reason to the browser, but the canvas' log is
+  # ephemeral — log it too so a failed render can still be diagnosed once the tab
+  # is closed (this lands in the `*exhub*` service log).
+  defp report(project, shot_id, kind, result, elapsed_s) do
     case result do
-      {:ok, _asset} -> Progress.shot_event(project, kind, shot_id, "ok")
-      {:error, reason} -> Progress.shot_event(project, kind, shot_id, "error", reason)
+      {:ok, _asset} ->
+        Progress.shot_event(project, kind, shot_id, "ok", %{"elapsed_s" => elapsed_s})
+
+      {:error, reason} ->
+        Logger.warning("[Toonflow.Renderer] #{kind} #{shot_id}: #{inspect(reason)}")
+
+        Progress.shot_event(project, kind, shot_id, "error", %{
+          "reason" => reason,
+          "elapsed_s" => elapsed_s
+        })
     end
   end
+
+  defp elapsed_s(started), do: max(0, div(System.monotonic_time(:millisecond) - started, 1000))
 
   # `keyframes` renders a start frame always, and an end frame only when the shot
   # carries a prompt for one — that pair is what `fl2va` interpolates between.
@@ -108,8 +124,13 @@ defmodule Exhub.Toonflow.Renderer do
   defp render(project, shot_id, "image", server),
     do: Media.generate_image(project, [shot_id: shot_id], server)
 
-  defp render(project, shot_id, "video", server),
-    do: Video.generate_video(project, [shot_id: shot_id], server)
+  defp render(project, shot_id, "video", server) do
+    Video.generate_video(
+      project,
+      [shot_id: shot_id, on_progress: Progress.poll_fn(project, "video", shot_id)],
+      server
+    )
+  end
 
   defp render(project, shot_id, "voice", server),
     do: Voice.generate_voice(project, [shot_id: shot_id], server)

@@ -87,6 +87,37 @@ defmodule Exhub.Toonflow.Progress do
     })
   end
 
+  @doc """
+  An `on_progress` callback for `Exhub.Toonflow.HTTP.poll/4`.
+
+  Async media generation exposes no percentage — a MoArk task reports only
+  `status` (`queued` → `running` → `success`) plus when it started — so the
+  honest live signal is a heartbeat: every poll tick becomes a `running` shot
+  event carrying the provider status, the attempt number and the seconds
+  elapsed since the callback was built. Without it the canvas hears `started`
+  and then nothing for the 3–8 minutes a clip takes.
+
+  Returns `nil` for a blank project, so a caller can pass it through
+  unconditionally (`put_opt` / `Keyword.put` drop it and the poll simply does
+  not report).
+  """
+  @spec poll_fn(String.t() | nil, String.t(), String.t()) ::
+          (non_neg_integer(), map() -> :ok) | nil
+  def poll_fn(project, stage, shot_id)
+      when is_binary(project) and is_binary(stage) and is_binary(shot_id) do
+    started = System.monotonic_time(:millisecond)
+
+    fn attempt, payload ->
+      shot_event(project, stage, shot_id, "running", %{
+        "status" => status_of(payload),
+        "attempt" => attempt,
+        "elapsed_s" => elapsed_s(started)
+      })
+    end
+  end
+
+  def poll_fn(_project, _stage, _shot_id), do: nil
+
   @doc "Publish a job lifecycle event."
   @spec job_event(String.t() | nil, String.t(), String.t(), term()) :: :ok
   def job_event(project, job_id, status, detail \\ nil) do
@@ -103,6 +134,11 @@ defmodule Exhub.Toonflow.Progress do
   # JSON encoding in the socket. `Exhub.Toonflow.json_safe/1` is the shared rule,
   # and the place that explains why structs and tuples are the dangerous ones.
   defp normalize(detail), do: Exhub.Toonflow.json_safe(detail)
+
+  defp status_of(%{"status" => status}) when is_binary(status), do: status
+  defp status_of(_payload), do: "pending"
+
+  defp elapsed_s(started), do: max(0, div(System.monotonic_time(:millisecond) - started, 1000))
 
   defp key(project), do: {:toonflow_progress, project}
 

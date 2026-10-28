@@ -448,8 +448,14 @@ defmodule Exhub.Toonflow.Pipeline do
   defp generate_media("images", project, shot_id, opts, server),
     do: Media.generate_image(project, media_opts(opts, shot_id), server)
 
-  defp generate_media("videos", project, shot_id, opts, server),
-    do: Video.generate_video(project, media_opts(opts, shot_id), server)
+  defp generate_media("videos", project, shot_id, opts, server) do
+    # A clip is the only stage that waits minutes on a remote task, so it is the
+    # only one that can report progress while it runs.
+    opts
+    |> media_opts(shot_id)
+    |> Keyword.put(:on_progress, Progress.poll_fn(project, "videos", shot_id))
+    |> then(&Video.generate_video(project, &1, server))
+  end
 
   defp generate_media("voices", project, shot_id, opts, server),
     do: Voice.generate_voice(project, media_opts(opts, shot_id), server)

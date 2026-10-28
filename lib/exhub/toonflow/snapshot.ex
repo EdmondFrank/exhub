@@ -76,7 +76,10 @@ defmodule Exhub.Toonflow.Snapshot do
   Turn a stored asset into a browser URL.
 
   Prefers a local `/toonflow/media/...` link when `asset` has a `path` inside the
-  project directory, else the stored remote `url`.
+  project directory, else the stored remote `url`. A local link carries the
+  asset's `created_at` as a `?v=` version: a re-render overwrites the same file
+  name and the media route caches for a minute, so a stable URL would keep
+  showing the previous clip.
   """
   @spec asset_url(map() | nil, String.t(), String.t()) :: String.t() | nil
   def asset_url(nil, _name, _dir), do: nil
@@ -86,11 +89,22 @@ defmodule Exhub.Toonflow.Snapshot do
     url = asset["url"]
 
     cond do
-      is_binary(path) and inside?(path, dir) -> media_url(name, Path.relative_to(path, dir))
-      is_binary(url) and url != "" -> url
-      true -> nil
+      is_binary(path) and inside?(path, dir) ->
+        media_url(name, Path.relative_to(path, dir))
+        |> with_version(asset["created_at"])
+
+      is_binary(url) and url != "" ->
+        url
+
+      true ->
+        nil
     end
   end
+
+  defp with_version(url, created_at) when is_binary(created_at) and created_at != "",
+    do: url <> "?v=" <> URI.encode_www_form(created_at)
+
+  defp with_version(url, _created_at), do: url
 
   @doc "Build a `/toonflow/media/...` URL from a project-relative path."
   @spec media_url(String.t(), String.t()) :: String.t()
