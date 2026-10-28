@@ -155,4 +155,37 @@ defmodule Exhub.Toonflow.AssembleTest do
              %{"start" => 2.0, "end" => 5.0, "text" => "旁白"}
            ]
   end
+
+  test "parse_size reads width, height and pixel aspect from ffprobe csv" do
+    assert Assemble.parse_size("1344,768,N/A\n") == {:ok, {1344, 768, true}}
+    assert Assemble.parse_size("1344,768,1:1") == {:ok, {1344, 768, true}}
+    assert Assemble.parse_size("720,576,16:11") == {:ok, {720, 576, false}}
+    assert Assemble.parse_size("garbage") == {:error, :invalid_stream}
+  end
+
+  test "probe_size_argv asks ffprobe for the video stream geometry" do
+    assert Assemble.probe_size_argv("ffprobe", "/o/a.mp4") ==
+             [
+               "ffprobe",
+               "-v",
+               "error",
+               "-select_streams",
+               "v:0",
+               "-show_entries",
+               "stream=width,height,sample_aspect_ratio",
+               "-of",
+               "csv=p=0",
+               "/o/a.mp4"
+             ]
+  end
+
+  test "normalize_argv letterboxes a clip onto the target frame" do
+    argv = Assemble.normalize_argv("ffmpeg", "/a/in.mp4", "/a/out.mp4", {1344, 768})
+    filter = Enum.at(argv, Enum.find_index(argv, &(&1 == "-vf")) + 1)
+
+    assert filter =~ "scale=1344:768:force_original_aspect_ratio=decrease"
+    assert filter =~ "pad=1344:768:(ow-iw)/2:(oh-ih)/2"
+    assert filter =~ "setsar=1"
+    assert List.last(argv) == "/a/out.mp4"
+  end
 end

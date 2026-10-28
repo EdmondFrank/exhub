@@ -23,6 +23,14 @@ defmodule Exhub.Toonflow.Config do
     "media" => %{
       "image_model" => "qwen-image-2.0",
       "video_model" => "MiniMax-H3",
+      # Delivery canvas. Keyframes and clips are generated at the same ratio, so
+      # the image model composes for the frame the clip is cut into. A square
+      # keyframe inside a 16:9 clip forces the video model to re-frame every
+      # shot, which reads as subject-size jumps between cuts.
+      "aspect_ratio" => "16:9",
+      # Keyframe pixel size. `nil` derives it from `aspect_ratio`
+      # (16:9 → 1536x1024, 9:16 → 1024x1536, 1:1 → 1024x1024).
+      "image_size" => nil,
       # TTS default: MoArk's streaming WebSocket endpoint (`Exhub.TTS.Realtime`).
       # Verified live 2026-10-25: `TeleTTS-Bidirectional-Mandarin` honours the
       # full voice catalogue; `TeleTTS-MultiDialect` answered `TELEAI_WS_CLOSED`
@@ -117,6 +125,27 @@ defmodule Exhub.Toonflow.Config do
   @doc "The merged `media` configuration."
   @spec media() :: map()
   def media, do: get("media", %{}) || %{}
+
+  @doc "The delivery canvas (`media.aspect_ratio`), default `\"16:9\"`."
+  @spec aspect_ratio() :: String.t()
+  def aspect_ratio do
+    case media() do
+      %{"aspect_ratio" => value} when is_binary(value) and value != "" -> String.trim(value)
+      _ -> "16:9"
+    end
+  end
+
+  @doc """
+  The configured keyframe pixel size (`media.image_size`), or `nil` to derive it
+  from `aspect_ratio` (see `Exhub.Toonflow.Media.canvas_size/1`).
+  """
+  @spec image_size() :: String.t() | nil
+  def image_size do
+    case media() do
+      %{"image_size" => value} when is_binary(value) and value != "" -> String.trim(value)
+      _ -> nil
+    end
+  end
 
   @doc """
   Per-character voice specs (`media.voice_map`): character name → a voice name

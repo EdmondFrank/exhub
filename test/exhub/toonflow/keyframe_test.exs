@@ -83,7 +83,10 @@ defmodule Exhub.Toonflow.KeyframeTest do
 
       assert {:ok, asset} = Keyframe.generate("demo", [shot_id: shot_id, type: "start"], server)
       assert asset["kind"] == "keyframe_start"
-      assert asset["prompt"] == "门前远景"
+      # The shot's 景别 reaches the keyframe prompt so the pair that drives the
+      # `fl2va` interpolation is composed at a consistent scale.
+      assert asset["prompt"] =~ "门前远景"
+      assert asset["prompt"] =~ "中景：人物膝盖以上入画"
       assert asset["path"] =~ "/assets/images/#{shot_id}_start.png"
       assert File.exists?(asset["path"])
       assert asset["meta"]["status"] == "completed"

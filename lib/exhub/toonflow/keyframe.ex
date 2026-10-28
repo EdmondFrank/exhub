@@ -254,7 +254,20 @@ defmodule Exhub.Toonflow.Keyframe do
 
     with :ok <- validate_target(shot_id, type),
          {:ok, shot} <- Storyboard.get_shot(project, shot_id, server) do
-      prompt = Toonflow.blank(Keyword.get(opts, :prompt)) || keyframe_prompt(shot, type)
+      # Keyframes drive the `fl2va` interpolation, so both frames carry the shot's
+      # 景别 plus a fixed-camera clause — composed independently they land at
+      # different scales and the clip visibly zooms between them.
+      prompt =
+        case Toonflow.blank(Keyword.get(opts, :prompt)) do
+          nil ->
+            case keyframe_prompt(shot, type) do
+              nil -> nil
+              base -> Storyboard.shot_prompt(shot, [], [], base: base, lock_framing: true)
+            end
+
+          explicit ->
+            explicit
+        end
 
       media_opts =
         [shot_id: shot_id, kind: asset_kind(type), key: frame_key(shot_id, type)]

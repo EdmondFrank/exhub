@@ -144,12 +144,19 @@ defmodule Exhub.Toonflow.Storyboard do
   def characters_of(_shot), do: []
 
   @doc """
-  Build a text-to-image prompt for a `shot`, appending the appearance of each
-  referenced character and the description of its scene, for consistency. Pure.
+  Build a text-to-image prompt for a `shot`, appending its 景别/机位/运镜/光线,
+  the appearance of each referenced character and the description of its scene,
+  for consistency. Pure.
+
+  `opts`: `:lock_framing` swaps the shot's camera move for a fixed-camera clause
+  — `fl2va` clips interpolate between two keyframes, so a prompt asking for a
+  push-in fights them and surfaces as a zoom/size jump at the cut.
   """
-  @spec shot_prompt(map(), [map()], [map()]) :: String.t()
-  def shot_prompt(shot, characters \\ [], scenes \\ []) do
-    base = Json.text(shot["prompt"]) || compose_prompt(shot)
+  @spec shot_prompt(map(), [map()], [map()], keyword()) :: String.t()
+  def shot_prompt(shot, characters \\ [], scenes \\ [], opts \\ []) do
+    base =
+      Toonflow.blank(Keyword.get(opts, :base)) || Json.text(shot["prompt"]) ||
+        compose_prompt(shot)
 
     appearances =
       shot
@@ -161,9 +168,57 @@ defmodule Exhub.Toonflow.Storyboard do
         end
       end)
 
-    ([base] ++ scene_notes(shot, scenes) ++ appearances)
+    ([base] ++ framing_notes(base, shot, opts) ++ scene_notes(shot, scenes) ++ appearances)
     |> Enum.reject(&(is_nil(&1) or &1 == ""))
     |> Enum.join("；")
+  end
+
+  # 景别 is the one framing cue the storyboard always carries. Without it the
+  # image model picks its own subject size per frame, so cuts jump between wide
+  # and close compositions even though every clip is the same pixel size.
+  # Ordered longest-first so 大远景 is not matched by 远景.
+  @shot_size_lenses [
+    {"大远景", "大远景：人物在画面中极小，环境与天空占主导"},
+    {"远景", "远景：人物在画面中很小，环境与天空占主导，地平线清晰"},
+    {"全景", "全景：人物全身入画，头顶与脚下都留出空间，不切头不切脚"},
+    {"中景", "中景：人物膝盖以上入画，主体高度约占画面二分之一"},
+    {"近景", "近景：人物胸部以上入画，主体高度约占画面三分之二"},
+    {"特写", "特写：面部（或关键道具）充满画面，背景轻微虚化"}
+  ]
+
+  @locked_framing "固定机位一镜到底，保持与首帧相同的构图、景别与人物大小，禁止变焦、推拉、裁切与画面缩放"
+
+  defp framing_notes(base, shot, opts) do
+    size = Json.text(shot["size"])
+
+    [
+      unless(size && String.contains?(base, size), do: shot_size_lens(size)),
+      prefixed("机位", shot["camera"], base),
+      if(Keyword.get(opts, :lock_framing),
+        do: @locked_framing,
+        else: prefixed("运镜", shot["motion"], base)
+      ),
+      prefixed("光线", shot["lighting"], base)
+    ]
+    |> Enum.reject(&(is_nil(&1) or &1 == "" or String.contains?(base, &1)))
+  end
+
+  defp shot_size_lens(size) when is_binary(size) do
+    Enum.find_value(@shot_size_lenses, fn {key, clause} ->
+      if String.contains?(size, key), do: clause
+    end)
+  end
+
+  defp shot_size_lens(_size), do: nil
+
+  # A note is only worth appending when the shot's own prompt does not already
+  # carry it (a composed prompt embeds 景别/运镜/光线 verbatim).
+  defp prefixed(label, value, base) do
+    case Json.text(value) do
+      nil -> nil
+      "" -> nil
+      text -> if String.contains?(base, text), do: nil, else: "#{label}：#{text}"
+    end
   end
 
   # Append the scene's description (set by `toonflow_generate_reference`) so the

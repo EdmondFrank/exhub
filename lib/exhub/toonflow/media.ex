@@ -22,6 +22,36 @@ defmodule Exhub.Toonflow.Media do
   @default_model "qwen-image-2.0"
   @default_size "1024x1024"
 
+  # Pixel buckets per delivery aspect, longest side first. `gpt-image-2` accepts
+  # exactly these three (`Media.Default`), so a 16:9 project asks for 1536x1024
+  # instead of an unsupported 1792x1024; qwen-style models accept them too.
+  @canvas_sizes [
+    {"16:9", "1536x1024"},
+    {"3:2", "1536x1024"},
+    {"4:3", "1024x1024"},
+    {"1:1", "1024x1024"},
+    {"3:4", "1024x1024"},
+    {"2:3", "1024x1536"},
+    {"9:16", "1024x1536"}
+  ]
+
+  @doc "The keyframe pixel size for a delivery aspect ratio. Pure."
+  @spec canvas_size(String.t() | nil) :: String.t()
+  def canvas_size(aspect_ratio) do
+    case List.keyfind(@canvas_sizes, aspect_ratio, 0) do
+      {_aspect, size} -> size
+      nil -> @default_size
+    end
+  end
+
+  @doc """
+  The default image size: `media.image_size` when configured, else the canvas
+  bucket for `media.aspect_ratio`. Keyframes and reference images both use it, so
+  a frame is composed for the ratio its clip is rendered at.
+  """
+  @spec default_size() :: String.t()
+  def default_size, do: Config.image_size() || canvas_size(Config.aspect_ratio())
+
   @doc "The configured media client implementation module."
   @spec image_client() :: module()
   def image_client,
@@ -50,7 +80,7 @@ defmodule Exhub.Toonflow.Media do
          {:ok, resolved_prompt} <- resolve_prompt(prompt, shot, ctx) do
       final_prompt = maybe_variation(resolved_prompt, opts)
       model = Keyword.get(opts, :model) || media_config()["image_model"] || @default_model
-      size = Keyword.get(opts, :size) || @default_size
+      size = Keyword.get(opts, :size) || default_size()
       kind = Keyword.get(opts, :kind) || "image"
       refs = resolve_refs(opts, shot, ctx)
       key = Keyword.get(opts, :key) || shot_id || Toonflow.new_id("img")

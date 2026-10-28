@@ -87,6 +87,39 @@ defmodule Exhub.Toonflow.StoryboardTest do
 
       assert Storyboard.shot_prompt(shot, characters) == "青衫少年立于门前；林昭（青衫少年）"
     end
+
+    test "appends the 景别 lens, camera move and lighting when the prompt lacks them" do
+      shot = %{
+        "prompt" => "90赛璐璐，夜雾甲板，金发女与忍装少年对立",
+        "size" => "中景",
+        "motion" => "推",
+        "lighting" => "青灰橙光"
+      }
+
+      prompt = Storyboard.shot_prompt(shot)
+      assert prompt =~ "中景：人物膝盖以上入画"
+      assert prompt =~ "运镜：推"
+      assert prompt =~ "光线：青灰橙光"
+    end
+
+    test "an explicit base keeps its own wording and gains the framing notes" do
+      shot = %{"size" => "全景", "lighting" => "冷光"}
+
+      prompt = Storyboard.shot_prompt(shot, [], [], base: "老盐举油灯", lock_framing: true)
+      assert prompt =~ "老盐举油灯"
+      assert prompt =~ "全景：人物全身入画"
+      assert prompt =~ "光线：冷光"
+      assert prompt =~ "禁止变焦"
+    end
+
+    test "lock_framing swaps the camera move for a fixed-camera clause" do
+      shot = %{"prompt" => "夜雾甲板", "size" => "近景", "motion" => "推"}
+
+      prompt = Storyboard.shot_prompt(shot, [], [], lock_framing: true)
+      assert prompt =~ "近景：人物胸部以上入画"
+      refute prompt =~ "运镜：推"
+      assert prompt =~ "禁止变焦"
+    end
   end
 
   describe "put_shot_meta/4" do

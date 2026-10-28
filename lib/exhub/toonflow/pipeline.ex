@@ -460,6 +460,7 @@ defmodule Exhub.Toonflow.Pipeline do
       model: kget(opts, :model),
       task: kget(opts, :task),
       duration_seconds: kget(opts, :duration_seconds),
+      aspect_ratio: kget(opts, :aspect_ratio),
       size: kget(opts, :size),
       speaker: kget(opts, :speaker),
       voice: kget(opts, :voice),

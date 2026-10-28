@@ -43,8 +43,8 @@ defmodule Exhub.Toonflow.Video do
 
     with {:ok, meta} <- Store.get_project(project, server),
          {:ok, shot, characters} <- load_shot(project, shot_id, server),
-         {:ok, final_prompt} <- resolve_prompt(prompt, shot, characters),
-         {:ok, task, first_frame, last_frame} <- resolve_frames(project, shot, opts, server) do
+         {:ok, task, first_frame, last_frame} <- resolve_frames(project, shot, opts, server),
+         {:ok, final_prompt} <- resolve_prompt(prompt, shot, characters, task) do
       model = Keyword.get(opts, :model) || media_config()["video_model"] || @default_model
       key = shot_id || Toonflow.new_id("vid")
       out_path = video_path(meta["root_dir"], key)
@@ -52,7 +52,7 @@ defmodule Exhub.Toonflow.Video do
       client_opts =
         [model: model, task: task, out_path: out_path]
         |> put_opt(:duration_seconds, Keyword.get(opts, :duration_seconds))
-        |> put_opt(:aspect_ratio, Keyword.get(opts, :aspect_ratio))
+        |> put_opt(:aspect_ratio, Keyword.get(opts, :aspect_ratio) || Config.aspect_ratio())
         |> put_opt(:seed, Keyword.get(opts, :seed))
         |> put_opt(:first_frame, first_frame)
         |> put_opt(:last_frame, last_frame)
@@ -80,11 +80,15 @@ defmodule Exhub.Toonflow.Video do
     end
   end
 
-  defp resolve_prompt(prompt, _shot, _characters) when is_binary(prompt), do: {:ok, prompt}
-  defp resolve_prompt(_prompt, nil, _characters), do: {:error, :missing_prompt}
+  defp resolve_prompt(prompt, _shot, _characters, _task) when is_binary(prompt),
+    do: {:ok, prompt}
 
-  defp resolve_prompt(_prompt, shot, characters) do
-    case Storyboard.shot_prompt(shot, characters) do
+  defp resolve_prompt(_prompt, nil, _characters, _task), do: {:error, :missing_prompt}
+
+  # `fl2va` interpolates between the shot's two keyframes, so the prompt must not
+  # ask for a camera move of its own — see `Storyboard.shot_prompt/4`.
+  defp resolve_prompt(_prompt, shot, characters, task) do
+    case Storyboard.shot_prompt(shot, characters, [], lock_framing: task == "fl2va") do
       "" -> {:error, :missing_prompt}
       prompt -> {:ok, prompt}
     end

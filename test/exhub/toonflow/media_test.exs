@@ -28,6 +28,19 @@ defmodule Exhub.Toonflow.MediaTest do
     assert Media.image_path("/tmp/p", "a/b") == "/tmp/p/assets/images/a_b.png"
   end
 
+  describe "canvas_size/1" do
+    test "maps the delivery aspect onto a model-legal keyframe size" do
+      assert Media.canvas_size("16:9") == "1536x1024"
+      assert Media.canvas_size("9:16") == "1024x1536"
+      assert Media.canvas_size("1:1") == "1024x1024"
+    end
+
+    test "falls back to a square frame for an unknown aspect" do
+      assert Media.canvas_size("21:9") == "1024x1024"
+      assert Media.canvas_size(nil) == "1024x1024"
+    end
+  end
+
   test "generate_image from a free prompt records an asset", %{server: server} do
     assert {:ok, _} = Store.create_project("demo", [], server)
 

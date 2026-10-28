@@ -7,10 +7,16 @@ defmodule Exhub.Toonflow.Assemble do
   an `.srt` subtitle track derived from each shot's dialogue. `export/3` wraps
   `assemble/3` and packages the result under a requested filename.
 
+  Clips are concatenated with `-c copy`, which requires identical stream
+  geometry, so a clip rendered at another size is first re-encoded onto the
+  first clip's frame (`normalize_argv/4`) — otherwise the episode would smear
+  instead of letterboxing.
+
   The FFmpeg/FFprobe argv builders (`concat_argv/3`, `concat_audio_argv/3`,
-  `mix_audio_argv/4`, `subtitle_argv/4`, `probe_argv/2`, `concat_list/1`,
-  `srt/1`, `cues/1`, `parse_duration/1`, `timestamp/1`) are pure and
-  unit-tested; execution shells out via `Exile`.
+  `mix_audio_argv/4`, `subtitle_argv/4`, `probe_argv/2`, `probe_size_argv/2`,
+  `normalize_argv/4`, `concat_list/1`, `srt/1`, `cues/1`, `parse_duration/1`,
+  `parse_size/1`, `timestamp/1`) are pure and unit-tested; execution shells out
+  via `Exile`.
   """
 
   alias Exhub.Toonflow
@@ -94,7 +100,8 @@ defmodule Exhub.Toonflow.Assemble do
     ffmpeg = ffmpeg_path()
 
     with :ok <- check_tool(ffmpeg, :ffmpeg),
-         :ok <- File.write(list_path, concat_list(Enum.map(clips, & &1["path"]))),
+         {:ok, paths, normalized} <- normalize_clips(ffmpeg, out_dir, name, clips),
+         :ok <- File.write(list_path, concat_list(paths)),
          {:ok, _} <- run(concat_argv(ffmpeg, list_path, video_path)),
          {:ok, entries} <- with_durations(clips),
          :ok <- File.write(srt_path, srt(cues(entries))) do
@@ -116,10 +123,78 @@ defmodule Exhub.Toonflow.Assemble do
          "clips" => length(clips),
          "duration" => total_duration(entries),
          "audio" => audio,
+         "normalized" => normalized,
          "output_dir" => out_dir
        }}
     end
   end
+
+  # `concat_argv/3` copies streams, which requires every clip to share the same
+  # frame size and pixel aspect. One clip rendered at another size (provider
+  # default change, a retry, a vertical shot) would otherwise corrupt the whole
+  # episode — frames smear instead of being letterboxed — so clips that differ
+  # from the first are re-encoded onto its geometry.
+  defp normalize_clips(ffmpeg, out_dir, name, clips) do
+    ffprobe = ffprobe_path()
+
+    with {:ok, {width, height, _square?}} <- probe_geometry(ffprobe, hd(clips)["path"]) do
+      target = {even(width), even(height)}
+
+      {paths, normalized} =
+        clips
+        |> Enum.with_index()
+        |> Enum.reduce({[], []}, fn {clip, index}, {paths, normalized} ->
+          path = clip["path"]
+
+          case probe_geometry(ffprobe, path) do
+            {:ok, geometry} ->
+              if matches_target?(geometry, target) do
+                {paths ++ [path], normalized}
+              else
+                out = Path.join(out_dir, ".#{name}.norm#{index}.mp4")
+
+                case run(normalize_argv(ffmpeg, path, out, target)) do
+                  {:ok, _output} ->
+                    {paths ++ [out], normalized ++ [normalized_entry(clip, geometry, target)]}
+
+                  {:error, _reason} ->
+                    {paths ++ [path], normalized}
+                end
+              end
+
+            {:error, _reason} ->
+              {paths ++ [path], normalized}
+          end
+        end)
+
+      {:ok, paths, normalized}
+    else
+      {:error, _reason} -> {:ok, Enum.map(clips, & &1["path"]), []}
+    end
+  end
+
+  defp probe_geometry(ffprobe, path) do
+    case execute(probe_size_argv(ffprobe, path)) do
+      {0, output} -> parse_size(output)
+      {code, output} -> {:error, {:probe_failed, code, String.slice(output, 0, 500)}}
+    end
+  end
+
+  defp matches_target?({width, height, true}, {width, height}), do: true
+  defp matches_target?(_geometry, _target), do: false
+
+  defp normalized_entry(clip, {width, height, _square?}, {target_width, target_height}) do
+    %{
+      "shot" => clip["shot"]["idx"],
+      "path" => clip["path"],
+      "from" => "#{width}x#{height}",
+      "to" => "#{target_width}x#{target_height}"
+    }
+  end
+
+  # libx264/yuv420p needs even dimensions.
+  defp even(value) when is_integer(value) and rem(value, 2) == 1, do: value - 1
+  defp even(value), do: value
 
   defp collect_clips(project, shots, server) do
     case Enum.reduce_while(shots, {[], []}, fn shot, {clips, missing} ->
@@ -395,6 +470,91 @@ defmodule Exhub.Toonflow.Assemble do
       "default=nw=1:nk=1",
       path
     ]
+
+  @doc "ffprobe argv to read a video stream's frame size and sample aspect ratio."
+  @spec probe_size_argv(String.t(), String.t()) :: [String.t()]
+  def probe_size_argv(ffprobe, path),
+    do: [
+      ffprobe,
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height,sample_aspect_ratio",
+      "-of",
+      "csv=p=0",
+      path
+    ]
+
+  @doc """
+  Parse `probe_size_argv/2` output into `{width, height, square_pixels?}`. Pure.
+
+  ffprobe prints `1344,768,N/A` when the stream carries no sample aspect ratio,
+  which means square pixels.
+  """
+  @spec parse_size(String.t()) ::
+          {:ok, {pos_integer(), pos_integer(), boolean()}} | {:error, term()}
+  def parse_size(text) when is_binary(text) do
+    case String.split(String.trim(text), ",") do
+      [width, height | rest] ->
+        with {w, ""} <- Integer.parse(String.trim(width)),
+             {h, ""} <- Integer.parse(String.trim(height)) do
+          {:ok, {w, h, square_pixels?(List.first(rest))}}
+        else
+          _ -> {:error, :invalid_stream}
+        end
+
+      _ ->
+        {:error, :invalid_stream}
+    end
+  end
+
+  def parse_size(_text), do: {:error, :invalid_stream}
+
+  defp square_pixels?(nil), do: true
+
+  defp square_pixels?(sar) do
+    case sar |> String.trim() |> String.split(":") do
+      [num, den] -> num == den or num == "0" or den == "0"
+      _ -> true
+    end
+  end
+
+  @doc """
+  ffmpeg argv to re-frame `input` onto `{width, height}`: scale to fit, pad the
+  remainder (letterbox/pillarbox) and force square pixels so the clip can be
+  concatenated with clips already at that size. Pure.
+  """
+  @spec normalize_argv(String.t(), String.t(), String.t(), {pos_integer(), pos_integer()}) ::
+          [String.t()]
+  def normalize_argv(ffmpeg, input, out, {width, height}) do
+    filter =
+      "scale=#{width}:#{height}:force_original_aspect_ratio=decrease," <>
+        "pad=#{width}:#{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+
+    [
+      ffmpeg,
+      "-y",
+      "-i",
+      input,
+      "-vf",
+      filter,
+      "-c:v",
+      "libx264",
+      "-crf",
+      "18",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      out
+    ]
+  end
 
   @doc "Contents of an ffmpeg concat-demuxer list file for absolute paths."
   @spec concat_list([String.t()]) :: String.t()
