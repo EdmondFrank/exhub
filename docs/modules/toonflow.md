@@ -109,6 +109,15 @@ Client messages: `{"action":"subscribe","project":"…"}`, `"unsubscribe"`,
 > elapsed seconds, and the canvas closes the loop with a per-shot badge that
 > ticks once a second on its own. `Renderer` and the `videos` pipeline stage both
 > pass the callback, so a re-render no longer looks silent until it ends.
+>
+> A frame or a voice line is one blocking request with nothing to poll, so those
+> kinds get `Progress.heartbeat/4` instead: a timer publishing the same `running`
+> shape (status `generating` plus `elapsed_s`) every 10 s, started and stopped
+> around each kind in `Renderer.run/4`. Its stop is synchronous — a terminal
+> `ok`/`error` is never followed by a stale `running` that would re-open the
+> badge — and the timer dies with the render task. A keyframe render marks its
+> second generation with `detail.step = "end"`; a kind with nothing to do (a shot
+> with no dialogue) reports `ok` with `detail.skipped` rather than failing.
 
 > **Adding a `socket/3` route needs a listener (re)start.** Cowboy compiles the
 > dispatch table when the listener starts, so a hot-reloaded `socket/3` route is

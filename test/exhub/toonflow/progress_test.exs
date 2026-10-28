@@ -134,9 +134,73 @@ defmodule Exhub.Toonflow.ProgressTest do
     end
   end
 
+  describe "heartbeat/4" do
+    test "reports at once, then on every interval" do
+      Progress.subscribe("demo")
+      stop = Progress.heartbeat("demo", "image", "sht_1", interval_ms: 20)
+      assert is_function(stop, 0)
+
+      # The first event lands immediately, so the canvas' log is not silent
+      # between `started` and the first tick.
+      assert_receive {:toonflow_progress, "demo",
+                      %{
+                        "type" => "shot",
+                        "stage" => "image",
+                        "shot_id" => "sht_1",
+                        "status" => "running",
+                        "detail" => %{"status" => "generating", "elapsed_s" => elapsed}
+                      }},
+                     500
+
+      assert is_integer(elapsed) and elapsed >= 0
+
+      assert_receive {:toonflow_progress, "demo", %{"stage" => "image", "status" => "running"}},
+                     500
+
+      assert :ok = stop.()
+    end
+
+    test "merges extra detail, e.g. which step a render is on" do
+      Progress.subscribe("demo")
+      stop = Progress.heartbeat("demo", "keyframe", "sht_1", detail: %{"step" => "end"})
+
+      assert_receive {:toonflow_progress, "demo",
+                      %{"detail" => %{"step" => "end", "status" => "generating"}}},
+                     500
+
+      assert :ok = stop.()
+    end
+
+    test "stopping is synchronous, so nothing follows a terminal event" do
+      Progress.subscribe("demo")
+      stop = Progress.heartbeat("demo", "voice", "sht_1", interval_ms: 10)
+
+      assert_receive {:toonflow_progress, "demo", %{"stage" => "voice"}}, 500
+
+      assert :ok = stop.()
+      # Whatever was published before the stop is already in this mailbox;
+      # draining it makes a heartbeat that outlived the stop visible below.
+      flush_mailbox()
+      refute_receive {:toonflow_progress, _project, _event}, 100
+    end
+
+    test "is nil for a blank project or shot" do
+      assert Progress.heartbeat(nil, "image", "sht_1") == nil
+      assert Progress.heartbeat("demo", "image", nil) == nil
+    end
+  end
+
   test "is a no-op for a nil project" do
     assert :ok = Progress.subscribe(nil)
     assert :ok = Progress.broadcast(nil, %{"type" => "stage"})
     refute_receive {:toonflow_progress, _project, _event}, 50
+  end
+
+  defp flush_mailbox do
+    receive do
+      _message -> flush_mailbox()
+    after
+      0 -> :ok
+    end
   end
 end

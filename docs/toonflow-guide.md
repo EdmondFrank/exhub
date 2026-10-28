@@ -89,7 +89,10 @@ stays on disk until you re-render it.
 
 **re-render** buttons (`Keyframes` · `Still` · `Clip` · `Voice`) queue just that
 media kind for the shot via `POST …/shots/:shot_id/render {kinds: [...]}`; the
-job runs asynchronously and progress appears in the live log. Clearing an end
+job runs asynchronously and progress appears in the live log — a `started` line
+opens the shot's badge, then `running` lines carry the elapsed time (one per
+provider poll for a clip, a 10 s heartbeat for a frame or a voice line), so no
+kind looks hung while it renders. Clearing an end
 keyframe prompt also drops the stored end-frame asset, so the shot renders as a
 single start-frame clip.
 

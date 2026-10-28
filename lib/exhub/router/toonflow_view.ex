@@ -759,11 +759,20 @@ defmodule Exhub.Router.ToonflowView do
         if (changed || now - liveLogAt > 30000) {
           liveLogAt = now;
           const secs = detail.elapsed_s != null ? detail.elapsed_s : (now - state.live[msg.shot_id].at) / 1000;
-          log(label + current + ' · ' + fmtClock(secs), 'started');
+          // `step` names what a multi-step render is doing (a keyframe's end
+          // frame); a plain heartbeat has none.
+          const step = detail.step ? ' ' + detail.step : '';
+          log(label + current + step + ' · ' + fmtClock(secs), 'started');
         }
       } else {
         clearLive(msg.shot_id);
-        log(label + status + (msg.detail ? ' ' + JSON.stringify(msg.detail) : ''), status);
+        // A skip is a render with nothing to do (a shot without dialogue has no
+        // voice) — say why instead of dumping the raw detail map.
+        if (detail.skipped) {
+          log(label + 'skipped (' + detail.skipped + ')', status);
+        } else {
+          log(label + status + (msg.detail ? ' ' + JSON.stringify(msg.detail) : ''), status);
+        }
         // Fresh asset URLs only arrive in a snapshot, so ask for one now.
         requestRefresh();
       }

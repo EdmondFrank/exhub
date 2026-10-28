@@ -118,6 +118,80 @@ defmodule Exhub.Toonflow.Progress do
 
   def poll_fn(_project, _stage, _shot_id), do: nil
 
+  @default_heartbeat_ms 10_000
+
+  @doc """
+  A timer heartbeat for a re-render that has no provider signal of its own.
+
+  Only a clip can report its own progress: MoArk exposes a task status, so
+  `poll_fn/3` turns every poll tick into a `running` shot event. An image, a
+  keyframe or a voice line is one blocking request — the canvas hears `started`
+  and then nothing until it ends, which reads as a hang. This publishes the same
+  shape of event (`running` plus `elapsed_s`) on a fixed interval instead.
+
+  `opts`: `:interval_ms` (default `#{@default_heartbeat_ms}`), `:status` (default
+  `"generating"`), `:detail` (extra keys merged into every event — e.g. which of
+  a two-frame keyframe render is in flight).
+
+  Returns `nil` for a blank project or shot — the same passthrough convention as
+  `poll_fn/3` — otherwise a 0-arity stop function. The stop is synchronous: once
+  it returns no further event can be published, so a terminal `ok` / `error` is
+  never followed by a stale `running` (which would reopen the canvas' badge).
+  The heartbeat also dies with its caller, so a cancelled render leaves nothing
+  behind.
+  """
+  @spec heartbeat(String.t() | nil, String.t(), String.t(), keyword()) :: (-> :ok) | nil
+  def heartbeat(project, stage, shot_id, opts \\ [])
+
+  def heartbeat(project, stage, shot_id, opts)
+      when is_binary(project) and is_binary(stage) and is_binary(shot_id) do
+    interval = Keyword.get(opts, :interval_ms, @default_heartbeat_ms)
+    status = Keyword.get(opts, :status, "generating")
+    extra = Keyword.get(opts, :detail) || %{}
+    started = System.monotonic_time(:millisecond)
+    owner = self()
+
+    emit = fn ->
+      detail = Map.merge(extra, %{"status" => status, "elapsed_s" => elapsed_s(started)})
+      shot_event(project, stage, shot_id, "running", detail)
+    end
+
+    pid =
+      spawn_link(fn ->
+        # A heartbeat that outlived its render would keep re-opening the badge.
+        owner_ref = Process.monitor(owner)
+        emit.()
+        beat(emit, interval, owner_ref)
+      end)
+
+    fn -> stop_heartbeat(pid) end
+  end
+
+  def heartbeat(_project, _stage, _shot_id, _opts), do: nil
+
+  defp beat(emit, interval, owner_ref) do
+    receive do
+      :stop ->
+        :ok
+
+      {:DOWN, ^owner_ref, :process, _pid, _reason} ->
+        :ok
+    after
+      interval ->
+        emit.()
+        beat(emit, interval, owner_ref)
+    end
+  end
+
+  defp stop_heartbeat(pid) do
+    ref = Process.monitor(pid)
+    send(pid, :stop)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    end
+  end
+
   @doc "Publish a job lifecycle event."
   @spec job_event(String.t() | nil, String.t(), String.t(), term()) :: :ok
   def job_event(project, job_id, status, detail \\ nil) do

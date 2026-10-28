@@ -6,7 +6,9 @@ defmodule Exhub.Toonflow.Renderer do
   media generated from the old values stays on disk, and `Snapshot` flags it as
   stale. This re-runs the same generators the pipeline uses, per kind, and
   reports each one with a `shot` progress event so the canvas' live log shows
-  what is happening.
+  what is happening: a clip reports on every provider poll tick, every other
+  kind through a `Progress.heartbeat/4` timer, since a frame or a voice line is
+  one blocking request with nothing to report in between.
 
   `start/4` runs the work in `Exhub.MCP.ToolTaskSupervisor`: a MiniMax clip takes
   minutes, so the HTTP request that asked for it must not be holding the render,
@@ -81,13 +83,28 @@ defmodule Exhub.Toonflow.Renderer do
       |> Enum.map(fn kind ->
         started = System.monotonic_time(:millisecond)
         Progress.shot_event(project, kind, shot_id, "started")
-        result = render(project, shot_id, kind, server)
+        stop = heartbeat(project, kind, shot_id)
+
+        result =
+          try do
+            render(project, shot_id, kind, server)
+          after
+            if stop, do: stop.()
+          end
+
         report(project, shot_id, kind, result, elapsed_s(started))
         {kind, result}
       end)
 
     {:ok, Map.new(results)}
   end
+
+  # A clip reports its own progress (a `running` event per provider poll tick);
+  # a frame or a voice line is a single blocking request, so the canvas would
+  # otherwise see `started` and then silence until the render ends.
+  defp heartbeat(_project, "video", _shot_id), do: nil
+
+  defp heartbeat(project, kind, shot_id), do: Progress.heartbeat(project, kind, shot_id)
 
   # The progress event carries the reason to the browser, but the canvas' log is
   # ephemeral — log it too so a failed render can still be diagnosed once the tab
@@ -96,6 +113,15 @@ defmodule Exhub.Toonflow.Renderer do
     case result do
       {:ok, _asset} ->
         Progress.shot_event(project, kind, shot_id, "ok", %{"elapsed_s" => elapsed_s})
+
+      # A shot with no dialogue has no voice to render. Nothing failed, but the
+      # badge must still close — an unhandled `{:skip, _}` used to take the task
+      # down with a `CaseClauseError`, leaving it ticking until the next prune.
+      {:skip, reason} ->
+        Progress.shot_event(project, kind, shot_id, "ok", %{
+          "skipped" => reason,
+          "elapsed_s" => elapsed_s
+        })
 
       {:error, reason} ->
         Logger.warning("[Toonflow.Renderer] #{kind} #{shot_id}: #{inspect(reason)}")
@@ -115,8 +141,17 @@ defmodule Exhub.Toonflow.Renderer do
     with {:ok, shot} <- Storyboard.get_shot(project, shot_id, server),
          {:ok, _start} <- Keyframe.generate(project, [shot_id: shot_id, type: "start"], server) do
       case Toonflow.blank((shot["meta"] || %{})["keyframe_end_prompt"]) do
-        nil -> {:ok, nil}
-        _prompt -> Keyframe.generate(project, [shot_id: shot_id, type: "end"], server)
+        nil ->
+          {:ok, nil}
+
+        _prompt ->
+          # Two frames are two generations; say which one is in flight.
+          Progress.shot_event(project, "keyframe", shot_id, "running", %{
+            "status" => "generating",
+            "step" => "end"
+          })
+
+          Keyframe.generate(project, [shot_id: shot_id, type: "end"], server)
       end
     end
   end
