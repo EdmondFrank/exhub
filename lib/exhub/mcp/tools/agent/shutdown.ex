@@ -17,6 +17,7 @@ defmodule Exhub.MCP.Tools.Agent.Shutdown do
       {:ok, entry} ->
         try do
           ExMCP.ACP.Client.disconnect(entry.client)
+          GenServer.stop(entry.client, :normal, 5_000)
         catch
           :exit, _ -> :ok
           _, _ -> :ok

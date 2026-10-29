@@ -85,6 +85,13 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
         case result do
           {:ok, client_pid} ->
             if Process.alive?(client_pid) do
+              # Detach the client from the caller. Hub built-in tool calls run
+              # in a short-lived Task, and a GenServer started with start_link/1
+              # terminates when the process that started it exits — which would
+              # take the agent subprocess with it as soon as this tool returns.
+              # The Store monitors the client and `agent_shutdown` stops it.
+              Process.unlink(client_pid)
+
               Store.register(agent_id, client_pid, cmd_list)
 
               resp =
