@@ -1,7 +1,8 @@
 defmodule Exhub.MCP.Tools.DocExtract do
   @moduledoc """
   MCP Tool for extracting and recognizing text from documents (PDF, DOCX, etc.)
-  using the Gitee AI Async Document Parse API (Unlimited-OCR / MinerU2.5-Pro).
+  using the Gitee AI Async Document Parse API (Unlimited-OCR-2 / Unlimited-OCR /
+  MinerU2.5-Pro).
 
   Supports both local file paths and remote URLs as input.
   The extraction is asynchronous: the tool submits a task, polls until
@@ -20,7 +21,8 @@ defmodule Exhub.MCP.Tools.DocExtract do
     """
     Extract and recognize text from documents (PDF, DOCX, images, etc.) using Gitee AI.
 
-    Powered by Unlimited-OCR (default) or MinerU2.5-Pro via the Gitee AI Async Document Parse API.
+    Powered by Unlimited-OCR-2 (default), Unlimited-OCR or MinerU2.5-Pro via the
+    Gitee AI Async Document Parse API.
     Supports both local file paths and remote URLs as input.
 
     The tool submits an async parsing task, waits for completion, then returns
@@ -29,11 +31,12 @@ defmodule Exhub.MCP.Tools.DocExtract do
     **Supported input formats:** PDF, DOCX, DOC, PNG, JPG, JPEG, TIFF, BMP, etc.
 
     **Supported models:**
-    - `Unlimited-OCR` (default) — High-accuracy OCR, best for text-heavy documents
+    - `Unlimited-OCR-2` (default) — Baidu's latest OCR, unlimited-horizon parsing (SR-SWA); best for very long, text-heavy documents
+    - `Unlimited-OCR` — Previous generation high-accuracy OCR, still available for text-heavy documents
     - `MinerU2.5-Pro` — Advanced MinerU model, preferred for table parsing and code block extraction
 
     **Model selection guidance:**
-    - Prefer `Unlimited-OCR` when the document contains a lot of text (articles, books, reports)
+    - Prefer `Unlimited-OCR-2` when the document contains a lot of text (articles, books, reports, hundred-page scans)
     - Prefer `MinerU2.5-Pro` when table structure or code block extraction is important
 
     **Returns:** Extracted text in Markdown format, with layout and structure preserved.
@@ -58,7 +61,7 @@ defmodule Exhub.MCP.Tools.DocExtract do
 
     field(:model, :string,
       description:
-        "OCR model: 'Unlimited-OCR' (default, best for text-heavy docs) or 'MinerU2.5-Pro' (best for tables/code blocks)"
+        "OCR model: 'Unlimited-OCR-2' (default, best for long text-heavy docs), 'Unlimited-OCR' (previous generation) or 'MinerU2.5-Pro' (best for tables/code blocks)"
     )
   end
 

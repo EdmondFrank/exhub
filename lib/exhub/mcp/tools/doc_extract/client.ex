@@ -3,12 +3,13 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   Shared client for document extraction using Gitee AI Async Document Parse API.
 
   This module provides the core extraction functionality that can be used by
-  multiple tools (doc_extract, read_file, etc.).
+  multiple tools (doc_extract, read_file, read_multiple_files, toonflow novel
+  ingest). Callers that pass no `:model` get `default_model/0`.
   """
 
   @submit_url "https://api.moark.com/v1/async/documents/parse"
   @task_url "https://api.moark.com/v1/task"
-  @default_model "Unlimited-OCR"
+  @default_model "Unlimited-OCR-2"
   @poll_interval_ms 5_000
   @max_poll_attempts 60
   @http_timeout_ms 30_000
@@ -22,6 +23,16 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
   Returns the list of supported document extensions.
   """
   def supported_extensions, do: @doc_extensions
+
+  @doc """
+  Returns the OCR model used when the caller does not pass `:model`.
+
+  MoArk's current default: Baidu's `Unlimited-OCR-2` (unlimited-horizon parsing
+  via SR-SWA). `doc_extract` callers may still request `Unlimited-OCR` or
+  `MinerU2.5-Pro` explicitly.
+  """
+  @spec default_model() :: String.t()
+  def default_model, do: @default_model
 
   @doc """
   Checks if a file is a document type based on its extension.
@@ -92,10 +103,13 @@ defmodule Exhub.MCP.Tools.DocExtract.Client do
 
         full_headers = [{"Content-Type", content_type} | headers]
 
-        case HTTPoison.post(@submit_url, body, full_headers,
-               recv_timeout: @http_timeout_ms,
-               timeout: @http_timeout_ms
-             ) do
+        # api.moark.com serves a cross-signed root that OTP rejects with
+        # `key_usage_mismatch` unless `TLSCompat` supplies the verify_fun.
+        http_opts =
+          [recv_timeout: @http_timeout_ms, timeout: @http_timeout_ms] ++
+            Exhub.TLSCompat.httpoison_opts(@submit_url)
+
+        case HTTPoison.post(@submit_url, body, full_headers, http_opts) do
           {:ok, %HTTPoison.Response{status_code: 200, body: resp_body}} ->
             case Jason.decode(resp_body) do
               {:ok, %{"task_id" => task_id}} when is_binary(task_id) ->

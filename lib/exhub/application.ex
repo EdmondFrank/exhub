@@ -84,7 +84,7 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
-      # MCP Document Extraction Server (PDF, DOCX, images via Gitee AI Unlimited-OCR)
+      # MCP Document Extraction Server (PDF, DOCX, images via Gitee AI Unlimited-OCR-2)
       {Exhub.MCP.DocExtractServer,
        transport: :streamable_http,
        request_timeout: 600_000,
