@@ -1,6 +1,8 @@
 defmodule Exhub.Router.TokenPoolTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Exhub.Router.TokenPool
 
   @default_keys [
@@ -140,6 +142,72 @@ defmodule Exhub.Router.TokenPoolTest do
       assert TokenPool.estimate_tokens(%{}) == 0
       assert TokenPool.estimate_tokens(nil) == 0
     end
+
+    test "counts tool-call arguments, not just textual content" do
+      content_only = %{"messages" => [%{"role" => "assistant", "content" => "ok"}]}
+
+      with_tool_calls = %{
+        "messages" => [
+          %{
+            "role" => "assistant",
+            "content" => nil,
+            "tool_calls" => [
+              %{
+                "id" => "call_1",
+                "function" => %{
+                  "name" => "write_file",
+                  "arguments" => String.duplicate("x", 40_000)
+                }
+              }
+            ]
+          }
+        ]
+      }
+
+      assert TokenPool.estimate_tokens(with_tool_calls) >
+               TokenPool.estimate_tokens(content_only) + 9_000
+    end
+
+    test "routes a large agent-shaped request to the request pool" do
+      # The content-only heuristic saw ~60k tokens here and kept the request on
+      # the token pool; the tool arguments, tool results and tool schema push
+      # the real size past the break-even.
+      body = %{
+        "messages" => [
+          %{"role" => "user", "content" => String.duplicate("u", 240_000)},
+          %{
+            "role" => "assistant",
+            "content" => nil,
+            "tool_calls" => [
+              %{
+                "function" => %{
+                  "name" => "write_file",
+                  "arguments" => String.duplicate("a", 240_000)
+                }
+              }
+            ]
+          },
+          %{"role" => "tool", "content" => String.duplicate("t", 240_000)}
+        ],
+        "tools" => [
+          %{
+            "name" => "search",
+            "input_schema" => %{"description" => String.duplicate("s", 240_000)}
+          }
+        ]
+      }
+
+      estimate = TokenPool.estimate_tokens(body)
+
+      assert estimate > 200_000
+      assert TokenPool.select_mode(estimate) == :request_based
+
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      assert TokenPool.resolve_token("deepseek-v3", body, fallback: "default-key") ==
+               "request-key"
+    end
   end
 
   describe "resolve_token/3" do
@@ -242,6 +310,46 @@ defmodule Exhub.Router.TokenPoolTest do
       assert TokenPool.estimate_langchain_tokens([%{"content" => "hi"}]) >= 0
       assert TokenPool.estimate_langchain_tokens(nil) == 0
     end
+
+    test "counts tool results, which hold the bulk of an agent context" do
+      result = %LangChain.Message.ToolResult{
+        name: "read_file",
+        tool_call_id: "call_1",
+        content: String.duplicate("y", 40_000)
+      }
+
+      message = %LangChain.Message{role: :tool, tool_results: [result]}
+
+      assert TokenPool.estimate_langchain_tokens([message]) > 9_000
+    end
+
+    test "counts tool-call arguments" do
+      call = %LangChain.Message.ToolCall{
+        call_id: "call_1",
+        name: "write_file",
+        arguments: %{"content" => String.duplicate("z", 40_000)}
+      }
+
+      message = %LangChain.Message{role: :assistant, content: nil, tool_calls: [call]}
+
+      assert TokenPool.estimate_langchain_tokens([message]) > 9_000
+    end
+
+    test "counts the tool definitions given to the chain" do
+      tool = %LangChain.Function{
+        name: "search",
+        description: "Search the vault",
+        parameters_schema: %{
+          "type" => "object",
+          "properties" => %{"q" => %{"description" => String.duplicate("d", 40_000)}}
+        }
+      }
+
+      messages = [LangChain.Message.new_user!("hi")]
+
+      assert TokenPool.estimate_langchain_tokens(messages, [tool]) >
+               TokenPool.estimate_langchain_tokens(messages) + 9_000
+    end
   end
 
   describe "resolve_langchain_key/3" do
@@ -300,6 +408,41 @@ defmodule Exhub.Router.TokenPoolTest do
         )
 
       assert key == "original"
+    end
+
+    test "counts the tools passed in opts towards the estimate" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+      Application.put_env(:exhub, :giteeai_request_api_key, "request-key")
+
+      messages = [LangChain.Message.new_user!("hi")]
+
+      tool = %LangChain.Function{
+        name: "search",
+        description: "Search the vault",
+        parameters_schema: %{"description" => String.duplicate("d", 300_000)}
+      }
+
+      assert TokenPool.resolve_langchain_key("deepseek-v3", messages,
+               fallback: "original",
+               tools: [tool]
+             ) == "request-key"
+    end
+  end
+
+  describe "decision logging" do
+    test "logs the estimate and the selected pool without the key" do
+      Application.put_env(:exhub, :giteeai_token_api_key, "token-key")
+
+      log =
+        capture_log(fn ->
+          TokenPool.resolve_token("deepseek-v3", %{"messages" => [%{"content" => "hi"}]},
+            fallback: "fallback"
+          )
+        end)
+
+      assert log =~ "[TokenPool]"
+      assert log =~ "using token_based pool"
+      refute log =~ "token-key"
     end
   end
 end

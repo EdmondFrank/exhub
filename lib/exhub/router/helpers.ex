@@ -11,6 +11,10 @@ defmodule Exhub.Router.Helpers do
 
   require Logger
 
+  # Average characters per token for the heuristic estimate. Applies to the
+  # JSON-serialized request, so field names and syntax are counted as well.
+  @chars_per_token 4
+
   @typedoc "Connection struct from Plug"
   @type conn :: Plug.Conn.t()
 
@@ -89,7 +93,14 @@ defmodule Exhub.Router.Helpers do
   @doc """
   Estimates input tokens for a request based on messages, system prompt, and tools.
 
-  Uses a rough heuristic of 4 characters per token for estimation.
+  Counts everything the request actually sends upstream — every message field
+  (`content`, `tool_calls` arguments, `tool_results`, `reasoning_content`,
+  names), the system prompt and the complete tool definitions — by serializing
+  each part to JSON and dividing the character count by #{@chars_per_token}.
+
+  Counting only textual `content` (the previous behaviour) ignored tool-call
+  arguments and tool results, which are the bulk of an agent request, and made
+  large contexts look far smaller than they are.
 
   ## Examples
 
@@ -98,37 +109,32 @@ defmodule Exhub.Router.Helpers do
       ...>   "System prompt",
       ...>   [%{"name" => "tool1"}]
       ...> )
-      8
+      13
   """
-  @spec estimate_input_tokens(list(map()), any(), list(map())) :: non_neg_integer()
+  @spec estimate_input_tokens(list(map()) | any(), any(), list(map()) | any()) ::
+          non_neg_integer()
   def estimate_input_tokens(messages, system, tools) do
-    # Ensure messages and tools are lists (not nil/null)
-    messages = if is_list(messages), do: messages, else: []
-    tools = if is_list(tools), do: tools, else: []
+    div(json_chars(messages) + json_chars(system) + json_chars(tools), @chars_per_token)
+  end
 
-    # Rough estimation: count characters and divide by 4
-    message_tokens =
-      Enum.reduce(messages, 0, fn msg, acc ->
-        content = Map.get(msg, "content", "")
-        content_str = if is_binary(content), do: content, else: inspect(content)
-        acc + div(String.length(content_str), 4)
-      end)
+  defp json_chars(nil), do: 0
+  defp json_chars(value) when value in [[], %{}], do: 0
+  defp json_chars(value) when is_binary(value), do: String.length(value)
 
-    system_tokens =
-      if system do
-        system_str = if is_binary(system), do: system, else: inspect(system)
-        div(String.length(system_str), 4)
-      else
-        0
-      end
+  defp json_chars(value) do
+    case Jason.encode(value) do
+      {:ok, json} -> String.length(json)
+      {:error, _reason} -> inspected_chars(value)
+    end
+  rescue
+    # Structs without a Jason encoder (e.g. LangChain tool structs) raise.
+    _ -> inspected_chars(value)
+  end
 
-    tool_tokens =
-      Enum.reduce(tools, 0, fn tool, acc ->
-        acc + div(String.length(Map.get(tool, "name", "")), 4) +
-          div(String.length(inspect(Map.get(tool, "input_schema", ""))), 4)
-      end)
-
-    message_tokens + system_tokens + tool_tokens
+  defp inspected_chars(value) do
+    value
+    |> inspect(limit: :infinity, printable_limit: :infinity)
+    |> String.length()
   end
 
   @doc """

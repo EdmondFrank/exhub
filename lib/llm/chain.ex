@@ -37,7 +37,7 @@ defmodule Exhub.Llm.Chain do
   end
 
   def execute(llm_chain, initial_messages, functions, custom_context) do
-    llm_chain = maybe_apply_pool(llm_chain, initial_messages)
+    llm_chain = maybe_apply_pool(llm_chain, initial_messages, functions)
 
     case LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
          |> LLMChain.add_tools(functions)
@@ -52,8 +52,8 @@ defmodule Exhub.Llm.Chain do
     end
   end
 
-  def run(llm_chain, initial_messages, _functions, custom_context, callbacks \\ %{}) do
-    llm_chain = maybe_apply_pool(llm_chain, initial_messages)
+  def run(llm_chain, initial_messages, functions, custom_context, callbacks \\ %{}) do
+    llm_chain = maybe_apply_pool(llm_chain, initial_messages, functions)
     chain = LLMChain.new!(Map.put(llm_chain, :custom_context, custom_context))
     # chain = if functions != [], do: LLMChain.add_tools(chain, functions), else: chain
     chain = LLMChain.add_messages(chain, initial_messages)
@@ -139,12 +139,17 @@ defmodule Exhub.Llm.Chain do
 
   # Swaps the llm api_key to the Gitee AI token-pool key when the pool
   # applies to the model and the request messages. No-op otherwise, keeping
-  # the originally configured key untouched.
-  defp maybe_apply_pool(llm_chain, messages) do
+  # the originally configured key untouched. The tool definitions are counted
+  # towards the context estimate: they are sent with every request and are a
+  # large part of an agent prompt.
+  defp maybe_apply_pool(llm_chain, messages, tools \\ []) do
     with %{llm: %{model: model, api_key: current_key}} <- llm_chain,
          true <- is_binary(model),
          pooled_key when is_binary(pooled_key) <-
-           TokenPool.resolve_langchain_key(model, messages, fallback: current_key),
+           TokenPool.resolve_langchain_key(model, messages,
+             fallback: current_key,
+             tools: tools
+           ),
          true <- pooled_key != current_key do
       %{llm_chain | llm: Map.put(llm_chain.llm, :api_key, pooled_key)}
     else

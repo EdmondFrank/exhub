@@ -171,9 +171,8 @@ defmodule Exhub.Router.TokenPool do
     if enabled?() and giteeai_model?(model) do
       token_count = estimate_tokens(body_params)
       mode = select_mode(token_count)
-      token = api_key(mode)
-
-      token
+      log_selection(model, token_count, mode, "HTTP")
+      api_key(mode)
     else
       fallback
     end
@@ -188,7 +187,7 @@ defmodule Exhub.Router.TokenPool do
   ## Examples
 
       iex> Exhub.Router.TokenPool.estimate_tokens(%{"messages" => [%{"content" => "Hello"}]})
-      1
+      5
   """
   @spec estimate_tokens(any()) :: non_neg_integer()
   def estimate_tokens(body) when is_map(body) do
@@ -205,36 +204,34 @@ defmodule Exhub.Router.TokenPool do
 
   Accepts `%LangChain.Message{}` structs (binary `content` or
   `%LangChain.Message.ContentPart{}` lists) as well as plain maps with a
-  `content` / `"content"` key. Returns 0 for non-list inputs.
+  `content` / `"content"` key. Everything that is sent is counted: the
+  message content, `tool_calls` arguments, `tool_results` and the tool
+  definitions in `tools`.
+
+  Pass the same `tools` list that is given to the chain — tool schemas are a
+  large part of an agent request, and tool results are usually where the bulk
+  of the context lives, so omitting them made long conversations look small.
+
+  Returns 0 for non-list inputs.
 
   ## Examples
 
       iex> Exhub.Router.TokenPool.estimate_langchain_tokens([
       ...>   LangChain.Message.new_user!("Hello")
       ...> ])
-      1
+      8
   """
-  @spec estimate_langchain_tokens(any()) :: non_neg_integer()
-  def estimate_langchain_tokens(messages) when is_list(messages) do
-    body =
-      Enum.map(messages, fn
-        %LangChain.Message{content: content} ->
-          %{"content" => flatten_langchain_content(content)}
+  @spec estimate_langchain_tokens(any(), list()) :: non_neg_integer()
+  def estimate_langchain_tokens(messages, tools \\ [])
 
-        %{content: content} when not is_nil(content) ->
-          %{"content" => flatten_langchain_content(content)}
-
-        %{"content" => content} when not is_nil(content) ->
-          %{"content" => flatten_langchain_content(content)}
-
-        _ ->
-          %{"content" => ""}
-      end)
-
-    estimate_tokens(%{"messages" => body})
+  def estimate_langchain_tokens(messages, tools) when is_list(messages) do
+    estimate_tokens(%{
+      "messages" => Enum.map(messages, &langchain_message/1),
+      "tools" => Enum.map(list_or_empty(tools), &langchain_tool/1)
+    })
   end
 
-  def estimate_langchain_tokens(_), do: 0
+  def estimate_langchain_tokens(_, _), do: 0
 
   @doc """
   Resolves the token-pool `Authorization` key for a LangChain request.
@@ -244,13 +241,20 @@ defmodule Exhub.Router.TokenPool do
   can be picked right before execution. Returns `fallback` (or `nil`) when
   the pool does not apply — e.g. pool disabled or a non-GiteeAI model —
   so callers can keep their existing key untouched.
+
+  ## Options
+
+    * `:fallback` — token returned when the pool does not apply
+    * `:tools` — the tool definitions added to the chain, counted in the
+      estimate (default: `[]`)
   """
   @spec resolve_langchain_key(String.t() | nil, list(), Keyword.t()) :: String.t() | nil
   def resolve_langchain_key(model, messages, opts \\ []) do
     fallback = Keyword.get(opts, :fallback)
+    tools = Keyword.get(opts, :tools, [])
 
     if enabled?() and giteeai_model?(bare_model(model)) do
-      token_count = estimate_langchain_tokens(messages)
+      token_count = estimate_langchain_tokens(messages, tools)
       mode = select_mode(token_count)
 
       case api_key(mode) do
@@ -258,16 +262,21 @@ defmodule Exhub.Router.TokenPool do
           fallback
 
         token ->
-          Logger.info(
-            "[TokenPool] #{inspect(model)} (LangChain) — estimated #{token_count} " <>
-              "context tokens, using #{mode} pool"
-          )
-
+          log_selection(model, token_count, mode, "LangChain")
           token
       end
     else
       fallback
     end
+  end
+
+  # Logs the estimate and the selected pool so pool decisions can be audited
+  # from the service log. The key itself is never logged.
+  defp log_selection(model, token_count, mode, source) do
+    Logger.info(
+      "[TokenPool] #{inspect(model)} (#{source}) — estimated #{token_count} " <>
+        "context tokens, using #{mode} pool"
+    )
   end
 
   defp giteeai_model?(model) when is_binary(model) do
@@ -283,6 +292,74 @@ defmodule Exhub.Router.TokenPool do
   defp bare_model(model) when is_binary(model), do: model |> String.split("/") |> List.last()
   defp bare_model(_), do: nil
 
+  # Normalizes a LangChain message (struct or plain map, atom or string keys)
+  # into the JSON shape that is actually sent upstream, keeping tool calls,
+  # tool results and the name.
+  defp langchain_message(message) when is_map(message) do
+    %{"role" => field(message, :role)}
+    |> put_present("content", flatten_langchain_content(field(message, :content)))
+    |> put_present("name", field(message, :name))
+    |> put_present("tool_calls", langchain_tool_calls(field(message, :tool_calls)))
+    |> put_present("tool_results", langchain_tool_results(field(message, :tool_results)))
+  end
+
+  defp langchain_message(_), do: %{}
+
+  defp langchain_tool_calls(calls) when is_list(calls) and calls != [] do
+    Enum.map(calls, fn
+      %{} = call ->
+        %{"name" => field(call, :name), "arguments" => field(call, :arguments)}
+
+      other ->
+        other
+    end)
+  end
+
+  defp langchain_tool_calls(_), do: nil
+
+  defp langchain_tool_results(results) when is_list(results) and results != [] do
+    Enum.map(results, fn
+      %{} = result ->
+        %{"tool_call_id" => field(result, :tool_call_id)}
+        |> put_present("name", field(result, :name))
+        |> put_present("content", flatten_langchain_content(field(result, :content)))
+
+      other ->
+        other
+    end)
+  end
+
+  defp langchain_tool_results(_), do: nil
+
+  # A tool definition is sent as its name, description and parameter schema.
+  defp langchain_tool(%{} = tool) do
+    %{
+      "name" => field(tool, :name),
+      "description" => field(tool, :description),
+      "schema" =>
+        field(tool, :parameters_schema) || field(tool, :parameters) || field(tool, :input_schema)
+    }
+  end
+
+  defp langchain_tool(other), do: other
+
+  # Reads a key from either an atom- or string-keyed map (structs included).
+  defp field(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp field(_, _), do: nil
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp list_or_empty(list) when is_list(list), do: list
+  defp list_or_empty(_), do: []
+
+  defp flatten_langchain_content(nil), do: nil
   defp flatten_langchain_content(content) when is_binary(content), do: content
 
   defp flatten_langchain_content(content) when is_list(content) do
@@ -296,7 +373,8 @@ defmodule Exhub.Router.TokenPool do
     |> Enum.join("\n")
   end
 
-  defp flatten_langchain_content(content), do: inspect(content)
+  defp flatten_langchain_content(content),
+    do: inspect(content, limit: :infinity, printable_limit: :infinity)
 
   defp positive_number(value, _default) when is_integer(value) and value >= 0,
     do: value * 1.0

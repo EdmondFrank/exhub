@@ -1,5 +1,20 @@
 # Recent Enhancements
 
+## Gitee AI Token Pool — Faithful Context Estimate & Decision Logging
+
+- **Fix**: the pool's estimate only counted textual `content` and divided characters by 4, so tool-call arguments, `tool_results`, `reasoning_content` and (on the LangChain path) the tool definitions were invisible. Long agent requests therefore looked small and stayed on the token-based pool past the break-even — a 180k-token request was estimated below the 100k threshold.
+- **Estimator**: `Exhub.Router.Helpers.estimate_input_tokens/3` now JSON-serializes the whole request (`messages` with every field, `system`, `tools`) and divides by 4 chars/token; non-encodable structs fall back to a full `inspect/2` (`limit: :infinity`) instead of a truncated one. Empty parts count as 0, so `TokenPool.estimate_tokens(%{})` stays 0.
+- **LangChain**: `TokenPool.estimate_langchain_tokens/2` takes the chain's tool definitions and counts `tool_calls` arguments and `tool_results`; `resolve_langchain_key/3` accepts `:tools`, and `Exhub.Llm.Chain.maybe_apply_pool/3` passes the functions it used to drop on the floor.
+- **Observability**: `resolve_token/3` (HTTP `/openai/v1` + `/anthropic/v1` proxy paths) now logs `[TokenPool] <model> (HTTP) — estimated N context tokens, using <mode> pool`, matching the existing LangChain line. The key itself is never logged.
+- **Unchanged**: selection policy (weights/threshold), which account each mode maps to, and all call sites' behaviour.
+- **Modified Files**:
+  - `lib/exhub/router/helpers.ex` — JSON-based `estimate_input_tokens/3`
+  - `lib/exhub/router/token_pool.ex` — full LangChain message/tool estimate, `resolve_token/3` logging
+  - `lib/llm/chain.ex` — pass tools to `maybe_apply_pool/3`
+  - `test/exhub/router/token_pool_test.exs` — 7 new tests (tool args, tool results, tool schemas, 240k-token agent payload, decision log)
+
+---
+
 ## Lua code-mode — Compact (Single-Line) JSON Results
 
 - **Change**: `Exhub.Lua.Value.render_value/1` and `render_values/1` now JSON-encode **compactly** (plain `Jason.encode/2`, no `pretty: true`), so a `code_mode` result — including a `describe_tool("server__tool")` dump — comes back as one line with no indentation and no `": "`/`", "` spacing. The returned Lua value is unchanged (a snippet can still index `describe_tool(...).input_schema`); only the rendered whitespace is gone, cutting the tokens a tool-discovery response costs.
