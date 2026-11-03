@@ -612,6 +612,13 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.AgentServer, request_timeout: 300_000]
   )
 
+  # Agent bus — identity, direct messages, rooms. Deliberately scoped: a
+  # subagent handed this endpoint cannot control other ACP processes.
+  forward("/agent-bus/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.AgentBusServer, request_timeout: 300_000]
+  )
+
   forward("/brain/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.BrainServer, request_timeout: 600_000]

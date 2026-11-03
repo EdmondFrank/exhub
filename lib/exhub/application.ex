@@ -132,6 +132,13 @@ defmodule Exhub.Application do
        session_idle_timeout: 86_400_000 * 365},
       # MCP Agent Server (ACP agent management)
       {Exhub.MCP.Agent.Store, name: Exhub.MCP.Agent.Store},
+      # Agent bus — persistent participant identity + durable message streams
+      {Exhub.Agent.Registry, []},
+      {Exhub.Agent.Bus, []},
+      {Exhub.MCP.AgentBusServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       {Exhub.MCP.AgentServer,
        transport: :streamable_http,
        request_timeout: 600_000,

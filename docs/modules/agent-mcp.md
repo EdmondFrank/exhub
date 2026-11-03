@@ -8,6 +8,12 @@ The ACP Agent MCP Server provides a bridge between MCP clients and ACP (Agent Co
 
 This server acts as a gateway that translates MCP tool calls into ACP protocol messages, allowing any MCP-compatible client to orchestrate AI coding agents for complex development workflows.
 
+> **Control plane vs peer plane.** This server manages agent *processes*. For
+> agents that need to talk to each other — direct messages, shared rooms, fan-in
+> waits without polling — use the [Agent Bus](agent-bus.md) at `/agent-bus/mcp`.
+> `agent_new_session(..., expose_bus: true)` hands a spawned subagent that
+> endpoint, pre-addressed to its own id.
+
 ---
 
 ## Architecture

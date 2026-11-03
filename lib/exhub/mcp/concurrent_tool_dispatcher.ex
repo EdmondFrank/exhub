@@ -291,12 +291,31 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
     context = %Context{
       session_id: session_id,
       client_info: nil,
-      headers: normalize_headers(conn.req_headers),
+      headers: identity_headers(conn),
       remote_ip: conn.remote_ip
     }
 
     Frame.new(conn.assigns)
     |> Map.put(:context, context)
+  end
+
+  # A scoped endpoint can carry the caller's identity in the URL
+  # (`/agent-bus/mcp?as=<agent_id>`); surface it as a header so bus tools do not
+  # need an explicit `as` argument on every call.
+  defp identity_headers(conn) do
+    headers = normalize_headers(conn.req_headers)
+
+    try do
+      case Plug.Conn.fetch_query_params(conn).query_params do
+        %{"as" => as} when is_binary(as) and as != "" ->
+          Map.put(headers, "x-exhub-agent-id", as)
+
+        _ ->
+          headers
+      end
+    rescue
+      _ -> headers
+    end
   end
 
   # --- Param validation (replicates Anubis.Server.Handlers.Tools.validate_params/3) ---

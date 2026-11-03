@@ -30,6 +30,16 @@ defmodule Exhub.MCP.AgentServer do
 
   ### Modes
   - `agent_set_mode` — Set the operating mode for a session
+
+  ### Agent bus (peer communication)
+  - `agent_register` / `agent_identity` / `agent_list` — participant identity
+  - `agent_send` / `agent_inbox` / `agent_await` — direct messages and fan-in
+  - `agent_room_open` / `agent_post` / `agent_room_history` — shared logs
+  - `agent_bus_status` — coordination snapshot
+
+  The bus is also mounted on its own scoped server at `/agent-bus/mcp`; hand
+  that endpoint to subagents so they can talk to peers without ACP control
+  (`agent_new_session(expose_bus: true)` does it automatically).
   """
 
   use Anubis.Server,
@@ -60,6 +70,21 @@ defmodule Exhub.MCP.AgentServer do
 
   # Mode tools
   component(Exhub.MCP.Tools.Agent.SetMode)
+
+  # Agent bus — identity, direct messages, rooms, fan-in waits.
+  # A subagent should be handed the scoped /agent-bus/mcp endpoint instead;
+  # these are here so an orchestrator already connected to /agent/mcp can use
+  # the bus without a second server configuration.
+  component(Exhub.MCP.Tools.AgentBus.Register)
+  component(Exhub.MCP.Tools.AgentBus.Identity)
+  component(Exhub.MCP.Tools.AgentBus.List)
+  component(Exhub.MCP.Tools.AgentBus.Send)
+  component(Exhub.MCP.Tools.AgentBus.Inbox)
+  component(Exhub.MCP.Tools.AgentBus.Await)
+  component(Exhub.MCP.Tools.AgentBus.RoomOpen)
+  component(Exhub.MCP.Tools.AgentBus.Post)
+  component(Exhub.MCP.Tools.AgentBus.RoomHistory)
+  component(Exhub.MCP.Tools.AgentBus.Status)
 
   @impl true
   def init(client_info, frame) do
