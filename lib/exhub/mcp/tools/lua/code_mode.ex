@@ -71,6 +71,8 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
     - Arguments are a Lua table with **named keys**; a positional table is
       rejected. A result is a Lua table — the text payload is usually
       `r.content[1].text`.
+    - Table keys use `=`, never `:` — `{path = "/x"}`, not `{path: "/x"}`. Lua
+      reads `name: value` as a method call, so it is a syntax error.
     - A failing call raises a Lua error (catch it with `pcall`, which yields the
       message string). An uncaught failure is categorised as `SyntaxError`,
       `UnknownTool`, `ToolFailure` or `TimeoutExceeded`.
@@ -160,6 +162,8 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
       table (`{"a", "b"}`) is rejected — omit the argument to pass `{}`.
     - Results are Lua tables; most tools return their text payload under
       `r.content[1].text`.
+    - Table keys use `=`, never `:` — `{path = "/x"}`, not `{path: "/x"}`. Lua
+      reads `name: value` as a method call, so it is a syntax error.
     - A failing call raises a Lua error — both transport errors and MCP results
       carrying `isError = true`. Catch it with
       `local ok, r = pcall(desktop.read_file, {path = "/nope"})`; note `pcall`

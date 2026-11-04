@@ -6,9 +6,14 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
   call itself. `expose_bus: true` injects the agent-bus endpoint pre-addressed
   to this agent, so a spawned subagent can message its peers without being
   driven through the orchestrator.
+
+  Transport shapes follow the ACP spec (see `Exhub.MCP.Agent.Runner`):
+  `%{"type" => "http" | "sse", "url" => ..., "headers" => [...]}` or
+  `%{"command" => ..., "args" => [...], "env" => [...]}` for stdio.
   """
 
   alias Anubis.Server.Response
+  alias Exhub.MCP.Agent.Runner
   use Anubis.Server.Component, type: :tool
 
   def name, do: "agent_new_session"
@@ -22,11 +27,12 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
     - `expose_bus: true` — give the agent the ExHub agent bus (identity,
       messaging, rooms), scoped to `/agent-bus/mcp?as=<agent_id>`. This is what
       lets subagents talk to each other instead of relaying through you.
-    - `mcp_servers` — extra servers as `{name, uri}` (HTTP) entries, passed
-      through verbatim to the ACP runtime.
+    - `mcp_servers` — extra servers, `[{name, url}]` (http/sse) or
+      `[{name, command, args, env}]` (stdio), passed through to the ACP runtime.
 
-    HTTP MCP support depends on the runtime; if an agent ignores the URL, pass
-    a stdio bridge through `mcp_servers` instead.
+    For the common "run this task and tell me the result" case use `agent_task`
+    (spawn + session + prompt + digest in one call) or `agent_prompt` on an
+    existing session.
     """
   end
 
@@ -39,8 +45,9 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
       default: false
     )
 
-    field(:mcp_servers, {:list, %{name: :string, uri: {:required, :string}}},
-      description: "Additional MCP servers: [{name, uri}]"
+    field(:mcp_servers, {:list, :map},
+      description:
+        "Additional MCP servers: [{name, url}] (http/sse) or [{name, command, args, env}] (stdio)"
     )
   end
 
@@ -48,58 +55,26 @@ defmodule Exhub.MCP.Tools.Agent.NewSession do
   def execute(params, frame) do
     agent_id = Map.get(params, :agent_id)
     cwd = Map.get(params, :cwd, File.cwd!())
-    mcp_servers = build_mcp_servers(agent_id, params)
 
-    case Exhub.MCP.Agent.Store.get(agent_id) do
-      {:ok, entry} ->
-        case ExMCP.ACP.Client.new_session(entry.client, cwd, mcp_servers: mcp_servers) do
-          {:ok, result} ->
-            session_id = Map.get(result, "sessionId")
-            if session_id, do: Exhub.MCP.Agent.Store.add_session(agent_id, session_id)
+    opts = [
+      cwd: cwd,
+      expose_bus: Map.get(params, :expose_bus, false),
+      mcp_servers: Map.get(params, :mcp_servers, [])
+    ]
 
-            slim =
-              result
-              |> Map.take(["sessionId", "status", "cwd", "mode"])
-              |> Map.put("mcp_servers", mcp_servers)
+    case Runner.new_session(agent_id, opts) do
+      {:ok, session_id, mcp_servers} ->
+        slim = %{
+          "sessionId" => session_id,
+          "mcp_servers" => mcp_servers,
+          "mcp_server_count" => length(mcp_servers)
+        }
 
-            resp = Response.tool() |> Response.text(Jason.encode!(slim))
-            {:reply, resp, frame}
+        resp = Response.tool() |> Response.text(Jason.encode!(slim))
+        {:reply, resp, frame}
 
-          {:error, reason} ->
-            {:reply,
-             Response.tool() |> Response.error("Failed to create session: #{inspect(reason)}"),
-             frame}
-        end
-
-      {:error, :not_found} ->
-        {:reply, Response.tool() |> Response.error("Agent '#{agent_id}' is not running."), frame}
+      {:error, reason} ->
+        {:reply, Response.tool() |> Response.error(reason), frame}
     end
-  end
-
-  defp build_mcp_servers(agent_id, params) do
-    extra =
-      params
-      |> Map.get(:mcp_servers, [])
-      |> List.wrap()
-      |> Enum.filter(&valid_server?/1)
-
-    if Map.get(params, :expose_bus, false) do
-      [bus_server(agent_id) | extra]
-    else
-      extra
-    end
-  end
-
-  defp valid_server?(%{uri: uri}), do: is_binary(uri) and uri != ""
-  defp valid_server?(%{"uri" => uri}), do: is_binary(uri) and uri != ""
-  defp valid_server?(_), do: false
-
-  defp bus_server(agent_id) do
-    port = Application.get_env(:exhub, :port, 9069)
-
-    %{
-      "name" => "exhub-bus",
-      "uri" => "http://127.0.0.1:#{port}/agent-bus/mcp?as=#{agent_id}"
-    }
   end
 end

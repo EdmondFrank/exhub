@@ -75,6 +75,9 @@ A call may also be given as `{name = "server__tool", args = {…}}`.
 - Arguments are a Lua table with named keys, decoded to a JSON object; a call
   without a table passes `{}`. A positional table (`{"a", "b"}`) is rejected —
   MCP arguments must be named objects.
+- Table keys use `=`, never `:` — `{path = "/x"}`, not `{path: "/x"}`. Lua reads
+  `name: value` as a method call, so the JSON-style form is a **syntax error**,
+  not just a type error.
 - Results are Lua tables — most tools expose their text payload at
   `r.content[1].text`.
 - Returned values are UTF-8-repaired before they are formatted. A byte-offset
@@ -124,6 +127,11 @@ headers are honoured (by bare tool name or `server__tool` form). These headers a
 a **server-wide** allow/deny list applied to `tools/call` as well, so an
 `x-include-tools` list must also name `code_mode` itself or the call is rejected
 with `Tool not found`.
+
+**Failure messages** — a snippet that does not compile comes back as
+`SyntaxError: <parser message> (line N)` with the offending source line, a caret
+pointer, the parser's suggestion and — for mistakes the parser cannot name, such
+as `{key: value}` — an explicit `hint:`. See `Exhub.Lua.Diagnostics`.
 
 ## `help`
 

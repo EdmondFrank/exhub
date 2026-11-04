@@ -8,21 +8,41 @@ defmodule Exhub.MCP.Agent.Handler do
 
   @behaviour ExMCP.ACP.Client.Handler
 
+  # Session updates that carry nothing an orchestrator can act on. Dropping them
+  # at the source keeps both the event queues and every poll response small.
+  @boilerplate ~w(available_commands_update session_info_update config_option_update current_mode_update)
+
   def init(opts) do
     agent_id = Keyword.fetch!(opts, :agent_id)
     {:ok, %{agent_id: agent_id}}
   end
 
   def handle_session_update(session_id, update, state) do
-    # Strip large fields from tool_call_update events
-    update = slim_tool_call_update(update)
-    # Strip large static data (availableCommands, configOptions) from session updates
-    update = slim_session_update(update)
+    # Drop noise first, then strip large fields from what remains.
+    case drop_boilerplate(update) do
+      :drop ->
+        {:ok, state}
 
-    event = %{type: "update", update: update, session_id: session_id, agent_id: state.agent_id}
-    Exhub.MCP.Agent.Store.push_event(state.agent_id, session_id, event)
-    {:ok, state}
+      update ->
+        update =
+          update
+          |> slim_tool_call_update()
+          |> slim_session_update()
+
+        event = %{
+          type: "update",
+          update: update,
+          session_id: session_id,
+          agent_id: state.agent_id
+        }
+
+        Exhub.MCP.Agent.Store.push_event(state.agent_id, session_id, event)
+        {:ok, state}
+    end
   end
+
+  defp drop_boilerplate(%{"sessionUpdate" => type}) when type in @boilerplate, do: :drop
+  defp drop_boilerplate(update), do: update
 
   defp slim_tool_call_update(update) when is_map(update) do
     if Map.get(update, "sessionUpdate") == "tool_call_update" do

@@ -626,6 +626,13 @@ defmodule Exhub.Lua.EngineTest do
       assert message =~ "SyntaxError"
     end
 
+    test "SyntaxError names a JSON-style table key and how to fix it" do
+      assert {:error, message} = CodeMode.run("return demo.echo({msg: 'hi'})", @tools)
+      assert message =~ "SyntaxError"
+      assert message =~ "{path = \"/x\"}"
+      assert message =~ "method call"
+    end
+
     test "TimeoutExceeded for a blocking call" do
       call = runner(fn _s, _t, _a -> Process.sleep(5_000) && {:ok, @ok} end)
 

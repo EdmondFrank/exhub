@@ -7,7 +7,6 @@ defmodule Exhub.MCP.Tools.Agent.SetAgentStatus do
   """
 
   alias Anubis.Server.Response
-  alias Exhub.Agent.Registry
   use Anubis.Server.Component, type: :tool
 
   def name, do: "agent_set_status"
@@ -32,7 +31,7 @@ defmodule Exhub.MCP.Tools.Agent.SetAgentStatus do
   @impl true
   def execute(%{agent_id: agent_id, status_text: status_text} = params, frame) do
     Exhub.MCP.Agent.Store.set_status(agent_id, status_text)
-    mirror_to_registry(agent_id, status_text, Map.get(params, :detail))
+    Exhub.MCP.Agent.Status.mirror(agent_id, status_text, Map.get(params, :detail))
 
     resp =
       Response.tool()
@@ -41,21 +40,5 @@ defmodule Exhub.MCP.Tools.Agent.SetAgentStatus do
       )
 
     {:reply, resp, frame}
-  end
-
-  defp mirror_to_registry(agent_id, status_text, detail) do
-    attrs =
-      if Registry.valid_status?(status_text) do
-        # A new status without a detail must not inherit the previous detail.
-        %{"id" => agent_id, "status" => status_text, "detail" => detail || ""}
-      else
-        %{"id" => agent_id, "detail" => status_text}
-      end
-
-    Registry.register(attrs)
-  rescue
-    _ -> :ok
-  catch
-    :exit, _ -> :ok
   end
 end

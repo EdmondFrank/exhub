@@ -7,8 +7,7 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
 
   alias Anubis.Server.Response
   alias Exhub.MCP.Desktop.Helpers
-  alias Exhub.MCP.Agent.Store
-  alias Exhub.MCP.Agent.Config
+  alias Exhub.MCP.Agent.{Config, Runner}
 
   use Anubis.Server.Component, type: :tool
 
@@ -28,11 +27,10 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
 
     """
     Spawn an ACP agent process and perform the initialize handshake.
-
     #{available_agents}
 
-    Parameters:
-    - agent_id: Unique identifier for this agent instance
+    `agent_task` spawns the agent itself, so this is only needed when you want
+    to manage sessions manually (initialize → new_session → prompt).
     """
   end
 
@@ -46,8 +44,8 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
   def execute(params, frame) do
     agent_id = Map.get(params, :agent_id)
 
-    # Check if already running (with stale-entry guard)
-    case Store.get(agent_id) do
+    # Check if already running (with stale-entry guard handled by Runner).
+    case Exhub.MCP.Agent.Store.get(agent_id) do
       {:ok, entry} ->
         if Process.alive?(entry.client) do
           resp =
@@ -58,95 +56,29 @@ defmodule Exhub.MCP.Tools.Agent.Initialize do
 
           {:reply, resp, frame}
         else
-          # Stale entry — clean up and fall through to fresh start
-          Store.unregister(agent_id)
-          do_start_agent(agent_id, frame)
+          start(agent_id, frame)
         end
 
       {:error, :not_found} ->
-        do_start_agent(agent_id, frame)
+        start(agent_id, frame)
     end
   end
 
-  defp do_start_agent(agent_id, frame) do
-    case Config.get_agent_command(agent_id) do
-      {:ok, cmd_list} ->
-        result =
-          try do
-            ExMCP.ACP.Client.start_link(
-              command: cmd_list,
-              handler: Exhub.MCP.Agent.Handler,
-              handler_opts: [agent_id: agent_id]
-            )
-          catch
-            :exit, reason -> {:error, {:exit, reason}}
-          end
-
-        case result do
-          {:ok, client_pid} ->
-            if Process.alive?(client_pid) do
-              # Detach the client from the caller. Hub built-in tool calls run
-              # in a short-lived Task, and a GenServer started with start_link/1
-              # terminates when the process that started it exits — which would
-              # take the agent subprocess with it as soon as this tool returns.
-              # The Store monitors the client and `agent_shutdown` stops it.
-              Process.unlink(client_pid)
-
-              Store.register(agent_id, client_pid, cmd_list)
-
-              resp =
-                Response.tool()
-                |> Helpers.toon_response(%{
-                  agent_id: agent_id,
-                  status: "initialized",
-                  command: cmd_list
-                })
-
-              {:reply, resp, frame}
-            else
-              Store.unregister(agent_id)
-
-              resp =
-                Response.tool()
-                |> Response.error("Agent '#{agent_id}' started but died immediately")
-
-              {:reply, resp, frame}
-            end
-
-          {:error, {:exit, {:timeout, _}}} ->
-            Store.unregister(agent_id)
-
-            resp =
-              Response.tool()
-              |> Response.error(
-                "Agent '#{agent_id}' timed out during initialization. The agent process may be slow to start."
-              )
-
-            {:reply, resp, frame}
-
-          {:error, {:exit, reason}} ->
-            Store.unregister(agent_id)
-
-            resp =
-              Response.tool()
-              |> Response.error(
-                "Agent '#{agent_id}' crashed during initialization: #{inspect(reason)}"
-              )
-
-            {:reply, resp, frame}
-
-          {:error, reason} ->
-            Store.unregister(agent_id)
-            resp = Response.tool() |> Response.error("Failed to start agent: #{inspect(reason)}")
-            {:reply, resp, frame}
-        end
-
-      {:error, :not_found} ->
+  defp start(agent_id, frame) do
+    case Runner.ensure_agent(agent_id) do
+      {:ok, entry} ->
         resp =
           Response.tool()
-          |> Response.error("Agent '#{agent_id}' not found in config.")
+          |> Helpers.toon_response(%{
+            agent_id: agent_id,
+            status: "initialized",
+            command: entry.command
+          })
 
         {:reply, resp, frame}
+
+      {:error, reason} ->
+        {:reply, Response.tool() |> Response.error(reason), frame}
     end
   end
 end

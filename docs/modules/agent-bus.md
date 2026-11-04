@@ -86,6 +86,21 @@ Raft agent's scoped credential.
 HTTP MCP support varies by runtime. `mcp_servers` is passed through verbatim, so
 a runtime that only speaks stdio can be given a bridge instead.
 
+The payload must use the ACP shape —
+`{"name": "exhub-bus", "type": "http", "url": "…", "headers": []}`. Older ExHub
+builds sent `{"name", "uri"}` and every spec-compliant runtime rejected it with
+`Unsupported MCP server transport: undefined`; `headers` is always present
+because pi's client dereferences it unconditionally.
+
+> **Known issue (pi / `omp acp`).** pi connects and lists the bus tools, but every
+> `tools/call` comes back as `MCP error: undefined is not an object (evaluating
+> 'n.isError')`. The bus endpoint itself is correct (verified with a raw MCP
+> handshake). Cause: pi keeps a GET SSE stream open, so ExHub's concurrent
+> dispatcher answers the POST with `202 {}` and delivers the real result on the
+> stream — pi's client reads the empty POST body as the result. Clients that read
+> the POST body (like the hub) are unaffected. Workarounds: drive pi through
+> `/agent/mcp` from the orchestrator, or give pi a stdio bridge to the bus.
+
 ---
 
 ## Delivery semantics

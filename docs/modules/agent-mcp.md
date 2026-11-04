@@ -14,6 +14,25 @@ This server acts as a gateway that translates MCP tool calls into ACP protocol m
 > `agent_new_session(..., expose_bus: true)` hands a spawned subagent that
 > endpoint, pre-addressed to its own id.
 
+### Recommended orchestration loop
+
+```text
+agent_task {agent_id, content, cwd}                  # spawn + session + prompt + digest
+```
+
+That is the whole loop for a one-off delegation. Reach for the lower-level tools
+only when the session must survive the turn:
+
+```text
+agent_initialize → agent_new_session(keep) → agent_prompt(keep)   # one digest per turn
+agent_prompt_start → agent_await(agents)                          # fire-and-forget + fan-in
+agent_prompt_start → agent_prompt_events (only if you need the live stream)
+```
+
+The cost model matters: an agent turn is cheap for the subagent but each MCP
+round trip re-reads the orchestrator's whole context. A one-call digest costs
+one turn; the old poll loop cost one turn per poll, including the empty ones.
+
 ---
 
 ## Architecture
@@ -257,20 +276,34 @@ Create a new ACP session on an initialized agent.
 
 **Parameters:**
 
-| Parameter  | Type   | Required | Description                                                    |
-|------------|--------|----------|----------------------------------------------------------------|
-| `agent_id` | string | yes      | ID of the initialized agent                                    |
-| `cwd`      | string | no       | Working directory for the session (default: current directory) |
+| Parameter     | Type    | Required | Description                                                       |
+|---------------|---------|----------|-------------------------------------------------------------------|
+| `agent_id`    | string  | yes      | ID of the initialized agent                                       |
+| `cwd`         | string  | no       | Working directory for the session (default: current directory)     |
+| `expose_bus`  | boolean | no       | Inject the ExHub agent bus, pre-addressed to `agent_id`            |
+| `mcp_servers` | array   | no       | Extra servers, see below                                          |
+
+`mcp_servers` follows the ACP spec, and the shape matters — a wrong one is
+rejected by the runtime with `Unsupported MCP server transport`:
+
+```json
+[
+  {"name": "brain", "type": "http", "url": "http://127.0.0.1:9069/brain/mcp", "headers": []},
+  {"name": "local", "command": "node", "args": ["bridge.js"], "env": [{"name": "K", "value": "V"}]}
+]
+```
+
+`uri` is accepted as an alias for `url`, and a `headers`/`env` map is converted
+to the required `[{name, value}]` array. `headers: []` is always sent for HTTP
+servers because pi dereferences it unconditionally.
 
 **Response:**
 
 ```json
 {
   "sessionId": "sess_abc123",
-  "modes": {
-    "available": ["auto", "manual"],
-    "current": "manual"
-  }
+  "mcp_servers": [ ... ],
+  "mcp_server_count": 1
 }
 ```
 
@@ -335,7 +368,82 @@ Close a session (keeps it resumable if the agent supports persistence).
 
 ---
 
-### Prompt Tools (3)
+### Prompt Tools (5)
+
+> **Use `agent_task` (or `agent_prompt`) unless you specifically need the live
+> stream.** Every `agent_prompt_events` poll is a separate model turn, and an
+> agent that is thinking or running a slow command produces empty or partial
+> batches. Measured on the `pi` agent: "read two files and answer" cost one
+> 27.8 KB poll response and several turns, while `agent_prompt` returns the same
+> outcome as a ~2 KB digest in a single call.
+
+#### `agent_task` — one-call delegation (preferred)
+
+Spawns the agent if needed, opens a session, sends the prompt, waits for the
+turn to finish and returns a digest. This is the whole cold-start sequence in
+one tool call.
+
+**Parameters:**
+
+| Parameter          | Type    | Required | Description                                              |
+|--------------------|---------|----------|----------------------------------------------------------|
+| `agent_id`         | string  | yes      | Agent from `agents.json`                                 |
+| `content`          | string  | yes      | Prompt text                                              |
+| `cwd`              | string  | no       | Session working directory                                |
+| `expose_bus`       | boolean | no       | Inject the ExHub agent bus for peer messaging            |
+| `mcp_servers`      | array   | no       | Extra MCP servers (ACP shape, see `agent_new_session`)   |
+| `timeout_ms`       | integer | no       | Max wait, default `300000`, capped at `570000`           |
+| `keep_session`     | boolean | no       | Keep the session for follow-up `agent_prompt` calls      |
+| `max_answer_bytes` | integer | no       | Cap on the returned answer (default `4000`)              |
+
+#### `agent_prompt` — run a prompt to completion
+
+Same digest, but for an existing session.
+
+| Parameter          | Type    | Required | Description                                    |
+|--------------------|---------|----------|------------------------------------------------|
+| `agent_id`         | string  | yes      | ID of the agent                                |
+| `session_id`       | string  | yes      | Session ID                                     |
+| `content`          | string  | yes      | Prompt text                                    |
+| `timeout_ms`       | integer | no       | Max wait, default `300000`, capped at `570000` |
+| `format`           | enum    | no       | `digest` (default) or `full`                   |
+| `max_answer_bytes` | integer | no       | Cap on the answer (default `4000`)             |
+| `include_thoughts` | boolean | no       | Keep reasoning events with `format: "full"`    |
+
+**Digest response** (one turn, typically 0.4–3 KB):
+
+```json
+{
+  "agent_id": "pi",
+  "session_id": "01a1a00a-980a-7000-aae9-2edd8c071d9f",
+  "status": "complete",
+  "stop_reason": "end_turn",
+  "elapsed_ms": 14531,
+  "answer": "Test passes. Change made: in `mathops.py`, `add()` returned `a-b`; changed it to `return a+b`.",
+  "answer_truncated": false,
+  "usage": {"used": 17003, "size": 256000, "cost": {"amount": 0.0011, "currency": "USD"}},
+  "tool_count": 6,
+  "tools": [
+    {"id": "call_…", "kind": "execute", "status": "completed",
+     "title": "$ python3 test_mathops.py && echo PASS", "output": "PASS", "output_bytes": 87}
+  ],
+  "tools_truncated": false,
+  "changed_files": ["/tmp/pi-acp-test3/mathops.py"],
+  "errors": [],
+  "permission_requests": [],
+  "event_count": 19
+}
+```
+
+`status` is `complete`, `timeout` or `error`. A timeout cancels the prompt. A
+permission prompt from the agent blocks the call until it is resolved with
+`agent_grant_permission` or the timeout expires.
+
+When a prompt starts, the agent's registry status becomes `working` and returns
+to `idle`/`error` at the end, so `agent_await` can be used as a real fan-in wait
+instead of a poll loop.
+
+---
 
 #### `agent_prompt_start`
 
@@ -362,27 +470,60 @@ Send a prompt to an agent session (**non-blocking**). Use with `agent_prompt_eve
 
 #### `agent_prompt_events`
 
-Long-poll for events from a session. Collects events for up to `collect_ms` ms, returning early after `idle_ms` of silence or immediately on a terminal event (`complete`/`error`). Call repeatedly after `agent_prompt_start` until you see `type: "complete"` or `type: "error"`.
+Long-poll for events from a session. Prefer `agent_prompt` — every poll costs a
+model turn.
+
+Collection: up to `collect_ms` (default `30000`), returning early on a terminal
+event (`complete`/`error`), or after `idle_ms` (default `15000`) of silence
+**once at least one event has arrived**. A poll with nothing to report waits the
+full window instead of returning an empty batch early (that early return used to
+cost one wasted turn per quiet interval).
+
+Output is bounded and redacted by default: boilerplate session updates
+(`available_commands_update`, `session_info_update`, `config_option_update`,
+`current_mode_update`) are dropped at the handler, reasoning chunks are dropped,
+each tool output is capped, and the batch is capped at `max_bytes`.
 
 **Parameters:**
 
-| Parameter    | Type    | Required | Description                                              |
-|--------------|---------|----------|----------------------------------------------------------|
-| `agent_id`   | string  | yes      | ID of the agent                                          |
-| `session_id` | string  | yes      | Session ID                                               |
-| `collect_ms` | integer | no       | Max collection window in ms (default: `30000`)           |
-| `idle_ms`    | integer | no       | Return early if idle for this many ms (default: `15000`) |
+| Parameter           | Type    | Required | Description                                                    |
+|---------------------|---------|----------|----------------------------------------------------------------|
+| `agent_id`          | string  | yes      | ID of the agent                                                |
+| `session_id`        | string  | yes      | Session ID                                                     |
+| `collect_ms`        | integer | no       | Max collection window in ms (default: `30000`)                 |
+| `idle_ms`           | integer | no       | Early return after this much silence, once events exist        |
+| `include_thoughts`  | boolean | no       | Keep `agent_thought_chunk` events (default `false`)            |
+| `include_raw`       | boolean | no       | Keep `rawInput`/`rawOutput`/tool content uncapped (default `false`) |
+| `max_output_bytes`  | integer | no       | Per-tool-output cap (default `800`)                            |
+| `max_bytes`         | integer | no       | Whole-response cap (default `20000`)                           |
+| `slim`              | boolean | no       | Set `false` for the untouched event list (default `true`)      |
 
 **Response:**
 
 ```json
 {
+  "session_id": "sess_abc123",
+  "agent_id": "pi",
+  "state": "running",
+  "usage": {"used": 17003, "size": 256000, "cost": {"amount": 0.0011, "currency": "USD"}},
   "events": [
-    { "type": "update", "update": { ... } },
+    { "type": "update", "update": {"sessionUpdate": "tool_call_update", "toolCallId": "call_…",
+                                   "status": "completed", "output": "PASS", "output_bytes": 87} },
     { "type": "permission_request", "tool_call": {...}, "options": [...] }
-  ]
+  ],
+  "event_count": 12,
+  "dropped": 4,
+  "truncated": false
 }
 ```
+
+`state` is `running`, `complete`, `error`, `timeout` or `unknown`. `dropped` and
+`truncated` describe what the caps removed from *this* response. Per-session
+queues hold at most 1000 events; overflow drops the oldest and appends a
+`{"type": "queue_overflow", "dropped": n}` marker.
+
+Only one poll may wait on a session at a time — a second concurrent call returns
+an error instead of hanging the first (`already_waiting`).
 
 ---
 

@@ -21,8 +21,10 @@ defmodule Exhub.MCP.AgentServer do
   - `agent_close_session` — Close a session
 
   ### Prompts
+  - `agent_task` — Spawn + session + prompt + digest in one call (preferred)
+  - `agent_prompt` — Prompt an existing session, block, return a digest
   - `agent_prompt_start` — Send a prompt (non-blocking)
-  - `agent_prompt_events` — Poll for events from a session
+  - `agent_prompt_events` — Poll for events from a session (bounded, redacted)
   - `agent_cancel` — Cancel an in-progress prompt
 
   ### Permissions (Operator Mode)
@@ -61,6 +63,8 @@ defmodule Exhub.MCP.AgentServer do
   component(Exhub.MCP.Tools.Agent.CloseSession)
 
   # Prompt tools
+  component(Exhub.MCP.Tools.Agent.Prompt)
+  component(Exhub.MCP.Tools.Agent.Task)
   component(Exhub.MCP.Tools.Agent.PromptStart)
   component(Exhub.MCP.Tools.Agent.PromptEvents)
   component(Exhub.MCP.Tools.Agent.Cancel)

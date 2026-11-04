@@ -17,6 +17,10 @@ defmodule Exhub.MCP.Agent.Store do
 
   use GenServer
 
+  # Per-session cap on queued events. A prompt that is never polled must not be
+  # able to grow the VM without bound.
+  @max_queued_events 1_000
+
   # Client API
 
   def start_link(opts \\ []) do
@@ -99,6 +103,24 @@ defmodule Exhub.MCP.Agent.Store do
     )
   end
 
+  @doc "Marks the session as running a prompt (drives `agent_prompt_events` state)."
+  def mark_running(agent_id, session_id) do
+    GenServer.cast(__MODULE__, {:set_session_state, agent_id, session_id, "running"})
+  end
+
+  @doc "Records the terminal state of a prompt turn: complete / error / timeout."
+  def mark_state(agent_id, session_id, state) do
+    GenServer.cast(__MODULE__, {:set_session_state, agent_id, session_id, to_string(state)})
+  end
+
+  @doc """
+  Last known state of a session: `running`, `complete`, `error`, `timeout`, or
+  `unknown` when the session was never prompted.
+  """
+  def session_state(agent_id, session_id) do
+    GenServer.call(__MODULE__, {:session_state, agent_id, session_id})
+  end
+
   # Server callbacks
 
   @impl true
@@ -123,7 +145,8 @@ defmodule Exhub.MCP.Agent.Store do
         terminal_waiters: %{},
         collect_waiters: %{},
         pending_permissions: %{},
-        tool_call_seen: %{}
+        tool_call_seen: %{},
+        session_state: %{}
       }
 
       # Monitor the client process
@@ -169,7 +192,7 @@ defmodule Exhub.MCP.Agent.Store do
 
           {_session_id, {from, collect_ref, idle_ref, _idle_ms, acc}} ->
             Process.cancel_timer(collect_ref)
-            Process.cancel_timer(idle_ref)
+            cancel(idle_ref)
             GenServer.reply(from, {:ok, merge_chunks(acc)})
         end)
 
@@ -188,6 +211,13 @@ defmodule Exhub.MCP.Agent.Store do
   def handle_call(:list, _from, state) do
     entries = Map.values(state.agents)
     {:reply, entries, state}
+  end
+
+  def handle_call({:session_state, agent_id, session_id}, _from, state) do
+    case get_in(state, [:agents, agent_id, :session_state, session_id]) do
+      nil -> {:reply, "unknown", state}
+      session_state -> {:reply, session_state, state}
+    end
   end
 
   def handle_call({:pop_events, agent_id, session_id}, _from, state) do
@@ -267,24 +297,41 @@ defmodule Exhub.MCP.Agent.Store do
       _entry ->
         existing = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
 
-        if has_terminal_event?(existing) do
-          new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
-          {:reply, {:ok, merge_chunks(existing)}, new_state}
-        else
-          collect_ref =
-            Process.send_after(self(), {:collect_timeout, session_id, agent_id}, collect_ms)
+        cond do
+          get_in(state, [:agents, agent_id, :collect_waiters, session_id]) != nil ->
+            # One waiter per session: a second concurrent poll used to overwrite
+            # the first one's `from`, leaving that caller hanging until its
+            # GenServer.call timeout.
+            {:reply, {:error, :already_waiting}, state}
 
-          idle_ref = Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
+          has_terminal_event?(existing) ->
+            new_state = put_in(state, [:agents, agent_id, :event_queues, session_id], [])
+            {:reply, {:ok, merge_chunks(existing)}, new_state}
 
-          new_state =
-            state
-            |> put_in(
-              [:agents, agent_id, :collect_waiters, session_id],
-              {from, collect_ref, idle_ref, idle_ms, existing}
-            )
-            |> put_in([:agents, agent_id, :event_queues, session_id], [])
+          true ->
+            collect_ref =
+              Process.send_after(self(), {:collect_timeout, session_id, agent_id}, collect_ms)
 
-          {:noreply, new_state}
+            # Start the idle timer only when there is already something to
+            # report. Otherwise a poll whose agent is busy thinking returns an
+            # empty batch after `idle_ms`, which costs the caller a whole model
+            # turn for nothing.
+            idle_ref =
+              if existing == [] do
+                nil
+              else
+                Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
+              end
+
+            new_state =
+              state
+              |> put_in(
+                [:agents, agent_id, :collect_waiters, session_id],
+                {from, collect_ref, idle_ref, idle_ms, existing}
+              )
+              |> put_in([:agents, agent_id, :event_queues, session_id], [])
+
+            {:noreply, new_state}
         end
     end
   end
@@ -349,6 +396,16 @@ defmodule Exhub.MCP.Agent.Store do
     {:noreply, new_state}
   end
 
+  def handle_cast({:set_session_state, agent_id, session_id, session_state}, state) do
+    case get_in(state, [:agents, agent_id]) do
+      nil ->
+        {:noreply, state}
+
+      _entry ->
+        {:noreply, put_in(state, [:agents, agent_id, :session_state, session_id], session_state)}
+    end
+  end
+
   def handle_cast({:push_event, agent_id, session_id, event}, state) do
     case get_in(state, [:agents, agent_id]) do
       nil ->
@@ -362,10 +419,10 @@ defmodule Exhub.MCP.Agent.Store do
         state1 =
           case get_in(entry, [:waiters, session_id]) do
             waiters when waiters in [nil, []] ->
-              # No waiters — append event to queue
+              # No waiters — append event to the (bounded) queue
               update_in(state, [:agents, agent_id, :event_queues, session_id], fn
                 nil -> [event]
-                events -> events ++ [event]
+                events -> append_bounded(events, event, session_id, agent_id)
               end)
 
             [{from, timer_ref} | rest_waiters] ->
@@ -420,15 +477,15 @@ defmodule Exhub.MCP.Agent.Store do
                 if has_terminal_event?(new_acc) do
                   # Terminal event — reply immediately
                   Process.cancel_timer(collect_ref)
-                  Process.cancel_timer(idle_ref)
+                  cancel(idle_ref)
                   GenServer.reply(from, {:ok, merge_chunks(new_acc)})
 
                   state2
                   |> put_in([:agents, agent_id, :collect_waiters, session_id], nil)
                   |> put_in([:agents, agent_id, :event_queues, session_id], [])
                 else
-                  # New events — reset idle timer
-                  Process.cancel_timer(idle_ref)
+                  # New events — start/reset the idle timer
+                  cancel(idle_ref)
 
                   new_idle_ref =
                     Process.send_after(self(), {:idle_timeout, session_id, agent_id}, idle_ms)
@@ -443,7 +500,19 @@ defmodule Exhub.MCP.Agent.Store do
               end
           end
 
-        {:noreply, state3}
+        # Step 4: remember the terminal state of the turn
+        state4 =
+          if is_terminal_event?(event) do
+            put_in(
+              state3,
+              [:agents, agent_id, :session_state, session_id],
+              if(Map.get(event, :type) == "error", do: "error", else: "complete")
+            )
+          else
+            state3
+          end
+
+        {:noreply, state4}
     end
   end
 
@@ -463,6 +532,38 @@ defmodule Exhub.MCP.Agent.Store do
 
   defp is_terminal_event?(event) do
     Map.get(event, :type) in ["complete", "error"]
+  end
+
+  defp cancel(nil), do: :ok
+  defp cancel(ref), do: Process.cancel_timer(ref)
+
+  # Keep at most @max_queued_events per session. A long-running agent that is
+  # never polled would otherwise grow the queue (and the VM) without bound; when
+  # the cap is hit, the oldest events go and a single marker tells the reader
+  # that the trace is incomplete.
+  defp append_bounded(events, event, session_id, agent_id) do
+    events = events ++ [event]
+    overflow = length(events) - @max_queued_events
+
+    if overflow > 0 do
+      trimmed = Enum.drop(events, overflow)
+
+      if match?(%{type: "queue_overflow"}, List.last(trimmed)) do
+        trimmed
+      else
+        trimmed ++
+          [
+            %{
+              type: "queue_overflow",
+              dropped: overflow,
+              session_id: session_id,
+              agent_id: agent_id
+            }
+          ]
+      end
+    else
+      events
+    end
   end
 
   # Deduplicate tool_call_update events by stripping rawInput/rawOutput on repeats
@@ -603,7 +704,7 @@ defmodule Exhub.MCP.Agent.Store do
         {:noreply, state}
 
       {from, _collect_ref, idle_ref, _idle_ms, acc} ->
-        Process.cancel_timer(idle_ref)
+        cancel(idle_ref)
         # Drain any events that arrived during the collection window
         queued = get_in(state, [:agents, agent_id, :event_queues, session_id]) || []
         all_events = acc ++ queued
@@ -674,7 +775,7 @@ defmodule Exhub.MCP.Agent.Store do
 
             {_session_id, {from, collect_ref, idle_ref, _idle_ms, acc}} ->
               Process.cancel_timer(collect_ref)
-              Process.cancel_timer(idle_ref)
+              cancel(idle_ref)
               GenServer.reply(from, {:ok, merge_chunks(acc)})
           end)
         end
