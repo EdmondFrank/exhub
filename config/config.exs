@@ -66,6 +66,18 @@ config :exhub, :lua,
   tool_docs: :on_demand,
   exclude_servers: ["mcp-hub", "lua"]
 
+# LangChain chat surface (the `llm` MCP server at `/llm/mcp`: `models`, `chat`,
+# `chat_json`). Reachable from Lua code mode as `llm.chat({...})`. Backed by
+# `Exhub.Llm.Client`; model names resolve through `Exhub.Llm.LlmConfigServer`.
+# `allowed_models: nil` permits every configured model; a list (full or bare
+# names) turns `chat` into an allow-list. Set `enabled: false` to disable.
+config :exhub, :llm_tool,
+  enabled: true,
+  allowed_models: nil,
+  default_max_tokens: 4096,
+  default_timeout_ms: 180_000,
+  max_timeout_ms: 600_000
+
 # Brain vault search ranking defaults. Tunable per-call via brain_search_vault
 # `fusion`/`weights`/`min_score` params, which are merged over these defaults.
 config :exhub, :brain_ranking, %{

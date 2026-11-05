@@ -181,6 +181,11 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # MCP LLM Server (LangChain chat: models, chat, chat_json)
+      {Exhub.MCP.LlmServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       # Lua code-mode Server — run Lua snippets across all visible MCP tools
       {Exhub.MCP.LuaServer,
        transport: :streamable_http,

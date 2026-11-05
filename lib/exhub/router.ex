@@ -863,6 +863,12 @@ defmodule Exhub.Router do
     |> send_resp(200, Exhub.Router.AgentHubChatView.render(name))
   end
 
+  # LLM server — LangChain chat (models, chat, chat_json)
+  forward("/llm/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.LlmServer, request_timeout: 600_000]
+  )
+
   # Lua code-mode server — run Lua snippets across all visible MCP tools
   forward("/lua/mcp",
     to: Exhub.MCP.LazyPlug,

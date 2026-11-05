@@ -32,6 +32,20 @@ the `Exhub.Lua.Sandbox` behaviour over the pure-Elixir
 [`lua`](https://hexdocs.pm/lua) VM, which cannot reach the BEAM except through
 the tool closures the bridge registers.
 
+## LLM calls from a snippet
+
+The built-in `llm` server ([docs](llm.md)) is bridged like any other server, so
+a snippet can run LangChain chat turns directly:
+
+```lua
+local out = llm.chat({model = "kimi-k2.6", prompt = "Say hi"})
+return out.content
+```
+
+`llm.models()` lists the configured models, and `llm.chat_json({...})` returns
+schema-constrained JSON. Both are also reachable as
+`tools["llm__chat"]` / `tools["llm__chat_json"]`.
+
 ## `code_mode`
 
 **Parameters**
