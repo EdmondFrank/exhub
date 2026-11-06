@@ -95,11 +95,8 @@ defmodule Exhub.MCP.DesktopServer do
 
   @impl true
   def handle_request(%{"method" => "tools/call"} = request, frame) do
-    # Secret gate first, matching `Exhub.MCP.Hub.DispatchGuards`: its fast path
-    # usually settles a secret-shaped call without a model request, and a leaked
-    # credential is the costlier mistake.
-    with :ok <- SecretGuard.check_request(request),
-         :ok <- CostGuard.check_request(request) do
+    with :ok <- CostGuard.check_request(request),
+         :ok <- SecretGuard.check_request(request) do
       Exhub.MCP.ServerHelpers.handle_request_with_filtered_tools(__MODULE__, request, frame)
     else
       {:refuse, message} ->

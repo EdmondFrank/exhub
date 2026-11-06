@@ -9,13 +9,6 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
   in the router. This registry bypasses the Anubis.Client → HTTP → Anubis.Server
   indirection for local servers.
 
-  Because a tool is executed through its `handler.execute/2`, a server's
-  `handle_request/2` callback — and any gate it runs there — is skipped, so
-  `call_tool/3` consults `Exhub.MCP.Hub.DispatchGuards` before executing
-  anything. The `/desktop/mcp` route reaches a handler without passing here, so
-  `Exhub.MCP.ConcurrentToolDispatcher` consults the same gate; see that module
-  for the mapping and the reasoning.
-
   ## Usage
 
       # List all tools from built-in servers
@@ -26,8 +19,6 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
   """
 
   require Logger
-
-  alias Exhub.MCP.Hub.DispatchGuards
 
   # Built-in server modules mapped by their route name
   @built_in_servers %{
@@ -72,20 +63,6 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
   def server_module(name) do
     Map.get(@built_in_servers, name)
   end
-
-  @doc """
-  Returns the route name for a built-in server module, or `nil`.
-
-  The inverse of `server_module/1`. Callers that hold the server module rather
-  than the route name (`Exhub.MCP.ConcurrentToolDispatcher`, which serves the
-  `/desktop/mcp` route) use it to consult `Exhub.MCP.Hub.DispatchGuards`.
-  """
-  @spec server_name(module()) :: String.t() | nil
-  def server_name(module) when is_atom(module) do
-    Enum.find_value(@built_in_servers, fn {name, mod} -> if mod == module, do: name end)
-  end
-
-  def server_name(_module), do: nil
 
   @doc """
   Returns the server info map for a built-in server.
@@ -190,22 +167,15 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     * `arguments` — a map of arguments to pass to the tool
 
   ## Returns
-    * `{:ok, result}` — the tool executed successfully, or the call was refused
-      by a pre-flight gate (`result` then carries `"isError" => true`)
+    * `{:ok, result}` — the tool executed successfully
     * `{:error, reason}` — the tool failed or was not found
   """
   @spec call_tool(String.t(), String.t(), map()) ::
           {:ok, term()} | {:error, term()}
   def call_tool(server_name, tool_name, arguments) do
-    case DispatchGuards.check(server_name, tool_name, arguments) do
-      :ok ->
-        with {:ok, server_module} <- fetch_server_module(server_name),
-             {:ok, tool} <- fetch_tool(server_module, tool_name) do
-          execute_tool(tool, arguments)
-        end
-
-      {:refuse, message} ->
-        {:ok, DispatchGuards.refuse_result(message)}
+    with {:ok, server_module} <- fetch_server_module(server_name),
+         {:ok, tool} <- fetch_tool(server_module, tool_name) do
+      execute_tool(tool, arguments)
     end
   end
 

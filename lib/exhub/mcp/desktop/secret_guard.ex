@@ -24,15 +24,6 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
        false refusal here would block legitimate work, so the guard prefers to
        let an ambiguous call through; the fast-path refusals above still apply.
 
-  Like the cost gate, this one is consulted from every funnel that runs a tool's
-  `handler.execute/2`: `Exhub.MCP.Hub.DispatchGuards.check/3` from
-  `Exhub.MCP.Hub.BuiltInRegistry.call_tool/3` (every in-process dispatch — the
-  hub's `/mcp` route, `ClientManager`, `code_mode`'s Lua sandbox) and from
-  `Exhub.MCP.ConcurrentToolDispatcher.handle_concurrent/9` (the `/desktop/mcp`
-  HTTP route, which bypasses `DesktopServer.handle_request/2`).
-  `check_request/2` stays on `handle_request/2` for requests that do reach the
-  Anubis session.
-
   Verdicts are cached per `{tool, arguments}`, so a repeated call does not
   re-hit the API. The cache is a named ETS table owned by this module's
   supervised process (`start_link/1`), started alongside the Desktop
