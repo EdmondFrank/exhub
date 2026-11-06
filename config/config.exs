@@ -414,23 +414,36 @@ config :exhub, Exhub.MCP.Desktop.CostGuard,
 #     a labeled sweep for *this* task (17/18, zero missed secrets at 0.3), which
 #     is deliberately NOT the cost gate's `APUS-OpenJev-v1-9B` (that model scored
 #     10/18 here). The ranking is task-specific.
-#   - `threshold`: minimum `noul` probability to refuse (`0.3`, tuned to the model)
+#   - `threshold`: minimum `noul` probability to refuse (`0.5`; the sweep's
+#     recall-first 0.3 refused too many ordinary reads — lower it back towards
+#     0.3 if a borderline case ever slips through)
 #   - `timeout`: per-request timeout in milliseconds
 #   - `cache_ttl_ms`/`cache_limit`: per-`{tool, arguments}` verdict cache
 #   - `guarded_tools`: tool names the gate applies to
 #   - `always_allow`: tool names never gated
+#   - `allow_patterns`: regexes matched against a call's command (for
+#     `execute_command`/`start_process`) or path (for the file tools); a match
+#     allows the call *without* consulting the model. This is the escape hatch
+#     for model-layer false positives — a local CLI that merely reads chat data,
+#     a source file whose name mentions "secret". It never overrides the
+#     deterministic fast path (`envless get`, `.env`, `runtime.exs` stay refused)
 #   - `vault_roots`: envless vault roots whose `.envless/`/`secrets/` subtrees are
 #     refused (default: `$ENVLESS_ROOT`, else `~/GTD`)
 # In-code defaults in `Exhub.MCP.Desktop.SecretGuard` apply for any missing key.
 config :exhub, Exhub.MCP.Desktop.SecretGuard,
   enabled: true,
   model: "SemIf-OpenJev-4B",
-  threshold: 0.3,
+  threshold: 0.5,
   timeout: 30_000,
   cache_ttl_ms: 60_000,
   cache_limit: 2000,
   guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
-  always_allow: []
+  always_allow: [],
+  # The local agent-messaging CLI only reads chat/message data, but the model
+  # reads "read … @name" as a credential read and refuses it.
+  allow_patterns: [
+    ~r/\braft\s+messages?\s+(read|list|show|search)\b/
+  ]
 
 # Network counterpart of the working-dir gate: after a failed outbound command,
 # `Exhub.MCP.Desktop.ProxyEnv` decides whether to retry it with HTTP(S) proxy

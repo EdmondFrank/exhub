@@ -926,12 +926,25 @@ into the tool result and therefore into the conversation.
      vault's `.envless/` or `secrets/` subtree. The vault root is `$ENVLESS_ROOT`
      (else `~/GTD`), read at decision time; plain notes that merely share the
      vault directory (e.g. `~/GTD/PKB/…`) are **not** refused, only the store.
-     `*.example` / `*.sample` / `*.template` copies are exempt;
+     `*.example` / `*.sample` / `*.template` copies are exempt, and so are
+     source / documentation extensions (`.ex`, `.exs`, `.md`, `.py`, …, see
+     `@source_exts`): `secret_guard.ex`, `secrets.md` or `password_reset.py`
+     are source, not the store. Exact basenames (`id_rsa`, `.netrc`) and
+     secret extensions (`.pem`, `.key`) still refuse, and serialisation
+     formats (`.json`, `.yaml`) are deliberately not exempt;
    - a production / release configuration file (`config/runtime.exs`,
      `prod.exs`, `sys.config`, `vm.args`, `env.sh`).
-2. **Smart Decide** — everything else gets one `noul` question: *would this
+2. **Allow patterns** — `:allow_patterns` (a list of regexes, or regex
+   source strings) is matched against the call's command
+   (`execute_command` / `start_process`) or path (the file tools) before the
+   model is consulted; a match allows the call without a model call. This is
+   the escape hatch for *model-layer* false positives — a local CLI that only
+   reads chat/message data (`raft message read --target dm:@name`), or a source
+   file whose name mentions "secret". It cannot override layer 1:
+   `envless get`, a `.env` file and `runtime.exs` stay refused.
+3. **Smart Decide** — everything else gets one `noul` question: *would this
    invocation expose a secret value into the output?*
-3. **Fail open** — a disabled, erroring or timed-out model means allow; only the
+4. **Fail open** — a disabled, erroring or timed-out model means allow; only the
    fast path refuses.
 
 Verdicts are cached per `{tool, arguments}` in `:exhub_secret_guard_cache`,
@@ -946,9 +959,10 @@ session.
 config :exhub, Exhub.MCP.Desktop.SecretGuard,
   enabled: true,
   model: "SemIf-OpenJev-4B",   # task-specific pick; NOT CostGuard's APUS-9B
-  threshold: 0.3,             # lower cut buys recall for a security gate
+  threshold: 0.5,             # looser than the sweep's recall-first 0.3
   guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
   always_allow: [],
+  allow_patterns: [],         # regexes that skip the model (never the fast path)
   vault_roots: nil            # nil ⇒ $ENVLESS_ROOT, else ~/GTD
 ```
 

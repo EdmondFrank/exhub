@@ -186,6 +186,30 @@ defmodule Exhub.MCP.Tools.Desktop.SecretGuardTest do
                  enabled: false
                )
     end
+
+    test "a source / doc file whose name mentions a secret word is not secret material" do
+      for path <- [
+            "/Users/me/project/lib/exhub/mcp/desktop/secret_guard.ex",
+            "/Users/me/project/test/exhub/mcp/tools/desktop/secret_guard_test.exs",
+            "/Users/me/notes/secrets.md",
+            "/Users/me/project/lib/password_reset.py"
+          ] do
+        refute SecretGuard.secret_path?(path, vault_roots: [@vault]),
+               "expected #{inspect(path)} to be allowed"
+      end
+    end
+
+    test "secret-named data files and exact secret basenames still refuse" do
+      for path <- [
+            "/Users/me/project/password.json",
+            "/Users/me/project/credentials.yaml",
+            "/Users/me/project/secrets.env",
+            "/Users/me/.ssh/id_rsa"
+          ] do
+        assert SecretGuard.secret_path?(path, vault_roots: [@vault]),
+               "expected #{inspect(path)} to be refused"
+      end
+    end
   end
 
   describe "vault roots" do
@@ -260,7 +284,7 @@ defmodule Exhub.MCP.Tools.Desktop.SecretGuardTest do
 
     test "defaults to the SemIf-OpenJev-4B model (task-specific pick)" do
       assert Keyword.get(SecretGuard.config(), :model) == "SemIf-OpenJev-4B"
-      assert Keyword.get(SecretGuard.config(), :threshold) == 0.3
+      assert Keyword.get(SecretGuard.config(), :threshold) == 0.5
     end
 
     test "passes the configured model to the decider, and honours an override" do
@@ -301,6 +325,96 @@ defmodule Exhub.MCP.Tools.Desktop.SecretGuardTest do
 
     test "a nil / non-binary tool fails open" do
       assert :ok = SecretGuard.check(nil, %{"path" => "/Users/me/.env"})
+    end
+  end
+
+  describe "allow patterns (layer 2)" do
+    @raft ~r/\braft\s+messages?\s+(read|list|show)\b/
+
+    test "a matching command skips the model entirely" do
+      {decider, agent} = counting_decider(0.99)
+
+      assert :ok =
+               SecretGuard.check(
+                 "execute_command",
+                 %{"command" => "raft message read --target dm:@alice"},
+                 decider: decider,
+                 allow_patterns: [@raft]
+               )
+
+      assert Agent.get(agent, & &1) == 0
+    end
+
+    test "an empty or non-matching pattern list still consults the model" do
+      assert {:refuse, _} =
+               SecretGuard.check(
+                 "execute_command",
+                 %{"command" => "raft message read --target dm:@alice"},
+                 decider: decider(0.99),
+                 allow_patterns: []
+               )
+
+      assert {:refuse, _} =
+               SecretGuard.check(
+                 "execute_command",
+                 %{"command" => "raft message delete --target dm:@alice"},
+                 decider: decider(0.99),
+                 allow_patterns: [@raft]
+               )
+    end
+
+    # Regression: the exact command from the bug report. `config/config.exs`
+    # ships an `allow_patterns` entry for the local messaging CLI, so the model
+    # never sees a `read … @name` command here.
+    test "the shipped config already allows the messaging CLI reader" do
+      assert :ok =
+               SecretGuard.check(
+                 "execute_command",
+                 %{"command" => "raft message read --target dm:@alice"},
+                 decider: decider(0.99)
+               )
+    end
+
+    test "matches paths for the file tools and accepts pattern strings" do
+      assert :ok =
+               SecretGuard.check(
+                 "read_file",
+                 %{"path" => "/Users/me/notes/chat-log.md"},
+                 decider: decider(0.99),
+                 allow_patterns: ["notes/chat"]
+               )
+
+      assert :ok =
+               SecretGuard.check(
+                 "read_multiple_files",
+                 %{"paths" => ["/Users/me/notes/chat-1.md", "/Users/me/other.md"]},
+                 decider: decider(0.99),
+                 allow_patterns: ["notes/chat"]
+               )
+    end
+
+    test "never overrides the deterministic fast path" do
+      allow = [~r/envless/, ~r/\.env/, ~r/runtime/]
+
+      assert {:refuse, _} =
+               SecretGuard.check(
+                 "execute_command",
+                 %{"command" => "envless get OPENAI_API_KEY"},
+                 decider: decider(0.1),
+                 allow_patterns: allow
+               )
+
+      assert {:refuse, _} =
+               SecretGuard.check(
+                 "read_file",
+                 %{"path" => "/Users/me/project/.env"},
+                 decider: decider(0.1),
+                 allow_patterns: allow
+               )
+    end
+
+    test "the shipped config carries the list (project may add patterns)" do
+      assert is_list(Keyword.get(SecretGuard.config(), :allow_patterns))
     end
   end
 

@@ -16,10 +16,17 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
        read of a `.env`/private-key/credential file, a path under an envless
        vault's `.envless/` or `secrets/` directories, or a production/release
        configuration file (`config/runtime.exs`, `prod.exs`, `sys.config`).
-    2. **Smart Decide** — everything else is judged by a single `noul` (yes/no)
+    2. **Explicit allow patterns** — `:allow_patterns` (a list of regexes) is
+       consulted next: an invocation whose command (or path) matches one is
+       allowed without a model call. This is the escape hatch for
+       *model-layer* false positives — a local CLI that merely reads chat or
+       message data, a source file whose name mentions "secret". It cannot
+       override layer 1: `envless get`, a `.env` file and `runtime.exs` stay
+       refused whatever the patterns say.
+    3. **Smart Decide** — everything else is judged by a single `noul` (yes/no)
        System One question: *would this invocation expose a secret value into
        the output?* The model generalises where a static list cannot.
-    3. **Deterministic fallback** — when the model is disabled or the request
+    4. **Deterministic fallback** — when the model is disabled or the request
        fails, the call is **allowed** (fail open). Unlike the working-dir gate, a
        false refusal here would block legitimate work, so the guard prefers to
        let an ambiguous call through; the fast-path refusals above still apply.
@@ -60,17 +67,22 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
   # fast path leaves to the model) `SemIf-OpenJev-4B` scored 17/18 at 0.3 with no
   # missed secret, whereas CostGuard's `APUS-OpenJev-v1-9B` managed only 10/18 and
   # emitted out-of-range probabilities (up to 9.1). The ranking is task-specific:
-  # do not copy CostGuard's model here. See
+  # do not copy CostGuard's model here. The threshold is deliberately *looser*
+  # than the sweep's recall-first 0.3 (and matches the other gates' 0.5): a
+  # false refusal of an ordinary read costs more here than letting a borderline
+  # case through, because the deterministic fast path still catches the blatant
+  # ones and `allow_patterns` covers the rest. See
   # `knowledge-base/exhub/decision-models.md` → *SecretGuard gate*.
   @defaults [
     enabled: true,
     model: "SemIf-OpenJev-4B",
-    threshold: 0.3,
+    threshold: 0.5,
     timeout: 30_000,
     cache_ttl_ms: 60_000,
     cache_limit: 2_000,
     guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
     always_allow: [],
+    allow_patterns: [],
     vault_roots: nil
   ]
 
@@ -85,6 +97,13 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
 
   # Secret-ish file extensions.
   @secret_exts ~w(.pem .key .p12 .pfx .jks .keystore .kdbx .age)
+
+  # Source / documentation extensions. A *file name* that mentions "secret" is
+  # not a secret store when the file is source (`secret_guard.ex`,
+  # `secrets.md`); the exact basenames and secret extensions above still
+  # refuse. Serialisation formats (`.json`, `.yaml`, `.ini`, …) are deliberately
+  # absent — `password.json` stays secret material.
+  @source_exts ~w(.ex .exs .erl .hrl .el .py .rb .js .mjs .cjs .ts .tsx .jsx .go .rs .swift .kt .kts .java .scala .c .h .cc .cpp .hpp .cs .php .lua .zig .nix .livemd .md .markdown .rst .org .adoc .txt .html .css .vue .svelte .sql .proto .graphql .tf .vim)
 
   # Template/sample copies carry no real secret and are not refused.
   @template_exts ~w(.example .sample .template .dist .tmpl)
@@ -181,12 +200,16 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
       can avoid network calls; providing it also disables the cache unless
       `:cache` is set explicitly.
     * `:model` — System One model id for this decision
-    * `:threshold` — minimum `noul` probability to refuse (`0.3`, tuned to
-      `SemIf-OpenJev-4B`; for a security gate a lower cut buys recall)
+    * `:threshold` — minimum `noul` probability to refuse (`0.5`; the sweep's
+      recall-first 0.3 refused too many ordinary reads — lower it back towards
+      0.3 if a borderline case ever slips through)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
     * `:cache` — cache this verdict (`true`; off when a `:decider` is injected)
     * `:guarded_tools` — tool names this gate applies to
     * `:always_allow` — tool names never gated
+    * `:allow_patterns` — regexes (or regex source strings) matched against a
+      call's command / path; a match allows the call without consulting the
+      model (never overrides the deterministic fast path)
     * `:vault_roots` — envless vault roots whose `.envless/`/`secrets/` subtrees
       are refused (default: `$ENVLESS_ROOT`, else `~/GTD`)
   """
@@ -293,10 +316,10 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
   # --- Decision ---
 
   defp compute(tool, arguments, opts) do
-    if fast_refuse?(tool, arguments, opts) do
-      {:refuse, refuse_message(tool, arguments)}
-    else
-      judge(tool, arguments, opts)
+    cond do
+      fast_refuse?(tool, arguments, opts) -> {:refuse, refuse_message(tool, arguments)}
+      allow_match?(tool, arguments, opts) -> :ok
+      true -> judge(tool, arguments, opts)
     end
   end
 
@@ -388,8 +411,16 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
       "(for example `envless get`, `envless exec -- env`, `env`, `printenv`, " <>
       "`security find-generic-password`, `op read`, a `.env`/`.pem`/identity or " <>
       "`secrets/` file, or `config/runtime.exs`, `prod.exs`, `sys.config`). " <>
-      "Answer no for ordinary source code, documentation, notes, or a command " <>
-      "that does not touch credentials. When unsure, answer no."
+      "Answer no for ordinary application data even when the command *reads* " <>
+      "it: chat, DM/private-message, issue or log content, database rows, or a " <>
+      "local CLI's own records. Source and documentation files are not secrets " <>
+      "either — `config/config.exs`, `dev.exs`, `test.exs` and any " <>
+      "`*.ex`/`*.exs`/`*.md` file whose *name* happens to mention " <>
+      "secret are ordinary source, not a live credential — a file whose name " <>
+      "merely *describes* secrets (`secret_guard.ex`, `secrets.md`) is " <>
+      "documentation about the topic; only the production configuration " <>
+      "files named above carry injected values. Answer no for a command that " <>
+      "does not touch credentials. When unsure, answer no."
   end
 
   # Pass the configured System One model to the decider. `nil`/blank means the
@@ -420,6 +451,41 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
   defp fast_refuse?("search_files", arguments, opts), do: secret_path?(arguments["path"], opts)
 
   defp fast_refuse?(_tool, _arguments, _opts), do: false
+
+  # --- Explicit allow patterns ---
+
+  # Layer 2: a user-supplied regex list rescues *model-layer* false positives
+  # (a local CLI reading chat data, a source file named `*secret*`). Checked
+  # after `fast_refuse?/3`, so it can never un-refuse `envless get`, a `.env`
+  # file or `runtime.exs`.
+  defp allow_match?(tool, arguments, opts) do
+    patterns = List.wrap(opt(opts, :allow_patterns))
+
+    patterns != [] and
+      arguments
+      |> allow_subjects(tool)
+      |> Enum.any?(fn subject -> Enum.any?(patterns, &pattern_match?(&1, subject)) end)
+  end
+
+  # What an allow pattern is matched against: the command for the shell tools,
+  # the path(s) for the file tools.
+  defp allow_subjects(arguments, tool) when tool in ["execute_command", "start_process"],
+    do: List.wrap(arguments["command"])
+
+  defp allow_subjects(arguments, tool) when tool in ["read_file", "search_files"],
+    do: List.wrap(arguments["path"])
+
+  defp allow_subjects(arguments, "read_multiple_files"), do: List.wrap(arguments["paths"])
+
+  defp allow_subjects(_arguments, _tool), do: []
+
+  defp pattern_match?(%Regex{} = re, subject), do: Regex.match?(re, subject)
+
+  defp pattern_match?(pattern, subject) when is_binary(pattern) do
+    Regex.match?(Regex.compile!(pattern), subject)
+  end
+
+  defp pattern_match?(_pattern, _subject), do: false
 
   # --- Deterministic command heuristics ---
 
@@ -499,14 +565,31 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
 
   defp secret_basename?(base) do
     lower = String.downcase(base)
+    ext = Path.extname(lower)
 
-    Path.extname(lower) not in @template_exts and
-      (base in @secret_basenames or
-         String.starts_with?(lower, ".env") or
-         Path.extname(lower) in @secret_exts or
-         String.contains?(lower, "secret") or
-         String.contains?(lower, "credential") or
-         String.contains?(lower, "password"))
+    cond do
+      ext in @template_exts ->
+        false
+
+      base in @secret_basenames ->
+        true
+
+      String.starts_with?(lower, ".env") ->
+        true
+
+      ext in @secret_exts ->
+        true
+
+      # Source/docs whose *name* mentions a secret word are still just source:
+      # `secret_guard.ex`, `secrets.md`, `password_reset.py`.
+      ext in @source_exts ->
+        false
+
+      true ->
+        String.contains?(lower, "secret") or
+          String.contains?(lower, "credential") or
+          String.contains?(lower, "password")
+    end
   end
 
   defp prod_config_path?(base), do: base in @prod_config_basenames
@@ -543,8 +626,8 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
     pipe it to the clipboard
     - read application configuration through the app, not by opening \
     `config/runtime.exs` / `sys.config`
-    - if this is genuinely intended, allow `#{tool}` under \
-    `:exhub, Exhub.MCP.Desktop.SecretGuard` (`always_allow`)
+    - if this is a false positive, allow `#{tool}` under \
+    `:exhub, Exhub.MCP.Desktop.SecretGuard` (`always_allow`), or allow just this call shape with `allow_patterns` (model-layer verdicts only — the deterministic refusals above stay)
     """
     |> String.trim_trailing()
   end
