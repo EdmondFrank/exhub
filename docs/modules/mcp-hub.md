@@ -712,6 +712,48 @@ Consequences:
 Calls are still *dispatched* through the single `ClientManager` GenServer, so its
 mailbox remains the front door — now O(1) per call instead of O(tool runtime).
 
+### Pre-flight gates — `Exhub.MCP.Hub.DispatchGuards`
+
+A built-in tool runs through its `handler.execute/2`, which skips the server's
+`handle_request/2` — where a server keeps its own gates (the desktop's
+`CostGuard`/`SecretGuard`, for instance). Two funnels reach a handler that way,
+and each consults `DispatchGuards` first:
+
+| Funnel | Gated in |
+|--------|----------|
+| hub `/mcp` route (`ProxyPlug`), `ClientManager` built-in dispatch, `code_mode`/`parallel`/`parallel_all` in the Lua sandbox (`Engine.call_hub_tool/3` → `ClientManager.call_tool/3`) | `BuiltInRegistry.call_tool/3` |
+| `/desktop/mcp` HTTP route (`LazyPlug` → `ConcurrentToolDispatcher.maybe_handle/2`) | `ConcurrentToolDispatcher.handle_concurrent/9` |
+
+`DesktopServer.handle_request/2` keeps its own checks, but they only see
+requests that actually reach the Anubis session — every POST `tools/call` is
+intercepted by `ConcurrentToolDispatcher` before that.
+
+Gates are attached per **server**, not per tool name (tool names repeat across
+servers), and default to
+
+```elixir
+# lib/exhub/mcp/hub/dispatch_guards.ex
+@default_servers %{"desktop" => [Exhub.MCP.Desktop.SecretGuard, Exhub.MCP.Desktop.CostGuard]}
+```
+
+overridable with `config :exhub, Exhub.MCP.Hub.DispatchGuards, servers: %{…}`
+(a full replacement; `%{}` disables funnel gating). Guards run in listed order,
+first `{:refuse, message}` wins, and the secret gate goes first — its
+deterministic fast path usually settles a secret-shaped command without a model
+call, and a leaked credential is the costlier mistake.
+
+`check/3` takes a server **route name** or the server **module**:
+`ConcurrentToolDispatcher` only holds the module, so it is resolved through
+`BuiltInRegistry.server_name/1`. An unknown module fails open, as does a guard
+that returns anything other than `:ok | {:refuse, message}`.
+
+A refusal is returned as an **MCP tool-error result** (`%{"content" => […],
+"isError" => true}`), the same shape `DesktopServer.handle_request/2` replies
+with, so an MCP client sees `isError` and `code_mode` raises
+`ToolFailure: desktop.search_files failed: Refused: …`. No call passes two
+funnels — they are alternatives, not stages — so the guards' per-`{tool,
+arguments}` cache only pays off across repeated calls.
+
 ---
 
 ## Client Lifecycle States

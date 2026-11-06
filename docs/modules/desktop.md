@@ -887,6 +887,24 @@ judged by one `noul` question, and — because a false refusal here would block
 legitimate work — the gate **fails open**. Verdicts are cached per
 `{tool, arguments}`.
 
+The gate is consulted at every funnel that reaches a tool's `handler.execute/2`,
+because that call skips the server's `handle_request/2`:
+
+- `Exhub.MCP.Hub.DispatchGuards.check/3` from
+  `Exhub.MCP.Hub.BuiltInRegistry.call_tool/3` — every in-process dispatch: the
+  hub's `/mcp` route, `ClientManager`, and `code_mode`'s Lua sandbox.
+- The same `check/3` from
+  `Exhub.MCP.ConcurrentToolDispatcher.handle_concurrent/9` — the `/desktop/mcp`
+  HTTP route, which `Exhub.MCP.LazyPlug` hands to that dispatcher, so
+  `DesktopServer.handle_request/2` is never reached for a `tools/call`.
+- `check_request/2` on `handle_request/2` itself, for requests that do reach the
+  Anubis session.
+
+Only the last was wired up originally, so both a `code_mode` snippet such as
+`desktop.search_files({path = "~", …})` and a plain POST to `/desktop/mcp`
+executed the whole-home scan directly. See [`mcp-hub.md`](mcp-hub.md) →
+*Pre-flight gates*.
+
 ### Secret-exposure gate — `Exhub.MCP.Desktop.SecretGuard`
 
 Refuses `read_file` / `read_multiple_files` / `search_files` /
@@ -917,7 +935,12 @@ into the tool result and therefore into the conversation.
    fast path refuses.
 
 Verdicts are cached per `{tool, arguments}` in `:exhub_secret_guard_cache`,
-owned by the supervised `SecretGuard` child.
+owned by the supervised `SecretGuard` child. Like the cost gate it is consulted
+from `Exhub.MCP.Hub.DispatchGuards.check/3` — used by both
+`BuiltInRegistry.call_tool/3` (the in-process funnel behind `code_mode` and the
+hub's `/mcp` route) and `ConcurrentToolDispatcher` (the `/desktop/mcp` route) —
+plus `DesktopServer.handle_request/2` for requests that reach the Anubis
+session.
 
 ```elixir
 config :exhub, Exhub.MCP.Desktop.SecretGuard,

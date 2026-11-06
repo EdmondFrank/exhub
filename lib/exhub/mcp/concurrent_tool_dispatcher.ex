@@ -43,6 +43,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
   alias Anubis.Server.Response
   alias Anubis.Server.Transport.StreamableHTTP
   alias Exhub.MCP.Encoding
+  alias Exhub.MCP.Hub.DispatchGuards
   alias Exhub.MCP.ServerHelpers
 
   require Logger
@@ -91,6 +92,50 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
   # --- Concurrent tool execution ---
 
   defp handle_concurrent(
+         conn,
+         server,
+         timeout,
+         request_id,
+         tool_name,
+         arguments,
+         session_id,
+         wants_sse,
+         opts
+       ) do
+    # Pre-flight gates first: this path executes a tool's `handler.execute/2`
+    # directly and dispatches through neither `BuiltInRegistry` nor
+    # `DesktopServer.handle_request/2`, so without this check a POST to
+    # `/desktop/mcp` runs a whole-home scan or a credential-shaped command
+    # unchecked. A refusal replies with the same `isError` result the other
+    # paths produce and never spawns the tool task.
+    case DispatchGuards.check(server, tool_name, arguments) do
+      :ok ->
+        do_handle_concurrent(
+          conn,
+          server,
+          timeout,
+          request_id,
+          tool_name,
+          arguments,
+          session_id,
+          wants_sse,
+          opts
+        )
+
+      {:refuse, message} ->
+        reply_result(
+          conn,
+          {:reply, DispatchGuards.refuse_result(message), nil},
+          request_id,
+          session_id,
+          wants_sse,
+          server,
+          opts
+        )
+    end
+  end
+
+  defp do_handle_concurrent(
          conn,
          server,
          timeout,
