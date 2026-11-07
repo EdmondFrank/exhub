@@ -71,6 +71,17 @@ uses language context to repair characters the OCR pipeline misreads. Image
 pre-processing (grayscale threshold, 2× upscale) did not improve results and is
 not applied.
 
+Two follow-up measurements (2026-11-07, live xterm.js screen, 1165×817):
+
+- steady-state latency is 1.7 s for a 40-line transcription and 1.5 s for a
+  "print only this one line" prompt — the floor is model/network bound;
+- a screenshot taken within ~500 ms of a keystroke can misread a word
+  (`WTDONE` → `WDONE`) even though six repeats on the settled screen are exact.
+  Polling code must therefore tolerate one OCR edit instead of trusting a
+  single frame (see `docs/modules/webterm.md`);
+- cropping to the bottom 180 px saves ~0.5 s but loses most of the transcript,
+  so it is not worth it below `max_lines` needs.
+
 ### Supported Models
 
 | Model | Description |

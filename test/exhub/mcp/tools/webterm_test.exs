@@ -95,6 +95,20 @@ defmodule Exhub.MCP.Tools.WebTermTest do
     test "ignores the marker when it is not alone on its line" do
       assert WebTerm.extract_result("WTDONE 0 something else") == :pending
     end
+
+    test "tolerates the OCR misreads seen on live screens" do
+      # deepseek-v4.1-flash dropped the T on a mid-paint frame
+      assert {:ok, 0, _} = WebTerm.extract_result("BETA\nWDONE 0\nroot@host:~#")
+      # and swapped a 0 for a capital O
+      assert {:ok, 0, _} = WebTerm.extract_result("root\nWTDONE O\nroot@host:~#")
+      assert {:ok, 0, _} = WebTerm.extract_result("WTD0NE 0")
+      assert {:ok, -1, _} = WebTerm.extract_result("WTDONF -1")
+    end
+
+    test "still rejects unrelated words and bad exit codes" do
+      assert WebTerm.extract_result("WARNING 0") == :pending
+      assert WebTerm.extract_result("WTDONE nope") == :pending
+    end
   end
 
   describe "clean_output/2" do

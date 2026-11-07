@@ -107,10 +107,29 @@ screenshot, one OCR call, no input.
 
 ## Cost model
 
-Each poll costs one screenshot + one vision call (≈ 3.5 s with
-`deepseek-v4.1-flash` in `text` mode). A 3-second command finishes in one or
-two polls; a `docker load` of several gigabytes will take many — raise
-`timeout_s` rather than re-issuing the command.
+Polling reads the screen with `look` (`mode: "text"`), so the per-command cost
+is dominated by vision calls, not by the browser:
+
+| Step | Cost |
+|------|------|
+| Ctrl+L + base64 paste | ~0.6 s |
+| first poll (full transcription, doubles as the result) | ~1.7 s |
+| each further poll | ~1.7 s (marker-only after 3 misses: ~1.5 s) |
+
+A command that has finished by the first poll therefore costs **one** `look`
+call and ~3 s end to end. On a benchmark of five commands against a live
+JumpServer tab (2026-11-07) that came to 1 tool call / 4.5 s per command,
+against 4.6 calls / 6.5 s for the hand-rolled `browser` DSL flow, with 5/5 vs
+3/5 correct.
+
+Two robustness details worth knowing before tuning:
+
+- The sentinel is matched with one OCR edit of tolerance
+  (`WTDONE` → `WDONE`, `WTD0NE`, exit code `O` → `0`), because a screenshot
+  taken mid-paint misreads the word. An `:exact` match is trusted as the
+  transcript; a fuzzy match triggers one confirming read on the settled screen.
+- A `docker load` of several gigabytes will take many polls — raise
+  `timeout_s` rather than re-issuing the command.
 
 Use the `look` options instead of re-polling when you only need a fragment:
 

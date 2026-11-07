@@ -50,6 +50,21 @@ defmodule Exhub.MCP.Tools.WebTerm do
   @chunk_size 3_000
   @marker "WTDONE"
 
+  # Vision OCR occasionally drops or swaps a glyph ("WTDONE" -> "WDONE",
+  # "WTD0NE"), so the sentinel is matched with one edit of tolerance: W + up to
+  # four capitals + N + E/F/D. The pattern is anchored to the whole line, so the
+  # echoed command (which also contains `WTDONE %s`) can never match it.
+  @marker_regex ~r/^[ \t]*W[A-Z0-9]{0,4}N[EFD][ \t]+(-?[0-9O]+)[ \t]*$/m
+
+  @first_poll_ms 500
+  @poll_ms 900
+  @marker_only_after 3
+
+  @marker_prompt """
+  Output ONLY the single line that starts with WTDONE (for example `WTDONE 0`), verbatim.
+  If no such line is visible, output exactly NONE. No other text, no code fences.
+  """
+
   def name, do: "webterm"
 
   @impl true
@@ -292,20 +307,53 @@ defmodule Exhub.MCP.Tools.WebTerm do
   end
 
   @doc """
-  Looks for a line that is exactly `WTDONE <exit_code>`.
+  Looks for a line that is `WTDONE <exit_code>` (one OCR edit tolerated).
 
   Returns `{:ok, exit_code, text_before_marker}` or `:pending`.
   """
   @spec extract_result(String.t()) :: {:ok, integer(), String.t()} | :pending
   def extract_result(screen) when is_binary(screen) do
-    case Regex.run(~r/^[ \t]*WTDONE[ \t]+(-?\d+)[ \t]*$/m, screen) do
+    case find_marker(screen) do
+      {:ok, rc, output, _grade} -> {:ok, rc, output}
+      :pending -> :pending
+    end
+  end
+
+  # `:exact` means the sentinel was read verbatim, which only happens on a
+  # settled frame; `:fuzzy` means OCR had to be forgiven a glyph, i.e. the
+  # screenshot was probably taken mid-paint and the transcript is suspect.
+  defp find_marker(screen) do
+    case Regex.run(@marker_regex, screen) do
       [marker, rc] ->
-        {pos, _} = :binary.match(screen, marker)
-        {:ok, String.to_integer(rc), clean_output(binary_part(screen, 0, pos))}
+        with {:ok, code} <- normalize_rc(rc) do
+          {pos, _} = :binary.match(screen, marker)
+          {:ok, code, clean_output(binary_part(screen, 0, pos)), grade(marker)}
+        else
+          :error -> :pending
+        end
 
       _ ->
         :pending
     end
+  end
+
+  defp grade(marker) do
+    if Regex.match?(~r/^[ \t]*WTDONE[ \t]/, marker), do: :exact, else: :fuzzy
+  end
+
+  # OCR happily reads an exit code of 0 as a capital O.
+  defp normalize_rc(raw) do
+    case raw |> String.replace("O", "0") |> String.trim() |> Integer.parse() do
+      {code, ""} -> {:ok, code}
+      _ -> :error
+    end
+  end
+
+  defp strip_marker_lines(text) do
+    text
+    |> String.split("\n")
+    |> Enum.reject(&Regex.match?(@marker_regex, &1))
+    |> Enum.join("\n")
   end
 
   @doc """
@@ -340,48 +388,90 @@ defmodule Exhub.MCP.Tools.WebTerm do
   defp run(command, max_lines, timeout_s) do
     # Start from a clean screen so the marker appears exactly once.
     _ = browser_text("press Control+l")
-    Process.sleep(200)
+    Process.sleep(120)
 
     case paste(wrap_command(command), true, @chunk_size) do
       {:ok, _} ->
-        deadline = System.monotonic_time(:millisecond) + timeout_s * 1000
-        poll(command, deadline, max_lines, timeout_s, 0, nil)
+        deadline = now_ms() + timeout_s * 1000
+        poll(command, deadline, max_lines, timeout_s, 0)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp poll(command, deadline, max_lines, timeout_s, attempts, last_screen) do
-    Process.sleep(if attempts == 0, do: 700, else: 1_200)
+  # Fast path: one full transcription per poll, which doubles as the result, so
+  # a command typically costs a single `look` call. When the sentinel only
+  # matched with OCR tolerance the frame was mid-paint, so the transcript is
+  # re-read once the screen has settled. After @marker_only_after misses the
+  # poll falls back to the marker-only prompt, which cannot be truncated on a
+  # long screen.
+  defp poll(command, deadline, max_lines, timeout_s, attempts) do
+    Process.sleep(if attempts == 0, do: @first_poll_ms, else: @poll_ms)
+    marker_only? = attempts >= @marker_only_after
 
-    case screen_text(max_lines) do
+    case read_screen(marker_only?, max_lines) do
       {:ok, screen} ->
-        case extract_result(screen) do
-          {:ok, rc, output} ->
-            {:ok, format_run(rc, finalize_output(screen, command, output), attempts + 1)}
+        case find_marker(screen) do
+          {:ok, rc, output, :exact} ->
+            {:ok,
+             format_run(rc, finish_output(command, marker_only?, output, max_lines), attempts + 1)}
+
+          {:ok, rc, _output, :fuzzy} ->
+            {:ok, format_run(rc, finish_output(command, true, "", max_lines), attempts + 1)}
 
           :pending ->
-            if System.monotonic_time(:millisecond) >= deadline do
-              {:error,
-               "timed out after #{timeout_s}s waiting for the command to finish.\n" <>
-                 "--- last screen ---\n" <> String.trim(screen)}
+            if now_ms() >= deadline do
+              {:error, timeout_error(timeout_s, marker_only?, screen)}
             else
-              poll(command, deadline, max_lines, timeout_s, attempts + 1, screen)
+              poll(command, deadline, max_lines, timeout_s, attempts + 1)
             end
         end
 
       {:error, reason} ->
-        {:error,
-         "screen read failed after #{attempts + 1} poll(s): #{reason}" <>
-           case last_screen do
-             nil -> ""
-             s -> "\n--- last screen ---\n" <> String.trim(s)
-           end}
+        {:error, "screen read failed after #{attempts + 1} poll(s): #{reason}"}
     end
   end
 
-  defp finalize_output(_screen, command, output), do: clean_output(output, command)
+  defp read_screen(true, _max_lines), do: marker_screen()
+  defp read_screen(false, max_lines), do: screen_text(max_lines)
+
+  # A marker-only read carries no transcript, so it always needs a full read.
+  defp finish_output(command, true, _output, max_lines), do: read_output(command, max_lines)
+  defp finish_output(command, false, output, _max_lines), do: clean_output(output, command)
+
+  defp timeout_error(timeout_s, true, _screen) do
+    "timed out after #{timeout_s}s waiting for the command to finish.\n" <>
+      "--- last screen ---\n" <> String.trim(screen_text_or_blank(40))
+  end
+
+  defp timeout_error(timeout_s, false, screen) do
+    "timed out after #{timeout_s}s waiting for the command to finish.\n" <>
+      "--- last screen ---\n" <> String.trim(screen)
+  end
+
+  # Full transcription of a settled screen: this is the result.
+  defp read_output(command, max_lines) do
+    case screen_text(max_lines) do
+      {:ok, screen} ->
+        case find_marker(screen) do
+          {:ok, _rc, output, _grade} -> clean_output(output, command)
+          :pending -> screen |> strip_marker_lines() |> clean_output(command)
+        end
+
+      {:error, _reason} ->
+        ""
+    end
+  end
+
+  defp screen_text_or_blank(max_lines) do
+    case screen_text(max_lines) do
+      {:ok, screen} -> screen
+      {:error, _reason} -> ""
+    end
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   @doc false
   def format_run(rc, output, attempts) do
@@ -391,6 +481,14 @@ defmodule Exhub.MCP.Tools.WebTerm do
   defp screen_text(max_lines) do
     with {:ok, path} <- screenshot(),
          {:ok, text} <- Look.analyze(path, %{mode: "text", max_lines: max_lines}) do
+      {:ok, text}
+    end
+  end
+
+  # Cheap poll read: only the sentinel line, a handful of output tokens.
+  defp marker_screen do
+    with {:ok, path} <- screenshot(),
+         {:ok, text} <- Look.analyze(path, %{mode: "text", prompt: @marker_prompt}) do
       {:ok, text}
     end
   end
