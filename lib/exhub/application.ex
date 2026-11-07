@@ -94,6 +94,11 @@ defmodule Exhub.Application do
        transport: :streamable_http,
        request_timeout: 600_000,
        session_idle_timeout: 86_400_000 * 365},
+      # MCP WebTerm Server (drive a browser web terminal via the chrome upstream)
+      {Exhub.MCP.WebTermServer,
+       transport: :streamable_http,
+       request_timeout: 600_000,
+       session_idle_timeout: 86_400_000 * 365},
       # MCP Listen Server (audio transcription via Gitee AI / moark.com)
       {Exhub.MCP.ListenServer,
        transport: :streamable_http,

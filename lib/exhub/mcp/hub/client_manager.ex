@@ -940,6 +940,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
       %{name: "video-gen", route: "/video-gen/mcp"},
       %{name: "doc-extract", route: "/doc-extract/mcp"},
       %{name: "look", route: "/look/mcp"},
+      %{name: "webterm", route: "/webterm/mcp"},
       %{name: "todo", route: "/todo/mcp"},
       %{name: "desktop", route: "/desktop/mcp"},
       %{name: "agent", route: "/agent/mcp"},

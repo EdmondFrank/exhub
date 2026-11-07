@@ -33,6 +33,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "video-gen" => Exhub.MCP.VideoGenServer,
     "doc-extract" => Exhub.MCP.DocExtractServer,
     "look" => Exhub.MCP.LookServer,
+    "webterm" => Exhub.MCP.WebTermServer,
     "todo" => Exhub.MCP.TodoServer,
     "desktop" => Exhub.MCP.DesktopServer,
     "agent" => Exhub.MCP.AgentServer,

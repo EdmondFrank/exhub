@@ -592,6 +592,11 @@ defmodule Exhub.Router do
     init_opts: [server: Exhub.MCP.LookServer, request_timeout: 600_000]
   )
 
+  forward("/webterm/mcp",
+    to: Exhub.MCP.LazyPlug,
+    init_opts: [server: Exhub.MCP.WebTermServer, request_timeout: 600_000]
+  )
+
   forward("/listen/mcp",
     to: Exhub.MCP.LazyPlug,
     init_opts: [server: Exhub.MCP.ListenServer, request_timeout: 600_000]
