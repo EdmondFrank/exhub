@@ -21,6 +21,15 @@ defmodule Exhub.MCP.Tools.WebTermTest do
 
       assert Base.decode64!(b64) == payload
     end
+
+    test "decodes the base64 as UTF-8 so non-ASCII commands survive" do
+      js = WebTerm.insert_js(Base.encode64("printf '攻击分析主机 OK'"))
+
+      # `atob` yields a Latin-1 code point per byte; without an explicit UTF-8
+      # decode the terminal receives double-encoded bytes.
+      assert js =~ "new TextDecoder('utf-8')"
+      assert js =~ "u[i]=b.charCodeAt(i)"
+    end
   end
 
   describe "chunk/2" do
@@ -158,6 +167,162 @@ defmodule Exhub.MCP.Tools.WebTermTest do
       assert text =~ "exit_code: 0"
       assert text =~ "polls: 2"
       assert text =~ "--- output ---\nhello"
+    end
+  end
+
+  describe "format_run/4" do
+    test "reports which readback channel produced the output" do
+      assert WebTerm.format_run(0, "hi", 1, "buffer") =~ "source: buffer"
+      assert WebTerm.format_run(0, "hi", 1, "ocr") =~ "source: ocr"
+    end
+  end
+
+  describe "terminal_js/1" do
+    test "is quote-free so the chrome eval DSL cannot mis-parse it" do
+      for opts <- [[], [tail: 6], [from: 3, to: 9]] do
+        refute WebTerm.terminal_js(opts) =~ "\""
+      end
+    end
+
+    test "defaults to a tail read and honours explicit bounds" do
+      assert WebTerm.terminal_js(tail: 6) =~ "Math.max(0,n-6)"
+      assert WebTerm.terminal_js(from: 10, to: 20) =~ "for(var p=10;p<end;p++)"
+      assert WebTerm.terminal_js(from: 10, to: 20) =~ "Math.min(n,20)+1"
+    end
+
+    test "cursor mode reads a window around the cursor row" do
+      js = WebTerm.terminal_js(cursor: true)
+
+      assert js =~ "Math.max(0,cy-8)"
+      assert js =~ "cy+1"
+      assert js =~ "cy=b.baseY+b.cursorY"
+    end
+
+    test "walks the Vue app for the live Terminal instance" do
+      js = WebTerm.terminal_js()
+
+      assert js =~ "__vue_app__"
+      assert js =~ "buffer.active.getLine"
+      assert js =~ "isWrapped"
+    end
+  end
+
+  describe "decode_payload/1" do
+    test "decodes the double-encoded chrome reply" do
+      reply = "✓ eval \"...\"\n" <> Jason.encode!(Jason.encode!(%{"found" => true, "len" => 42}))
+
+      assert {:ok, %{"found" => true, "len" => 42}} = WebTerm.decode_payload(reply)
+    end
+
+    test "accepts a single-encoded reply" do
+      assert {:ok, %{"found" => false}} =
+               WebTerm.decode_payload(Jason.encode!(%{"found" => false}))
+    end
+
+    test "reports extension truncation instead of returning half a payload" do
+      reply =
+        "line\n… cut at 10000 of 62671 characters: --max all reads all of it, or return less"
+
+      assert {:error, message} = WebTerm.decode_payload(reply)
+      assert message =~ "truncated"
+    end
+
+    test "reports an empty reply" do
+      assert {:error, _} = WebTerm.decode_payload("")
+      assert {:error, _} = WebTerm.decode_payload(nil)
+    end
+  end
+
+  describe "marker_index/2" do
+    @nonce "ABC123"
+
+    test "finds the marker and its absolute buffer index" do
+      lines = [
+        [10, "root@h:~# ls", 0],
+        [11, "file.txt", 0],
+        [12, "WTDONEABC123 0", 0],
+        [13, "root@h:~# ", 0]
+      ]
+
+      assert {:ok, 0, 12} = WebTerm.marker_index(lines, @nonce)
+    end
+
+    test "ignores markers left by an earlier run" do
+      lines = [[5, "WTDONEZZZ999 0", 0], [7, "WTDONEABC123 7", 0]]
+
+      assert {:ok, 7, 7} = WebTerm.marker_index(lines, @nonce)
+    end
+
+    test "takes the last marker when several are visible" do
+      lines = [[2, "WTDONEABC123 3", 0], [8, "WTDONEABC123 0", 0]]
+
+      assert {:ok, 0, 8} = WebTerm.marker_index(lines, @nonce)
+    end
+
+    test "never matches the echoed command or a partial line" do
+      lines = [
+        [1, "root@h:~# printf '\\nWTDONEABC123 %s\\n' $?", 0],
+        [2, "WTDONEABC123 0 something", 0],
+        [3, "WARNING 0", 0]
+      ]
+
+      assert :pending = WebTerm.marker_index(lines, @nonce)
+    end
+
+    test "parses negative exit codes" do
+      assert {:ok, -1, 2} = WebTerm.marker_index([[2, "WTDONEABC123 -1", 0]], @nonce)
+    end
+
+    test "is pending while the command is still running" do
+      assert :pending = WebTerm.marker_index([[2, "still running", 0]], @nonce)
+      assert :pending = WebTerm.marker_index([], @nonce)
+    end
+  end
+
+  describe "strip_echo/2" do
+    test "drops the echoed command and keeps the output" do
+      lines = [
+        [1, "root@h:~# seq 1 3; printf '\\nWTDONEABC123 %s\\n' $?", 0],
+        [2, "1", 0],
+        [3, "2", 0],
+        [4, "3", 0]
+      ]
+
+      assert WebTerm.strip_echo(lines, "ABC123") == ["1", "2", "3"]
+    end
+
+    test "finds an echo that xterm wrapped across visual lines" do
+      lines = [
+        [1, "root@h:~# echo aaaa", 0],
+        [2, "bbbb; printf '\\nWTDONEABC123 %s\\n' $?", 1],
+        [3, "aaaabbbb", 0]
+      ]
+
+      assert WebTerm.strip_echo(lines, "ABC123") == ["aaaabbbb"]
+    end
+
+    test "returns everything when the echo scrolled out of the window" do
+      lines = [[1, "1", 0], [2, "2", 0]]
+
+      assert WebTerm.strip_echo(lines, "ABC123") == ["1", "2"]
+    end
+  end
+
+  describe "wrap_command/2" do
+    test "embeds the nonce in the marker and keeps the literal %s in the echo" do
+      assert WebTerm.wrap_command("ls", "ABC123") == "ls; printf '\\nWTDONEABC123 %s\\n' $?"
+    end
+  end
+
+  describe "join_wrapped/1" do
+    test "merges wrapped continuations into one logical line" do
+      lines = [[1, "aaaaaaaaaa", 0], [2, "bbbb", 1], [3, "cccc", 1], [4, "next", 0]]
+
+      assert WebTerm.join_wrapped(lines) == ["aaaaaaaaaabbbbcccc", "next"]
+    end
+
+    test "tolerates empty input" do
+      assert WebTerm.join_wrapped([]) == []
     end
   end
 end

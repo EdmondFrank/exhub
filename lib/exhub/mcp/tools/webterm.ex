@@ -28,11 +28,24 @@ defmodule Exhub.MCP.Tools.WebTerm do
   match the echoed command. (An earlier design used a random nonce; OCR
   mangled it often enough to cause spurious timeouts.)
 
-  ## Reading the screen
+  ## Reading the screen: exact buffer first
 
-  A canvas terminal exposes no DOM text (no `.xterm-rows`, no accessibility
-  tree), so a screenshot + vision OCR is the only readback channel; this tool
-  keeps that cost inside one call by using `look` in `mode: "text"`.
+  The terminal API is reachable from the page. Luna mounts a Vue app whose
+  component tree holds the live `Terminal` instance, and
+  `terminal.buffer.active.getLine(i).translateToString(true)` is the exact,
+  already-parsed screen: characters, `isWrapped` flags and the cursor row.
+  `run` and `read` use that channel whenever it is available —
+
+    * no screenshot and no vision call (a poll costs one ~20 ms `eval`);
+    * byte-exact text, immune to OCR glyph slips;
+    * the echoed command is dropped by content, not by heuristics, and the
+      marker is matched line-anchored on the buffer so `WTDONE <rc>` cannot be
+      confused with the echo;
+    * the buffer type is checked, so a full-screen program (`alternate`) is
+      refused instead of silently captured.
+
+  A screenshot + `look` OCR remains as the fallback for pages where no
+  terminal instance can be found (non-xterm terminals, a different app shell).
   """
 
   alias Anubis.Server.Response
@@ -59,6 +72,14 @@ defmodule Exhub.MCP.Tools.WebTerm do
   @first_poll_ms 500
   @poll_ms 900
   @marker_only_after 3
+
+  # Exact-buffer path. A poll is a metadata-only read of the last few lines, so
+  # it can run far more often (and far cheaper) than a screenshot + OCR.
+  @buffer_poll_ms 120
+  @buffer_chunk_lines 100
+  @fast_output_lines 120
+  @default_max_output_lines 1_000
+  @max_output_lines 5_000
 
   @marker_prompt """
   Output ONLY the single line that starts with WTDONE (for example `WTDONE 0`), verbatim.
@@ -90,12 +111,21 @@ defmodule Exhub.MCP.Tools.WebTerm do
     - `read` — transcribe the current screen without running anything.
 
     **Notes:**
-    - Canvas terminals have no readable DOM, so `run` reads the screen with the
-      `look` vision model (`mode: "text"`). OCR output can contain small
-      glitches; verify anything security-critical with a second read.
-    - `max_lines` (default 40) bounds how much is transcribed per poll.
-    - The echoed command line is stripped on a best-effort basis; if a command
-      wrapped across lines, a fragment of the echo may remain in `output`.
+    - `run` and `read` read the terminal's own buffer (xterm `buffer.active`)
+      through an injected `eval`: exact characters, no screenshot, no vision
+      call. The reply says `source: buffer`; if no terminal instance can be
+      found the tool falls back to screenshot + OCR (`source: ocr`) — that
+      path can contain small OCR glitches, so verify security-critical strings
+      with a second read.
+    - The echoed command is dropped deterministically by line index on the
+      buffer path; on the OCR fallback it stays best-effort.
+    - A full-screen program (less/top/vim) puts the terminal in the alternate
+      buffer; `run` refuses instead of capturing garbage. Pass
+      `allow_alt_screen: true` to override.
+    - `max_output_lines` (default 1000) caps how much output is returned.
+    - `readback` forces a channel: `\"auto\"` (default), `\"buffer\"` (require the
+      exact buffer) or `\"ocr\"` (legacy screenshot path, for A/B checks).
+    - `max_lines` (default 40) bounds OCR transcription and the timeout dump.
     """
   end
 
@@ -133,6 +163,21 @@ defmodule Exhub.MCP.Tools.WebTerm do
       description: "how many terminal lines to transcribe per read (default 40)"
     )
 
+    field(:max_output_lines, :integer,
+      description:
+        "action \"run\": cap on output lines returned from the terminal buffer (default 1000, max 5000)"
+    )
+
+    field(:allow_alt_screen, :boolean,
+      description:
+        "action \"run\": allow running inside a full-screen program (alternate buffer); default false"
+    )
+
+    field(:readback, :string,
+      description:
+        "action \"run\": \"auto\" (default: exact buffer, OCR fallback) | \"buffer\" (require the buffer) | \"ocr\" (force the legacy screenshot path)"
+    )
+
     field(:chunk_size, :integer,
       description: "action \"paste\": characters per insertText call (default 3000)"
     )
@@ -167,7 +212,11 @@ defmodule Exhub.MCP.Tools.WebTerm do
       command when is_binary(command) and command != "" ->
         max_lines = Map.get(params, :max_lines) || @default_max_lines
         timeout_s = clamp_timeout(Map.get(params, :timeout_s) || @default_timeout_s)
-        run(command, max_lines, timeout_s)
+        max_out = clamp_output_lines(Map.get(params, :max_output_lines))
+        alt? = Map.get(params, :allow_alt_screen, false) == true
+        readback = Map.get(params, :readback) || "auto"
+
+        run(command, max_lines, timeout_s, max_out, alt?, readback)
 
       _ ->
         {:error, "action \"run\" requires `command`"}
@@ -182,7 +231,12 @@ defmodule Exhub.MCP.Tools.WebTerm do
   end
 
   defp dispatch(%{action: "read"} = params) do
-    screen_text(Map.get(params, :max_lines) || @default_max_lines)
+    max_lines = Map.get(params, :max_lines) || @default_max_lines
+
+    case buffer_tail(max_lines) do
+      {:ok, text} when text != "" -> {:ok, text}
+      _ -> screen_text(max_lines)
+    end
   end
 
   defp dispatch(%{action: action}), do: {:error, "unknown action: #{inspect(action)}"}
@@ -192,9 +246,11 @@ defmodule Exhub.MCP.Tools.WebTerm do
 
   @doc false
   def insert_js(b64) do
-    "(function(){var t;try{t=atob('" <>
+    "(function(){var t;try{var b=atob('" <>
       b64 <>
-      "');}catch(e){return 'b64-error';}" <>
+      "');var u=new Uint8Array(b.length);" <>
+      "for(var i=0;i<b.length;i++){u[i]=b.charCodeAt(i);}" <>
+      "t=new TextDecoder('utf-8').decode(u);}catch(e){return 'b64-error';}" <>
       "var e=document.querySelector('.xterm-helper-textarea')||document.querySelector('textarea')||document.activeElement;" <>
       "if(!e){return 'no-input';}e.focus();var ok=false;" <>
       "try{ok=document.execCommand('insertText',false,t);}catch(err){ok=false;}" <>
@@ -284,13 +340,221 @@ defmodule Exhub.MCP.Tools.WebTerm do
         "eval \"() => { const e = document.querySelector('.xterm-helper-textarea'); if (!e) return 'no-xterm'; e.focus(); return 'ok'; }\""
 
       case browser_text(focus) do
-        {:ok, reply} -> {:ok, "attached to tab #{id} (focus: #{eval_result(reply)})"}
-        {:error, reason} -> {:error, reason}
+        {:ok, reply} ->
+          {:ok, "attached to tab #{id} (focus: #{eval_result(reply)}, #{buffer_label()})"}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:error, reason} -> {:error, reason}
       _ -> {:error, "no tab matching #{inspect(tab)}"}
     end
+  end
+
+  # --- Exact buffer read (the page's xterm instance) ---
+
+  @doc """
+  Builds the JS probe that finds the live xterm `Terminal` and returns part of
+  its buffer.
+
+  Options:
+
+    * `:tail` — return the last N lines (default 4)
+    * `:cursor` — return a small window around the cursor row (default ±8); the
+      buffer may hold many blank lines below the prompt, so this is what polling
+      uses to see a fresh marker
+    * `:from` / `:to` — return an absolute line range instead
+
+  Every line is `[index, text, is_wrapped]`. The string contains no double
+  quote, so it can be embedded in the chrome `eval "<js>"` DSL (it is also
+  base64-wrapped by `eval_js/1`).
+  """
+  @spec terminal_js(keyword()) :: String.t()
+  def terminal_js(opts \\ []) do
+    {from, to} =
+      case {Keyword.get(opts, :from), Keyword.get(opts, :to)} do
+        {nil, nil} ->
+          if Keyword.get(opts, :cursor) do
+            span = Keyword.get(opts, :span, 8)
+            {"Math.max(0,cy-" <> Integer.to_string(span) <> ")", "cy+1"}
+          else
+            {"Math.max(0,n-" <> Integer.to_string(Keyword.get(opts, :tail, 4)) <> ")", "n"}
+          end
+
+        {from, to} ->
+          {Integer.to_string(from), "Math.min(n," <> Integer.to_string(to) <> ")"}
+      end
+
+    """
+    (function(){
+      function isT(o){try{return !!o&&typeof o==='object'&&typeof o.cols==='number'&&typeof o.rows==='number'&&o.buffer&&o.buffer.active&&typeof o.buffer.active.getLine==='function';}catch(e){return false;}}
+      function vis(t){try{var e=t.element;if(!e||!e.isConnected)return 0;var r=e.getBoundingClientRect();return (r.width>4&&r.height>4)?Math.round(r.width*r.height):0;}catch(e){return 0;}}
+      var seen=new Set(),terms=[];
+      function visit(o,d){
+        if(!o||d>12||seen.size>200000)return;
+        var ty=typeof o;
+        if(ty!=='object'&&ty!=='function')return;
+        if(seen.has(o))return;seen.add(o);
+        try{if(typeof o.nodeType==='number')return;}catch(e){return;}
+        if(isT(o)){terms.push(o);return;}
+        var k;try{k=Object.keys(o);}catch(e){return;}
+        for(var i=0;i<k.length;i++){try{visit(o[k[i]],d+1);}catch(e){}}
+      }
+      var roots=[document.querySelector('#__nuxt'),document.querySelector('#app'),document.querySelector('#root')];
+      for(var j=0;j<roots.length;j++){var a=roots[j]&&roots[j].__vue_app__;if(a)visit(a,0);}
+      if(!terms.length){
+        var all=document.querySelectorAll('*');
+        for(var q=0;q<all.length&&q<4000;q++){var c=all[q].__vueParentComponent;if(c)visit(c,0);}
+      }
+      if(!terms.length)return JSON.stringify({found:false});
+      var t=terms[0];
+      for(var z=1;z<terms.length;z++){if(vis(terms[z])>vis(t))t=terms[z];}
+      var b=t.buffer.active,n=b.length,cy=b.baseY+b.cursorY;
+      var lines=[];
+      var end=Math.min(n,#{to}+1);
+      for(var p=#{from};p<end;p++){var l=b.getLine(p);lines.push([p,l?l.translateToString(true):'',l&&l.isWrapped?1:0]);}
+      var cl=b.getLine(cy);
+      return JSON.stringify({found:true,type:b.type,len:n,cols:t.cols,rows:t.rows,cursor:cy,echo:cl?cl.translateToString(true):'',lines:lines});
+    })()
+    """
+    |> String.trim()
+  end
+
+  @doc """
+  Runs JS in the attached tab and decodes the JSON object it returns.
+
+  `--max all` lifts the chrome DSL's 10 000-character reply cap: a buffer
+  chunk of 100 lines can be wider than that on a 250-column terminal.
+  """
+  @spec eval_js(String.t()) :: {:ok, map()} | {:error, term()}
+  def eval_js(js) when is_binary(js) do
+    command = "eval --max all \"eval(atob('" <> Base.encode64(js) <> "'))\""
+
+    with {:ok, reply} <- browser_text(command) do
+      decode_payload(reply)
+    end
+  end
+
+  @doc """
+  Decodes the chrome `eval` reply.
+
+  The DSL echoes the command and prints `JSON.stringify(result)` on the last
+  line, so the payload is double-encoded: JSON string, then the actual object.
+  """
+  @spec decode_payload(String.t()) :: {:ok, map()} | {:error, String.t()}
+  def decode_payload(reply) when is_binary(reply) do
+    line =
+      reply
+      |> String.split("\n")
+      |> Enum.reject(&(String.trim(&1) == ""))
+      |> List.last()
+
+    cond do
+      is_nil(line) ->
+        {:error, "empty eval reply"}
+
+      String.starts_with?(String.trim(line), "…") and String.contains?(line, "cut at ") ->
+        {:error,
+         "eval reply was truncated by the browser extension: " <> String.slice(line, 0, 120)}
+
+      true ->
+        decode_json_line(line)
+    end
+  end
+
+  def decode_payload(_), do: {:error, "empty eval reply"}
+
+  defp decode_json_line(line) do
+    case Jason.decode(line) do
+      {:ok, inner} when is_binary(inner) ->
+        case Jason.decode(inner) do
+          {:ok, map} when is_map(map) -> {:ok, map}
+          _ -> {:error, "eval payload is not a JSON object: " <> String.slice(inner, 0, 120)}
+        end
+
+      {:ok, map} when is_map(map) ->
+        {:ok, map}
+
+      _ ->
+        {:error, "eval reply is not JSON: " <> String.slice(line, 0, 120)}
+    end
+  end
+
+  @doc """
+  Finds the last `WTDONE<nonce> <exit_code>` line in `lines`.
+
+  `lines` is what `terminal_js/1` returns (`[index, text, is_wrapped]`). The
+  per-call nonce means an older command's marker left in the scrollback can
+  never be mistaken for this one, and the echoed command — which contains the
+  literal `%s` rather than a number — can never match.
+  """
+  @spec marker_index([[integer() | String.t()]], String.t()) ::
+          {:ok, integer(), integer()} | :pending
+  def marker_index(lines, nonce) when is_list(lines) and is_binary(nonce) do
+    regex = marker_regex(nonce)
+
+    lines
+    |> Enum.filter(fn
+      [_idx, text, _wrapped] when is_binary(text) -> Regex.match?(regex, text)
+      _ -> false
+    end)
+    |> List.last()
+    |> case do
+      nil ->
+        :pending
+
+      [idx, text, _wrapped] ->
+        case Regex.run(regex, text) do
+          [_, rc] -> {:ok, String.to_integer(rc), idx}
+          _ -> :pending
+        end
+    end
+  end
+
+  def marker_index(_lines, _nonce), do: :pending
+
+  @doc """
+  Drops the echoed command — and anything before it — from a block of lines.
+
+  The echo is the logical line containing the literal `WTDONE<nonce> %s`, which
+  also finds it when xterm wrapped it across several visual lines. This is
+  deterministic, unlike the OCR path's heuristic.
+  """
+  @spec strip_echo([[integer() | String.t()]], String.t()) :: [String.t()]
+  def strip_echo(lines, nonce) when is_list(lines) and is_binary(nonce) do
+    logical = join_wrapped(lines)
+
+    case echo_index(logical, nonce) do
+      nil -> logical
+      idx -> Enum.drop(logical, idx + 1)
+    end
+  end
+
+  # The echo is the only line carrying the literal `WTDONE<nonce> %s`; finding
+  # it also tells us the output was not truncated by the read window.
+  defp echo_index(logical, nonce) do
+    needle = @marker <> nonce <> " %s"
+    Enum.find_index(logical, &String.contains?(&1, needle))
+  end
+
+  defp marker_regex(nonce), do: ~r/^[ \t]*WTDONE#{nonce}[ \t]+(-?[0-9]+)[ \t]*$/
+
+  @doc """
+  Joins xterm's visual lines back into logical lines.
+
+  xterm wraps a long logical line into several buffer lines, marking the
+  continuations with `isWrapped`.
+  """
+  @spec join_wrapped([[integer() | String.t()]]) :: [String.t()]
+  def join_wrapped(lines) when is_list(lines) do
+    lines
+    |> Enum.reduce([], fn
+      [_idx, text, 1], [prev | rest] -> [prev <> text | rest]
+      [_idx, text, _wrapped], acc when is_binary(text) -> [text | acc]
+      _other, acc -> acc
+    end)
+    |> Enum.reverse()
   end
 
   # --- Command execution with a line-anchored marker ---
@@ -299,11 +563,15 @@ defmodule Exhub.MCP.Tools.WebTerm do
   Wraps a command so its exit status lands on its own line.
 
   The literal `%s` stays in the echoed command, while the produced line is
-  `WTDONE <rc>` — which is what makes `extract_result/1` echo-proof.
+  `WTDONE<nonce> <rc>` — which is what makes `extract_result/1` echo-proof, and
+  the nonce what makes each invocation's marker unique in the scrollback.
   """
   @spec wrap_command(String.t()) :: String.t()
-  def wrap_command(command) do
-    String.trim_trailing(command) <> "; printf '\\n" <> @marker <> " %s\\n' $?"
+  def wrap_command(command), do: wrap_command(command, "")
+
+  @spec wrap_command(String.t(), String.t()) :: String.t()
+  def wrap_command(command, nonce) do
+    String.trim_trailing(command) <> "; printf '\\n" <> @marker <> nonce <> " %s\\n' $?"
   end
 
   @doc """
@@ -385,7 +653,38 @@ defmodule Exhub.MCP.Tools.WebTerm do
     |> Enum.join("\n")
   end
 
-  defp run(command, max_lines, timeout_s) do
+  defp run(command, max_lines, timeout_s, max_out, alt?, readback) do
+    if readback == "ocr" do
+      run_ocr(command, max_lines, timeout_s)
+    else
+      run_auto(command, max_lines, timeout_s, max_out, alt?, readback)
+    end
+  end
+
+  defp run_auto(command, max_lines, timeout_s, max_out, alt?, readback) do
+    case buffer_state() do
+      {:ok, %{"found" => true, "type" => "alternate"}} when not alt? ->
+        {:error,
+         "the terminal is in the alternate screen (a full-screen program such as " <>
+           "less/vim/top is open). Exit it first, or pass allow_alt_screen: true."}
+
+      {:ok, %{"found" => true} = state} ->
+        run_buffer(command, state, max_lines, max_out, timeout_s, alt?)
+
+      {:ok, _} when readback == "buffer" ->
+        {:error, "no xterm terminal instance found on the attached tab (readback: buffer)"}
+
+      {:error, reason} when readback == "buffer" ->
+        {:error, "terminal buffer unavailable: #{reason}"}
+
+      _ ->
+        # No terminal instance reachable (non-xterm UI, app shell changed): keep
+        # the screenshot + OCR path, which is slower and lossier.
+        run_ocr(command, max_lines, timeout_s)
+    end
+  end
+
+  defp run_ocr(command, max_lines, timeout_s) do
     # Start from a clean screen so the marker appears exactly once.
     _ = browser_text("press Control+l")
     Process.sleep(120)
@@ -398,6 +697,187 @@ defmodule Exhub.MCP.Tools.WebTerm do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp run_buffer(command, state, max_lines, max_out, timeout_s, alt?) do
+    nonce = nonce()
+    echo_idx = state["cursor"]
+
+    case paste(wrap_command(command, nonce), true, @chunk_size) do
+      {:ok, _} ->
+        deadline = now_ms() + timeout_s * 1000
+        poll_buffer(nonce, echo_idx, deadline, max_lines, max_out, timeout_s, alt?, 0)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Each poll is a metadata-only read (len/type/cursor + the last few lines), so
+  # it costs ~20 ms and no vision call.
+  defp poll_buffer(nonce, echo_idx, deadline, max_lines, max_out, timeout_s, alt?, attempts) do
+    Process.sleep(@buffer_poll_ms)
+
+    case buffer_state() do
+      {:ok, %{"found" => true, "type" => "alternate"}} when not alt? ->
+        {:error,
+         "the command switched to the alternate screen; refusing to capture it " <>
+           "(pass allow_alt_screen: true if that is intended)"}
+
+      {:ok, %{"found" => true} = state} ->
+        case marker_index(state["lines"], nonce) do
+          {:ok, rc, marker_idx} ->
+            output = fetch_output(nonce, marker_idx, echo_idx, max_out)
+            {:ok, format_run(rc, output, attempts + 1, "buffer")}
+
+          :pending ->
+            if now_ms() >= deadline do
+              {:error, timeout_error_buffer(timeout_s, max_lines, alt?)}
+            else
+              poll_buffer(
+                nonce,
+                echo_idx,
+                deadline,
+                max_lines,
+                max_out,
+                timeout_s,
+                alt?,
+                attempts + 1
+              )
+            end
+        end
+
+      {:ok, _} ->
+        {:error,
+         "lost the terminal buffer while waiting for the command to finish " <>
+           "(the page may have navigated or the terminal was closed)"}
+
+      {:error, reason} ->
+        {:error, "buffer read failed: #{reason}"}
+    end
+  end
+
+  # Reads a window ending at the marker and drops everything up to and
+  # including the echoed command line. The echo is found by content (it is the
+  # only line carrying the literal `WTDONE<nonce> %s`), so buffer indices that
+  # shifted because xterm trimmed its scrollback do not matter.
+  defp fetch_output(nonce, marker_idx, echo_idx, max_out) do
+    # The fast path starts at the pre-command cursor row, so a normal command
+    # costs one small read. The wide window is only needed when the echo is not
+    # there (the scrollback trimmed, or the command scrolled the screen).
+    from = max(0, min(echo_idx, marker_idx - @fast_output_lines))
+    wide = max(0, marker_idx - max_out - 8)
+
+    case output_window(nonce, from, marker_idx) do
+      {:ok, text} ->
+        text
+
+      {:missing, _} when from > wide ->
+        case output_window(nonce, wide, marker_idx) do
+          {:ok, text} -> text
+          {:missing, logical} -> truncated_output(logical, max_out)
+        end
+
+      {:missing, logical} ->
+        truncated_output(logical, max_out)
+    end
+  end
+
+  defp output_window(nonce, from, marker_idx) do
+    case read_lines(from, marker_idx - 1) do
+      {:ok, lines} ->
+        logical = join_wrapped(lines)
+
+        case echo_index(logical, nonce) do
+          nil -> {:missing, logical}
+          idx -> {:ok, logical |> Enum.drop(idx + 1) |> Enum.join("\n") |> trim_blank()}
+        end
+
+      {:error, _} ->
+        {:ok, ""}
+    end
+  end
+
+  defp truncated_output(logical, max_out) do
+    "…(output truncated to the last #{max_out} lines)\n" <>
+      (logical |> Enum.join("\n") |> trim_blank())
+  end
+
+  # A short, unambiguous tag so concurrent/older runs in the scrollback cannot
+  # be confused with this one. Exact buffer text means no OCR tolerance is
+  # needed, so the alphabet can exclude look-alike glyphs anyway.
+  defp nonce do
+    alphabet = ~c"ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+    for _ <- 1..6, into: "" do
+      <<Enum.random(alphabet)>>
+    end
+  end
+
+  defp read_lines(from, to) when from <= to do
+    from..to
+    |> Enum.chunk_every(@buffer_chunk_lines)
+    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
+      case eval_js(terminal_js(from: List.first(chunk), to: List.last(chunk))) do
+        {:ok, %{"found" => true, "lines" => lines}} -> {:cont, {:ok, acc ++ lines}}
+        {:ok, _} -> {:halt, {:error, :no_terminal}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp read_lines(_from, _to), do: {:ok, []}
+
+  defp buffer_state do
+    case eval_js(terminal_js(cursor: true)) do
+      {:ok, %{"found" => true} = state} -> {:ok, state}
+      {:ok, _} -> {:ok, %{"found" => false}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp buffer_tail(n) do
+    with {:ok, %{"found" => true, "len" => len}} <- buffer_state(),
+         {:ok, lines} <- read_lines(max(0, len - n), len - 1) do
+      {:ok, render(lines)}
+    else
+      _ -> {:error, :no_terminal}
+    end
+  end
+
+  defp buffer_label do
+    case buffer_state() do
+      {:ok, %{"found" => true, "type" => type, "cols" => cols, "rows" => rows}} ->
+        "buffer: exact #{cols}x#{rows} (#{type})"
+
+      _ ->
+        "buffer: unavailable, OCR fallback"
+    end
+  end
+
+  defp timeout_error_buffer(timeout_s, max_lines, alt?) do
+    screen =
+      case buffer_tail(max_lines) do
+        {:ok, text} -> text
+        _ -> ""
+      end
+
+    suffix = if alt?, do: "\n(the terminal is in the alternate screen)", else: ""
+
+    "timed out after #{timeout_s}s waiting for the command to finish (buffer read)." <>
+      suffix <> "\n--- last screen ---\n" <> screen
+  end
+
+  defp render(lines), do: lines |> join_wrapped() |> Enum.join("\n") |> trim_blank()
+
+  defp trim_blank(text) do
+    text
+    |> String.split("\n")
+    |> Enum.drop_while(&(String.trim(&1) == ""))
+    |> Enum.reverse()
+    |> Enum.drop_while(&(String.trim(&1) == ""))
+    |> Enum.reverse()
+    |> Enum.join("\n")
   end
 
   # Fast path: one full transcription per poll, which doubles as the result, so
@@ -474,8 +954,12 @@ defmodule Exhub.MCP.Tools.WebTerm do
   defp now_ms, do: System.monotonic_time(:millisecond)
 
   @doc false
-  def format_run(rc, output, attempts) do
-    "exit_code: #{rc}\npolls: #{attempts}\n--- output ---\n" <> String.trim_trailing(output)
+  def format_run(rc, output, attempts), do: format_run(rc, output, attempts, "ocr")
+
+  @doc false
+  def format_run(rc, output, attempts, source) do
+    "exit_code: #{rc}\npolls: #{attempts}\nsource: #{source}\n--- output ---\n" <>
+      String.trim_trailing(output)
   end
 
   defp screen_text(max_lines) do
@@ -590,4 +1074,7 @@ defmodule Exhub.MCP.Tools.WebTerm do
 
   defp clamp_timeout(s) when is_integer(s), do: s |> max(5) |> min(@max_timeout_s)
   defp clamp_timeout(_), do: @default_timeout_s
+
+  defp clamp_output_lines(n) when is_integer(n), do: n |> max(1) |> min(@max_output_lines)
+  defp clamp_output_lines(_), do: @default_max_output_lines
 end
