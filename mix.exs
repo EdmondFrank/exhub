@@ -28,7 +28,8 @@ defmodule Exhub.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:mdex, "~> 0.2"},
+      {:mdex, "~> 0.14.6"},
+      {:mdex_mermex, "~> 0.1.2"},
       {:jason, "~> 1.4"},
       {:plug_cowboy, "~> 2.7"},
       {:plug_socket, "~> 0.1"},
