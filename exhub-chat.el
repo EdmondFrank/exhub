@@ -221,8 +221,22 @@ If nil, it uses the current buffer."
         (when code
           (push code exhub-chat-drafts))))))
 
+(defun exhub-chat--commit-buffer-p (buffer)
+  "Return non-nil when BUFFER (a buffer or buffer name) is a git commit buffer."
+  (let ((buf (get-buffer buffer)))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (or (derived-mode-p 'git-commit-mode)
+            (and (buffer-file-name)
+                 (string-equal (file-name-nondirectory (buffer-file-name))
+                               "COMMIT_EDITMSG")))))))
+
 (defun exhub-chat-return-text (serial-number content buffer begin end)
   (when (and begin end)
+    ;; The replaced region of a commit buffer ends at git's comment scaffold, so
+    ;; the message has to bring its own blank separator line.
+    (when (exhub-chat--commit-buffer-p buffer)
+      (setq content (concat (string-trim content) "\n\n")))
     (if (equal serial-number 1)
         (progn
           (setq exhub-chat-drafts (list))
@@ -403,19 +417,47 @@ Returns the command output as a string, or nil on error."
                  args dir (string-trim (buffer-string)))
         nil))))
 
+(defun exhub-chat--git-toplevel (&optional dir)
+  "Return the git toplevel for DIR, defaulting to `default-directory'.
+Works from COMMIT_EDITMSG buffers (whose `buffer-file-name' lives inside
+`.git/') and from non-file buffers such as `magit-status-mode'."
+  (let* ((dir (file-name-as-directory (or dir default-directory)))
+         (toplevel (or (and (fboundp 'magit-toplevel)
+                            (ignore-errors (magit-toplevel dir)))
+                       (locate-dominating-file dir ".git")
+                       dir)))
+    (file-truename toplevel)))
+
+(defun exhub-chat--commit-message-region ()
+  "Return (BEGIN . END) of the message part of a commit buffer.
+Everything before git's comment scaffold is the message; the scaffold itself
+is left untouched.  Outside a commit buffer the region is empty, so the reply
+is inserted at point and no existing text is removed."
+  (if (not (exhub-chat--commit-buffer-p (current-buffer)))
+      (cons (point) (point))
+    (save-excursion
+      (goto-char (point-min))
+      (let ((begin (point-min))
+            (end (point-max)))
+        (when (re-search-forward "^#" nil t)
+          (setq end (line-beginning-position)))
+        (cons begin end)))))
+
 (defun exhub-chat-generate-commit-message ()
+  "Generate a commit message for the staged changes of the current repository."
   (interactive)
-  (let* ((dir (file-truename (file-name-directory buffer-file-name)))
+  (let* ((dir (exhub-chat--git-toplevel))
          (buffer-name (buffer-name))
-         (region-begin (point))
-         (region-end (point)))
+         (region (exhub-chat--commit-message-region))
+         (region-begin (car region))
+         (region-end (cdr region)))
     (if (exhub-chat--tramp-p dir)
         ;; For TRAMP paths, fetch git data on the Emacs side (where SSH
         ;; credentials and agent forwarding already work) and send the
         ;; pre-fetched content to the server.
         (let ((diff (exhub-chat--tramp-git-output dir "diff --staged"))
               (commits (exhub-chat--tramp-git-output dir "log --pretty=format:%s -5")))
-          (if diff
+          (if (and diff (not (string-empty-p (string-trim diff))))
               (exhub-call "exhub-chat"
                           "generate-git-commit-message-with-content"
                           diff
@@ -423,7 +465,7 @@ Returns the command output as a string, or nil on error."
                           buffer-name
                           region-begin
                           region-end)
-            (message "[Exhub-Chat] Failed to get staged diff from TRAMP path: %s" dir)))
+            (message "[Exhub-Chat] No staged changes found in %s" dir)))
       ;; Local paths: let the Elixir server run git directly
       (exhub-call "exhub-chat"
                   "generate-git-commit-message"

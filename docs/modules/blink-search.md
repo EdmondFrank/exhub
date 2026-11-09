@@ -37,7 +37,7 @@ Window layout, input monitoring, rendering, keybindings, and data sync (buffer l
 | IMenu            | Pushed from Emacs                     | Jumps to imenu positions in the start buffer                                   |
 | Elisp Symbol     | Idle-synced obarray + local bindings  | Commands run, functions/variables described, faces customized                  |
 | Google Suggest   | Google complete API                   | Honors `Application.get_env(:exhub, :proxy)`; detects URLs                     |
-| Key Value        | `~/.emacs.d/blink-search-kv.txt`      | `set key value` / `del key` commands; plain key copies its value               |
+| Key Value        | `~/.emacs.d/blink-search-kv.db`       | `set key value` / `del key`; values AES-256-GCM encrypted (`SECRET_VAULT_PASSWORD`); plain key copies its value |
 | Grep File        | `rg --json`                           | Content search under project root (`!` prefix)                                 |
 | Grep PDF         | `rga --json`                          | Multi-directory PDF content search (`;` prefix); `$D0/$D1` path compression    |
 | Current Buffer   | `rg --json` on temp copy              | Line/column navigation in the start buffer (`#` prefix)                        |
@@ -46,6 +46,15 @@ Window layout, input monitoring, rendering, keybindings, and data sync (buffer l
 | OTP              | `cotp list --json`                    | Pass from SecretVault (`cotp_pass`); `?` prefix; action copies the code to the clipboard |
 
 Default backends (no explicit list): History, Buffer List, Common Directory, Find File, Recent File, IMenu, Elisp Symbol, Google Suggest, Key Value.
+
+### Key Value encryption
+
+Values in the Key Value store are AES-256-GCM encrypted at rest with
+`SECRET_VAULT_PASSWORD` (the same master password as the Emacs password vault).
+Legacy plaintext rows are migrated in place the first time the store is opened
+with a configured password. See
+[Blink Search Key-Value Encryption Migration](../blink-search-kv-encryption-migration.md)
+for the procedure, verification queries, rollback, and password-rotation notes.
 
 ## Usage
 

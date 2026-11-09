@@ -1,23 +1,45 @@
 defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
-  use ExUnit.Case, async: true
+  # Values are encrypted with the master password from global application
+  # config, which these tests set — so they must not run concurrently with
+  # other config-mutating suites.
+  use ExUnit.Case, async: false
 
   alias Exhub.BlinkSearch.Backends.KeyValueStore
+  alias Exhub.Crypto.AesGcm
 
   # Exhub.send_message/1 dispatches over Exhub.Registry; under --no-start we
   # start a bare registry so dispatch is a no-op instead of raising.
   setup do
     start_supervised!({Registry, keys: :unique, name: Exhub.Registry})
+
+    previous = Application.get_env(:exhub, :secret_vault)
+    Application.put_env(:exhub, :secret_vault, default: [password: "test-master-password"])
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:exhub, :secret_vault)
+        config -> Application.put_env(:exhub, :secret_vault, config)
+      end
+    end)
+
     :ok
   end
 
   # ── Helpers ──────────────────────────────────────────────────────────
 
   defp tmp_db_path do
-    Path.join(System.tmp_dir!(), "blink_search_kv_test_#{System.unique_integer([:positive])}.db")
+    Path.join(
+      System.tmp_dir!(),
+      "blink_search_kv_test_#{System.unique_integer([:positive])}_#{System.system_time(:nanosecond)}.db"
+    )
   end
 
   defp default_state do
-    %{db_path: tmp_db_path(), table: "test_kv"}
+    path = tmp_db_path()
+    # Leave no artifacts behind (and never reuse a stale database from an
+    # earlier run — unique_integer/1 restarts with the VM).
+    on_exit(fn -> File.rm(path) end)
+    %{db_path: path, table: "test_kv"}
   end
 
   defp create_table(conn, table) do
@@ -56,9 +78,33 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
     count
   end
 
+  defp meta_version(conn, table) do
+    {:ok, stmt} =
+      Exqlite.Sqlite3.prepare(
+        conn,
+        "SELECT encryption_version FROM blink_search_kv_meta WHERE table_name = ?"
+      )
+
+    :ok = Exqlite.Sqlite3.bind(stmt, [table])
+
+    version =
+      case Exqlite.Sqlite3.step(conn, stmt) do
+        {:row, [value]} -> value
+        _ -> nil
+      end
+
+    :ok = Exqlite.Sqlite3.release(conn, stmt)
+    version
+  end
+
   defp open_db(path) do
     {:ok, conn} = Exqlite.Sqlite3.open(path)
     conn
+  end
+
+  defp decrypt_stored("enc:v1:" <> encoded) do
+    {:ok, plaintext} = AesGcm.decrypt(encoded)
+    plaintext
   end
 
   # ── update/2 ─────────────────────────────────────────────────────────
@@ -211,10 +257,10 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
       assert :ok = KeyValueStore.do_action("set mykey myvalue", state)
 
       conn = open_db(state.db_path)
-      value = read_value(conn, state.table, "mykey")
+      # The secret is encrypted at rest: only ciphertext hits the database.
+      assert String.starts_with?(read_value(conn, state.table, "mykey"), "enc:v1:")
+      assert decrypt_stored(read_value(conn, state.table, "mykey")) == "myvalue"
       :ok = Exqlite.Sqlite3.close(conn)
-
-      assert value == "myvalue"
     end
 
     test "updates an existing key-value pair" do
@@ -227,10 +273,12 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
       assert :ok = KeyValueStore.do_action("set mykey newvalue", state)
 
       conn = open_db(state.db_path)
-      value = read_value(conn, state.table, "mykey")
-      :ok = Exqlite.Sqlite3.close(conn)
+      stored = read_value(conn, state.table, "mykey")
 
-      assert value == "newvalue"
+      assert String.starts_with?(stored, "enc:v1:")
+      assert decrypt_stored(stored) == "newvalue"
+
+      :ok = Exqlite.Sqlite3.close(conn)
     end
 
     test "handles special characters in key and value" do
@@ -244,7 +292,39 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
       stored = read_value(conn, state.table, key)
       :ok = Exqlite.Sqlite3.close(conn)
 
-      assert stored == value
+      assert decrypt_stored(stored) == value
+    end
+
+    test "stores a new value for an existing plaintext (legacy) key as ciphertext" do
+      state = default_state()
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "legacy", "old-plaintext")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert :ok = KeyValueStore.do_action("set legacy new-secret", state)
+
+      conn = open_db(state.db_path)
+      stored = read_value(conn, state.table, "legacy")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert String.starts_with?(stored, "enc:v1:")
+      refute stored =~ "new-secret"
+      assert decrypt_stored(stored) == "new-secret"
+    end
+
+    test "refuses to store secrets when no master password is configured" do
+      Application.delete_env(:exhub, :secret_vault)
+      state = default_state()
+
+      assert :ok = KeyValueStore.do_action("set mykey myvalue", state)
+
+      conn = open_db(state.db_path)
+      count = key_count(conn, state.table, "mykey")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      # Nothing was written — never fall back to plaintext.
+      assert count == 0
     end
   end
 
@@ -285,6 +365,113 @@ defmodule Exhub.BlinkSearch.Backends.KeyValueStoreTest do
     test "handles non-existent key gracefully" do
       state = default_state()
       assert :ok = KeyValueStore.do_action("nonexistent", state)
+    end
+
+    test "handles ciphertext it cannot decrypt gracefully" do
+      state = default_state()
+
+      # Encrypted with a different master password.
+      {:ok, encoded} = AesGcm.encrypt("some-other-password", "secret")
+
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "foreign", "enc:v1:" <> encoded)
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert :ok = KeyValueStore.do_action("foreign", state)
+    end
+  end
+
+  # ── Plaintext -> encrypted migration ─────────────────────────────────
+
+  describe "encryption migration" do
+    test "encrypts legacy plaintext rows on first open" do
+      state = default_state()
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "legacy", "plain-secret")
+      insert_key(conn, state.table, "other", "second-secret")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      # Any database open triggers the migration (search included).
+      _ = KeyValueStore.search_match("leg", state)
+
+      conn = open_db(state.db_path)
+      legacy = read_value(conn, state.table, "legacy")
+      other = read_value(conn, state.table, "other")
+      version = meta_version(conn, state.table)
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert String.starts_with?(legacy, "enc:v1:")
+      assert String.starts_with?(other, "enc:v1:")
+      refute legacy =~ "plain-secret"
+      refute other =~ "second-secret"
+      assert decrypt_stored(legacy) == "plain-secret"
+      assert decrypt_stored(other) == "second-secret"
+      assert to_string(version) == "1"
+    end
+
+    test "does not re-encrypt already migrated rows" do
+      state = default_state()
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "legacy", "plain-secret")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      _ = KeyValueStore.search_match("", state)
+      _ = KeyValueStore.search_match("", state)
+      _ = KeyValueStore.do_action("legacy", state)
+
+      conn = open_db(state.db_path)
+      stored = read_value(conn, state.table, "legacy")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert String.starts_with?(stored, "enc:v1:")
+      assert decrypt_stored(stored) == "plain-secret"
+    end
+
+    test "leaves plaintext rows alone while no master password is configured" do
+      Application.delete_env(:exhub, :secret_vault)
+      state = default_state()
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "legacy", "plain-secret")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      _ = KeyValueStore.search_match("leg", state)
+
+      conn = open_db(state.db_path)
+      stored = read_value(conn, state.table, "legacy")
+      version = meta_version(conn, state.table)
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert stored == "plain-secret"
+      # No marker: migration is retried once a password is configured.
+      assert version == nil
+
+      # Legacy reads still work without a password.
+      assert :ok = KeyValueStore.do_action("legacy", state)
+    end
+
+    test "migrates rows written before a password was configured once it appears" do
+      Application.delete_env(:exhub, :secret_vault)
+      state = default_state()
+      conn = open_db(state.db_path)
+      create_table(conn, state.table)
+      insert_key(conn, state.table, "legacy", "plain-secret")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      _ = KeyValueStore.search_match("leg", state)
+
+      Application.put_env(:exhub, :secret_vault, default: [password: "test-master-password"])
+      _ = KeyValueStore.search_match("leg", state)
+
+      conn = open_db(state.db_path)
+      stored = read_value(conn, state.table, "legacy")
+      :ok = Exqlite.Sqlite3.close(conn)
+
+      assert String.starts_with?(stored, "enc:v1:")
+      assert decrypt_stored(stored) == "plain-secret"
     end
   end
 end

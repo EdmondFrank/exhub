@@ -130,6 +130,7 @@ The same master password is used for both SecretVault (server-side API key stora
 ### Elixir Backend
 
 - **`Exhub.ResponseHandlers.ExhubVault`** — WebSocket handler for `exhub-vault` encrypt/decrypt operations
+- **`Exhub.Crypto.AesGcm`** — Shared AES-256-GCM primitives (key derivation, encrypt, decrypt); also used by the blink-search key-value store to encrypt values at rest
 - **`Exhub.DefaultResponseHandler`** — Dispatches `exhub-vault` messages to the vault handler
 
 ### Emacs Client
