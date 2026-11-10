@@ -35,6 +35,11 @@ create/rename/delete and start/stop controls.
 
 - The transcript is rendered on the server from SQLite, so a reload or a second
   browser shows the whole conversation.
+- Message text is rendered as Markdown (`Exhub.Sagents.Markdown`, MDEx). Rows
+  carry a pre-rendered `html` field, so the server-rendered first paint and the
+  rows that arrive live over SSE look identical. Raw HTML in a message is never
+  passed through (`unsafe` rendering stays off). Streaming deltas stay plain
+  text and are replaced by the rendered row when it is persisted.
 - An `EventSource` on `GET /agent-hub/c/{id}/events` keeps the page live: new
   rows, tool status changes, streamed deltas, status changes, and pending
   approvals all arrive without polling or page reloads.
@@ -81,7 +86,8 @@ conversation.
   Rows are de-duplicated by `id`, so a reconnect is safe. `alive` means the
   agent process exists; `running` means a turn is executing right now.
 - `event: display_message` — a saved transcript row (`id`, `message_type`,
-  `content_type`, `content`, `status`, `call_id`, …).
+  `content_type`, `content`, `status`, `call_id`, …). `text` rows also carry
+  `html`, the Markdown-rendered body; the client uses it directly.
 - `event: tool_status` — `{call_id, name, status, display_text}` for
   `executing`, `completed`, `failed`, `interrupted`, or `cancelled`.
 - `event: delta` — `{text}` LLM output as it streams.

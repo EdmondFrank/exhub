@@ -83,6 +83,30 @@ defmodule Exhub.Sagents.EventStreamTest do
                }
     end
 
+    test "pre-renders Markdown on text rows" do
+      row = %{
+        id: 1,
+        content_type: "text",
+        message_type: "assistant",
+        content: %{"text" => "**hi**"}
+      }
+
+      assert %{event: "display_message", data: data} =
+               Hub.present_event(:follow, {:display_message, row})
+
+      assert data.html == "<p><strong>hi</strong></p>"
+      assert data.content == %{"text" => "**hi**"}
+    end
+
+    test "leaves non-text rows alone" do
+      row = %{id: 2, content_type: "thinking", content: %{"text" => "**hi**"}}
+
+      assert %{event: "display_message", data: data} =
+               Hub.present_event(:follow, {:display_message, row})
+
+      refute Map.has_key?(data, :html)
+    end
+
     test "drops turn-only events" do
       assert Hub.present_event(:follow, {:complete, "done"}) == nil
       assert Hub.present_event(:follow, {:error, "boom"}) == nil

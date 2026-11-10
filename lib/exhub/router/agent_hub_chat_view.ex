@@ -8,6 +8,8 @@ defmodule Exhub.Router.AgentHubChatView do
   the transcript.
   """
 
+  alias Exhub.Sagents.Markdown
+
   @doc """
   Returns the complete HTML for one conversation.
 
@@ -172,6 +174,49 @@ defmodule Exhub.Router.AgentHubChatView do
           color: #8b949e;
           font-style: italic;
           font-size: 13px;
+        }
+        /* Markdown bodies are real block HTML, so they opt out of the chat
+           bubble's pre-wrap; streaming deltas stay plain text until the
+           persisted row replaces them. */
+        .markdown-body { white-space: normal; }
+        .markdown-body > :first-child { margin-top: 0; }
+        .markdown-body > :last-child { margin-bottom: 0; }
+        .markdown-body p { margin: 0 0 8px; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3,
+        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+          margin: 12px 0 6px;
+          font-size: 15px;
+          line-height: 1.3;
+          color: #f0f6fc;
+        }
+        .markdown-body h1 { font-size: 18px; }
+        .markdown-body h2 { font-size: 16px; }
+        .markdown-body ul, .markdown-body ol { margin: 0 0 8px; padding-left: 22px; }
+        .markdown-body li { margin: 2px 0; }
+        .markdown-body code {
+          background: #161b22;
+          border: 1px solid #30363d;
+          border-radius: 4px;
+          padding: 1px 4px;
+          font-size: 12px;
+        }
+        .markdown-body pre code { background: transparent; border: 0; padding: 0; }
+        .markdown-body blockquote {
+          margin: 8px 0;
+          padding: 0 10px;
+          border-left: 3px solid #30363d;
+          color: #8b949e;
+        }
+        .markdown-body a { color: #58a6ff; }
+        .markdown-body table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+        .markdown-body th, .markdown-body td { border: 1px solid #30363d; padding: 4px 8px; }
+        .markdown-body img { max-width: 100%; }
+        .markdown-body hr { border: 0; border-top: 1px solid #30363d; margin: 12px 0; }
+        .message.user .markdown-body a { color: #cfe4ff; }
+        .message.user .markdown-body code {
+          background: rgba(0, 0, 0, 0.25);
+          border-color: rgba(255, 255, 255, 0.2);
+          color: #fff;
         }
         .tool-call, .tool-result {
           max-width: 76%;
@@ -453,8 +498,13 @@ defmodule Exhub.Router.AgentHubChatView do
 
           var role = row.message_type === 'user' ? 'user' : (row.message_type === 'system' ? 'system' : 'assistant');
           div.className = 'message ' + role;
+          // The hub pre-renders Markdown (`html`); fall back to plain text for
+          // rows saved before Markdown support or for streaming placeholders.
+          var body = row.html != null
+            ? '<div class="markdown-body">' + row.html + '</div>'
+            : escapeHtml(content.text || '');
           div.innerHTML = '<div class="message-avatar">' + (role === 'user' ? 'U' : role === 'system' ? 'S' : 'A') +
-            '</div><div class="message-content">' + escapeHtml(content.text || '') + '</div>';
+            '</div><div class="message-content">' + body + '</div>';
           return div;
         }
 
@@ -865,11 +915,12 @@ defmodule Exhub.Router.AgentHubChatView do
   defp render_message(message) do
     text = (message.content || %{})["text"] || ""
     role = message_role(message.message_type)
+    html = Markdown.to_html(text)
 
     """
     <div class="message #{role}" data-message-id="#{message.id}">
       <div class="message-avatar">#{avatar(role)}</div>
-      <div class="message-content">#{escape(text)}</div>
+      <div class="message-content"><div class="markdown-body">#{html}</div></div>
     </div>
     """
   end

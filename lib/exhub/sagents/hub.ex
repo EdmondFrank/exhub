@@ -16,7 +16,7 @@ defmodule Exhub.Sagents.Hub do
   use GenServer
   require Logger
 
-  alias Exhub.Sagents.{DisplayMessages, Factory, Persistence, Store}
+  alias Exhub.Sagents.{DisplayMessages, Factory, Markdown, Persistence, Store}
 
   @chat_timeout 300_000
   @stream_timeout 120_000
@@ -765,7 +765,7 @@ defmodule Exhub.Sagents.Hub do
   defp snapshot(id) do
     messages =
       case Store.list_messages(id) do
-        {:ok, messages} -> messages
+        {:ok, messages} -> Enum.map(messages, &present_row/1)
         {:error, _reason} -> []
       end
 
@@ -819,7 +819,9 @@ defmodule Exhub.Sagents.Hub do
   def present_event(:turn, _event), do: nil
 
   def present_event(:follow, {:snapshot, data}), do: %{event: "snapshot", data: data}
-  def present_event(:follow, {:display_message, row}), do: %{event: "display_message", data: row}
+
+  def present_event(:follow, {:display_message, row}),
+    do: %{event: "display_message", data: present_row(row)}
 
   def present_event(:follow, {:tool, status, info}),
     do: %{event: "tool_status", data: Map.put(info, :status, status)}
@@ -839,6 +841,17 @@ defmodule Exhub.Sagents.Hub do
 
   def present_event(:follow, :queued), do: %{event: "queued", data: %{}}
   def present_event(:follow, _event), do: nil
+
+  # Rows travel as raw content while the transcript renders Markdown, so the HTML
+  # is pre-rendered here: snapshots and live rows then look identical to the
+  # browser, and the client needs no Markdown parser of its own.
+  defp present_row(%{content_type: "text"} = row) do
+    content = Map.get(row, :content)
+    text = if is_map(content), do: content["text"], else: nil
+    Map.put(row, :html, Markdown.to_html(text))
+  end
+
+  defp present_row(row), do: row
 
   defp delta_text(delta) do
     case Map.get(delta, :content) do
