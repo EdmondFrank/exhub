@@ -113,6 +113,27 @@ defmodule Exhub.BrowserAgent.KuriCli do
     if DomBridge.dom_ref?(ref), do: dom_action(ref, :type, value), else: run(["type", ref, value])
   end
 
+  @doc """
+  Presses a key in the focused element (synthetic key events — the CLI has no
+  `press` command).
+  """
+  @spec press(String.t()) :: result()
+  def press(key) when is_binary(key) do
+    script = """
+    (function () {
+      var el = document.activeElement || document.body;
+      var key = #{Jason.encode!(key)};
+      var event = {key: key, code: key, bubbles: true, cancelable: true};
+      ["keydown", "keypress", "keyup"].forEach(function (type) {
+        el.dispatchEvent(new KeyboardEvent(type, event));
+      });
+      return "pressed " + key;
+    })()
+    """
+
+    eval(script)
+  end
+
   @doc "Selects a value from a dropdown."
   @spec select(String.t(), String.t()) :: result()
   def select(ref, value) do

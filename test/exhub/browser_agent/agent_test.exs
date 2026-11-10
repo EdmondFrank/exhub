@@ -22,7 +22,62 @@ defmodule Exhub.BrowserAgent.AgentTest do
       {:ok, "scrolled"}
     end
 
+    def press(key) do
+      Process.put(:pressed, Process.get(:pressed, []) ++ [key])
+      {:ok, "pressed " <> key}
+    end
+
     def go(_url), do: {:ok, "navigated"}
+  end
+
+  defmodule StaleKuri do
+    @moduledoc false
+    # The SPA re-renders between the snapshot and the click, so the backend's
+    # stale-target guard refuses the first click of each ref.
+    def snap do
+      Process.put(:snap_count, Process.get(:snap_count, 0) + 1)
+      {:ok, ~s(combobox "Where from?" @e2 = San Francisco\nlink "Search" @e5)}
+    end
+
+    def text, do: {:ok, "Search flights"}
+
+    def eval(_expression),
+      do: {:ok, ~s({"url":"https://flights.example","title":"Flights"})}
+
+    def click(ref) do
+      if Process.get({:stale, ref}) do
+        Process.put(:clicked, true)
+        {:ok, "clicked " <> ref}
+      else
+        Process.put({:stale, ref}, true)
+        {:error, "ref #{ref} is no longer on the page; re-observe before acting"}
+      end
+    end
+
+    def fill(_ref, _value), do: {:ok, "filled"}
+    def type(_ref, _value), do: {:ok, "typed"}
+    def select(_ref, _value), do: {:ok, "selected"}
+    def press(_key), do: {:ok, "pressed"}
+    def scroll(_direction), do: {:ok, "scrolled"}
+    def go(_url), do: {:ok, "navigated"}
+  end
+
+  defmodule NewTabKuri do
+    @moduledoc false
+    # Clicking the connect control opens a terminal tab rather than changing
+    # the page, so the loop must switch to the new tab.
+    def snap, do: {:ok, ~s(combobox "Where from?" @e2\nlink "Search" @e5)}
+    def text, do: {:ok, "flights"}
+    def eval(_expression), do: {:ok, ~s({"url":"https://x.example","title":"X"})}
+    def click(_ref), do: {:ok, "clicked"}
+    def fill(_ref, _value), do: {:ok, "filled"}
+    def type(_ref, _value), do: {:ok, "typed"}
+    def select(_ref, _value), do: {:ok, "selected"}
+    def press(_key), do: {:ok, "pressed"}
+    def scroll(_direction), do: {:ok, "scrolled"}
+    def go(_url), do: {:ok, "navigated"}
+    def remember_tabs, do: :ok
+    def follow_new_tab, do: {:ok, "followed new tab 42"}
   end
 
   defmodule DomFallbackKuri do
@@ -270,6 +325,50 @@ defmodule Exhub.BrowserAgent.AgentTest do
       assert typed.operation == "TYPE_TEXT"
       assert typed.ref == "e2"
       assert typed.text == "San Francisco"
+    end
+
+    test "presses a key and records it in the trace" do
+      agent = Agent.new("submit the filter", opts(["PRESS", "DONE"])) |> Agent.run()
+
+      assert agent.status == :done
+      assert [press, _done] = agent.history
+      assert press.operation == "PRESS"
+      assert press.key == "Enter"
+      assert press.ref == nil
+      assert press.label == "Press Enter"
+      assert Process.get(:pressed) == ["Enter"]
+    end
+
+    test "records the decision model in the trace" do
+      agent = Agent.new("find flights", opts(["DONE"])) |> Agent.run()
+
+      assert hd(agent.history).model == Exhub.BrowserAgent.Policy.default_model()
+    end
+
+    test "follows a tab a click opened and records it" do
+      agent =
+        Agent.new("open the terminal", opts(["CLICK", "DONE"], kuri: NewTabKuri)) |> Agent.run()
+
+      assert agent.status == :done
+      assert hd(agent.history).note == "followed new tab 42"
+    end
+
+    test "re-observes and retries when the page re-renders under a ref" do
+      # Keyed on the click succeeding, not on decision count: the retry re-runs
+      # the decision, so a call-count decider would skip the click.
+      decider = fn _state, _questions, _opts ->
+        operation = if Process.get(:clicked), do: "DONE", else: "CLICK"
+        {:ok, %{"answers" => answer(operation)}}
+      end
+
+      agent =
+        Agent.new("find flights", opts([], kuri: StaleKuri, decider: decider)) |> Agent.run()
+
+      assert agent.status == :done
+      assert Enum.map(agent.history, & &1.operation) == ["CLICK", "DONE"]
+      assert hd(agent.history).ref == "e5"
+      # One observation per cycle, plus one extra for the refused click.
+      assert Process.get(:snap_count) == 3
     end
 
     test "takes a fresh snapshot on every cycle" do
@@ -522,6 +621,13 @@ defmodule Exhub.BrowserAgent.AgentTest do
       "operation" => choice("CLICK", operations_map(), 0.9),
       "click_target" => choice("2", %{"2" => 0.9, "1" => 0.1}, 0.9),
       "type_text_target" => choice("1", %{"1" => 0.05}, 0.05)
+    }
+  end
+
+  defp answer("PRESS") do
+    %{
+      "operation" => choice("PRESS", operations_map(), 0.9),
+      "press_key" => choice("Enter", %{"Enter" => 0.9, "Escape" => 0.1}, 0.9)
     }
   end
 

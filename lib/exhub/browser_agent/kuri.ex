@@ -69,6 +69,10 @@ defmodule Exhub.BrowserAgent.Kuri do
   @spec type(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def type(ref, value), do: backend().type(ref, value)
 
+  @doc "Presses a key in the focused element (`Enter`, `Escape`)."
+  @spec press(String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def press(key), do: backend().press(key)
+
   @doc "Selects a value from a dropdown."
   @spec select(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def select(ref, value), do: backend().select(ref, value)

@@ -40,10 +40,21 @@ Each cycle:
    the text helper for the field value first.
 4. Repeat until `DONE`, `BLOCKED`, an error, or the step budget.
 
-Operations: `CLICK`, `TYPE_TEXT`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`,
-`BLOCKED`. `CLICK` targets are clickable roles (`button`, `link`, `menuitem`,
-`tab`, `option`, `checkbox`, `radio`, `switch`, …); `TYPE_TEXT` targets are
-editable roles (`textbox`, `searchbox`, `combobox`, `spinbutton`).
+Operations: `CLICK`, `TYPE_TEXT`, `PRESS`, `SCROLL_UP`, `SCROLL_DOWN`,
+`WAIT`, `DONE`, `BLOCKED`. `CLICK` targets are clickable roles (`button`, `link`,
+`menuitem`, `tab`, `option`, `checkbox`, `radio`, `switch`, …); `TYPE_TEXT`
+targets are editable roles (`textbox`, `searchbox`, `combobox`, `spinbutton`).
+`PRESS` sends `Enter` (submit a search/filter that only applies on Enter) or
+`Escape` (dismiss a dialog, menu, or palette); it is offered only when the page
+has an editable field or the last action typed into one, so it cannot be spammed
+on a page with nothing to submit.
+
+Every candidate label carries its row's text when the element sits in a `row` or
+`listitem` — e.g. `[7] button "(unnamed)" [row: 攻击分析主机 | 10.0.81.9]`.
+Enterprise consoles name a row's cells but not its icon buttons, so the row text
+is the only way two identical buttons stay distinguishable.
+
+The trace records the chosen `model` on every step (and the `key` for `PRESS`).
 
 The decision model defaults to `d3-turbo` — the only model with no error on
 ExHub's 32-case labelled sweep ([`bench/browser_agent_findings.md`](../../bench/browser_agent_findings.md)).
@@ -221,14 +232,34 @@ loop is unit-tested without a browser or network.
 - **Goal-relevant candidate order.** Windowing alone is not enough when a click
   *does* navigate (the window resets on every page change), so the head is also
   *ranked*: `Snapshot.goal_terms/1` extracts the significant terms of the goal
-  (lowercased, `_`-preserving, boilerplate like "open"/"documentation"/"sidebar"
-  dropped) and `Snapshot.action_space/2`'s `:prefer` offers the candidates whose
-  label shares the most of them first. It is a stable sort, so unmatched
+  (lowercased, `_`-preserving, Unicode-aware so a CJK asset name is one term,
+  boilerplate like "open"/"documentation"/"sidebar" dropped) and
+  `Snapshot.action_space/2`'s `:prefer` offers the candidates whose **label or
+  row context** shares the most of them first. It is a stable sort, so unmatched
   candidates keep document order and an unmatched goal behaves exactly as before —
   this only *orders* the offer, the model still chooses. On the DevDocs
   `ActionCable` page the goal "…`Streams#stream_from`" lifts element `[63]` to the
   top of the head, so it is choosable on the first step (`before_action` on the
   Rails `AbstractController` page works the same way).
+- **A tab opened by an action is followed.** A bastion's connect control opens
+  the terminal in a new tab instead of changing the page, so `Agent` records the
+  open tabs before a `CLICK`/`TYPE_TEXT`/`PRESS` and switches to the one that
+  appeared (`BrowserMcp.follow_new_tab/0`, a no-op for backends without tabs).
+  The switch is recorded as `note` on the step.
+- **Stale refs are retried, not fatal.** A single-page app can re-render between
+  the snapshot and the input, and the backend refuses a ref that vanished or now
+  names another element. `Agent` treats that as transient: it re-observes and
+  re-decides once (the retry is not a step), so a filter still finishing its
+  render does not end the run.
+- **Icon-only controls.** A button that is only an icon has no accessible
+  name, so two of them in one row are indistinguishable however good the row
+  text is (JumpServer's asset table has a "connect" icon and a "favorite" icon,
+  both unnamed). `BrowserMcp.snap/1` reads one DOM hint per unnamed button —
+  `aria-label`/`title` when present, otherwise the inner icon's class token
+  (`fa-desktop` → "desktop icon", `fa-star-o` → "star-o icon") — keyed by the
+  row's text and assigned in document order, so a page-wide count mismatch
+  cannot misalign them. The row context prefers the table's `cell` text over
+  the row's own controls, so "Select this row" checkbox labels never leak in.
 - **Main-content text.** Documentation sites put thousands of characters of
   navigation/sidebar ahead of the article, so whole-body text sliced from the top
   hides the content a goal is about (DevDocs' Rails `before_action` sits ~5,600

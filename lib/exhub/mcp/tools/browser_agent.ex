@@ -39,9 +39,10 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
 
     Give it one natural-language `goal`; it observes the attached Chrome tab,
     numbers the interactive elements, has Smart Decide pick an operation
-    (CLICK / TYPE_TEXT / SCROLL_UP / SCROLL_DOWN / WAIT / DONE / BLOCKED) plus a
-    target, and executes only that. `TYPE_TEXT` values are written by a small
-    text model. Stops on DONE, BLOCKED, or `max_steps`.
+    (CLICK / TYPE_TEXT / PRESS / SCROLL_UP / SCROLL_DOWN / WAIT / DONE /
+    BLOCKED) plus a target, and executes only that. `PRESS` sends Enter (submit
+    a search/filter) or Escape (dismiss a dialog); `TYPE_TEXT` values are written
+    by a small text model. Stops on DONE, BLOCKED, or `max_steps`.
 
     With `source: "chrome"` the same loop drives the user's own signed-in Chrome
     through the `chrome` upstream server (Browser MCP) instead of the headless

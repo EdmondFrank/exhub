@@ -34,6 +34,9 @@ defmodule Exhub.BrowserAgent.Executor do
       "TYPE_TEXT" ->
         type_text(decision, text, kuri)
 
+      "PRESS" ->
+        press(decision, kuri)
+
       "SCROLL_UP" ->
         wrap(kuri.scroll(:up), "scrolled up")
 
@@ -63,6 +66,13 @@ defmodule Exhub.BrowserAgent.Executor do
       fn ref -> kuri.fill(ref, text) end,
       "filled #{describe(decision)} with #{inspect(text)}"
     )
+  end
+
+  defp press(decision, kuri) do
+    case decision[:key] do
+      key when is_binary(key) and key != "" -> wrap(kuri.press(key), "pressed #{key}")
+      _ -> {:error, "PRESS requires a key"}
+    end
   end
 
   defp with_ref(decision, fun, success) do

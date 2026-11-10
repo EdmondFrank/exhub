@@ -136,6 +136,37 @@ defmodule Exhub.BrowserAgent.SnapshotTest do
       refute Map.has_key?(targets["CLICK"], "16")
     end
 
+    test "ranks a goal-named row above page chrome, including CJK terms" do
+      sidebar = for i <- 1..20, do: %{role: "link", name: "Sidebar #{i}", ref: "s#{i}"}
+
+      rows = [
+        %{
+          role: "button",
+          name: "desktop icon",
+          ref: "b1",
+          context: "攻击分析主机 | 10.0.81.9 | Linux"
+        },
+        %{
+          role: "button",
+          name: "star-o icon",
+          ref: "b2",
+          context: "攻击分析主机 | 10.0.81.9 | Linux"
+        },
+        %{role: "button", name: "desktop icon", ref: "b3", context: "other-host | 10.0.0.1"}
+      ]
+
+      prefer = Snapshot.goal_terms("Open the web terminal for 攻击分析主机")
+      {_indexed, targets} = Snapshot.action_space(sidebar ++ rows, prefer: prefer)
+
+      # 1..20 are the sidebar, so the row's two controls lead the offered head.
+      assert targets["CLICK"]["21"].ref == "b1"
+      assert targets["CLICK"]["22"].ref == "b2"
+    end
+
+    test "goal_terms keeps a CJK run" do
+      assert "攻击分析主机" in Snapshot.goal_terms("打开 攻击分析主机 的终端")
+    end
+
     test "goal_terms keeps significant tokens and drops boilerplate" do
       terms =
         Snapshot.goal_terms(
@@ -154,6 +185,68 @@ defmodule Exhub.BrowserAgent.SnapshotTest do
       refute "sidebar" in terms
 
       assert Snapshot.goal_terms("open the documentation") == []
+    end
+  end
+
+  @assets """
+  RootWebArea "Assets"
+    row
+      cell "host-a"
+      cell "10.0.81.9"
+      button @r1
+      button @r2
+    row
+      cell "host-b"
+      cell "10.0.81.10"
+      button @r3
+  """
+
+  describe "row context" do
+    test "attaches the row's named cells to its unnamed controls" do
+      {indexed, targets} = Snapshot.parse(@assets) |> Snapshot.action_space()
+
+      assert Enum.find(indexed, &(&1.ref == "r1")).context == "host-a | 10.0.81.9"
+      assert Enum.find(indexed, &(&1.ref == "r3")).context == "host-b | 10.0.81.10"
+
+      assert targets["CLICK"]["1"].context == "host-a | 10.0.81.9"
+      assert targets["CLICK"]["2"].context == "host-a | 10.0.81.9"
+    end
+
+    test "context_map/2 keys contexts by ref for string-keyed backends" do
+      nodes = Snapshot.parse(@assets)
+      elements = Enum.filter(nodes, &(&1.role == "button"))
+
+      contexts = Snapshot.context_map(elements, nodes)
+
+      assert contexts["r2"] == "host-a | 10.0.81.9"
+      assert contexts["r3"] == "host-b | 10.0.81.10"
+    end
+
+    test "render includes the row context" do
+      {indexed, _targets} = Snapshot.parse(@assets) |> Snapshot.action_space()
+
+      assert Snapshot.render(indexed) =~ ~s{[1] button "(unnamed)" [row: host-a | 10.0.81.9]}
+    end
+  end
+
+  @selection_rows """
+  RootWebArea "Assets"
+    row
+      generic "Select this row"
+        checkbox "Select this row"
+      cell "攻击分析主机"
+      cell "10.0.81.9"
+      cell "Linux"
+      button @s1
+  """
+
+  describe "row context (table)" do
+    test "prefers named cells over the row's own controls" do
+      {indexed, _targets} = Snapshot.parse(@selection_rows) |> Snapshot.action_space()
+
+      context = Enum.find(indexed, &(&1.ref == "s1")).context
+      assert context == "攻击分析主机 | 10.0.81.9 | Linux"
+      refute context =~ "Select this row"
     end
   end
 

@@ -29,6 +29,15 @@ defmodule Exhub.BrowserAgent.Snapshot do
   @clickable_roles ~w(button link menuitem menuitemcheckbox menuitemradio tab option checkbox radio switch)
   @editable_roles ~w(textbox searchbox combobox spinbutton)
 
+  # Enterprise UIs name a row's cells but not its icon buttons, so an unnamed
+  # button is only choosable through the row it belongs to. These are the
+  # container roles whose text becomes an element's `:context`.
+  @context_roles ~w(row listitem)
+  @context_cell_roles ~w(cell columnheader rowheader)
+  @context_text_roles ~w(text statictext generic link)
+  @context_limit 80
+  @context_parts 3
+
   # Grammatical filler plus the boilerplate of a "look something up" goal: every
   # docs page has a "documentation" link and a sidebar, so those words match too
   # much to be evidence. See `goal_terms/1`.
@@ -117,6 +126,7 @@ defmodule Exhub.BrowserAgent.Snapshot do
 
     indexed =
       elements
+      |> with_context()
       |> Enum.filter(&(&1[:ref] not in [nil, ""]))
       |> Enum.with_index(1)
       |> Enum.map(fn {element, index} -> build_element(element, index) end)
@@ -167,8 +177,117 @@ defmodule Exhub.BrowserAgent.Snapshot do
   @spec index([map()]) :: [element()]
   def index(elements) do
     elements
+    |> with_context()
     |> Enum.with_index(1)
     |> Enum.map(fn {element, index} -> build_element(element, index) end)
+  end
+
+  @doc """
+  Attaches a short row/list context to each node.
+
+  `all` is the full parsed tree (rows and cells included); `elements` is the
+  subset to annotate. For a node inside a `row` (or `listitem`), `:context` is
+  the first named descendants of that row — e.g. `"host-a | 10.0.81.9"` — so two
+  identical unnamed icon buttons stay distinguishable. No-op when the tree
+  carries no context roles.
+  """
+  @spec with_context([map()]) :: [map()]
+  def with_context(elements), do: with_context(elements, elements)
+
+  @spec with_context([map()], [map()]) :: [map()]
+  def with_context(elements, all) do
+    if Enum.any?(all, &(&1[:role] in @context_roles)) do
+      Enum.map(elements, fn element ->
+        Map.put(element, :context, element[:context] || context_for(element, all))
+      end)
+    else
+      elements
+    end
+  end
+
+  @doc """
+  Row contexts for `elements`, as a map of ref => context.
+
+  For backends that hand back string-keyed node maps (Browser MCP) but hold the
+  full tree separately.
+  """
+  @spec context_map([map()], [map()]) :: %{optional(String.t()) => String.t() | nil}
+  def context_map(elements, all) do
+    elements
+    |> with_context(all)
+    |> Map.new(fn element -> {element[:ref], element[:context]} end)
+  end
+
+  defp context_for(element, all) do
+    # Match on the ref: it is unique in a snapshot, and a caller (Browser MCP)
+    # may have enriched the element's name from the DOM after the tree was read.
+    index =
+      case element[:ref] do
+        ref when ref not in [nil, ""] ->
+          Enum.find_index(all, fn node -> node[:ref] == ref end)
+
+        _ ->
+          Enum.find_index(all, fn node ->
+            node[:role] == element[:role] and node[:name] == element[:name]
+          end)
+      end
+
+    with index when index != nil <- index,
+         ancestor when ancestor != nil <- context_ancestor(index, all) do
+      collect_context(ancestor, index, all)
+    else
+      _ -> nil
+    end
+  end
+
+  defp context_ancestor(index, all) do
+    depth = Map.get(Enum.at(all, index), :depth, 0)
+
+    all
+    |> Enum.take(index)
+    |> Enum.with_index()
+    |> Enum.reverse()
+    |> Enum.find_value(fn {node, position} ->
+      if Map.get(node, :depth, 0) < depth do
+        if node[:role] in @context_roles, do: position, else: context_ancestor(position, all)
+      end
+    end)
+  end
+
+  defp collect_context(ancestor, self_index, all) do
+    depth = Map.get(Enum.at(all, ancestor), :depth, 0)
+
+    descendants =
+      all
+      |> Enum.drop(ancestor + 1)
+      |> Enum.with_index(ancestor + 1)
+      |> Enum.take_while(fn {node, _position} -> Map.get(node, :depth, 0) > depth end)
+      |> Enum.reject(fn {_node, position} -> position == self_index end)
+
+    # Prefer table cells: they hold the row's identity. Only when there are none
+    # (a listitem) fall back to text/generic nodes. Either way the row's own
+    # controls are skipped, so "Select this row" checkbox labels never leak in.
+    names =
+      case named_descendants(descendants, @context_cell_roles) do
+        [] -> named_descendants(descendants, @context_text_roles)
+        cells -> cells
+      end
+      |> Enum.uniq()
+      |> Enum.take(@context_parts)
+      |> Enum.join(" | ")
+
+    case names do
+      "" -> nil
+      names -> String.slice(names, 0, @context_limit)
+    end
+  end
+
+  defp named_descendants(descendants, roles) do
+    for {node, _position} <- descendants,
+        node[:role] in roles,
+        name = node[:name] || node[:value],
+        name not in [nil, ""],
+        do: name
   end
 
   @doc "Returns the operations a target head map makes available."
@@ -187,7 +306,8 @@ defmodule Exhub.BrowserAgent.Snapshot do
       label = element.name || element.value || "(unnamed)"
       value = if element.value && element.value != "", do: " = #{element.value}", else: ""
       state = if element.state && element.state != "", do: " [#{element.state}]", else: ""
-      "[#{element.index}] #{element.role} \"#{label}\"#{value}#{state}"
+      context = if element[:context], do: " [row: #{element[:context]}]", else: ""
+      "[#{element.index}] #{element.role} \"#{label}\"#{value}#{state}#{context}"
     end)
     |> Enum.join("\n")
   end
@@ -275,6 +395,7 @@ defmodule Exhub.BrowserAgent.Snapshot do
       value: node["value"] || node[:value],
       state: node["state"] || node[:state],
       description: node["description"] || node[:description],
+      context: node["context"] || node[:context],
       depth: node["depth"] || node[:depth] || 0
     }
   end
@@ -313,6 +434,7 @@ defmodule Exhub.BrowserAgent.Snapshot do
       value: element[:value],
       state: element[:state],
       description: element[:description],
+      context: element[:context],
       depth: element[:depth] || 0
     }
   end
@@ -338,16 +460,21 @@ defmodule Exhub.BrowserAgent.Snapshot do
     |> Enum.map(fn {element, _position} -> element end)
   end
 
+  # A row's identity lives in its context, not its own label: two icon buttons
+  # named "desktop icon"/"star-o icon" only match a goal through the row text
+  # ("攻击分析主机 | 10.0.81.9"), so context terms count too.
   defp relevance(element, prefer) do
-    tokens = tokenize(element.name || element.value || "")
+    tokens = tokenize("#{element.name || element.value || ""} #{element.context || ""}")
     Enum.count(prefer, &(&1 in tokens))
   end
 
+  # Unicode-aware: CJK goals ("打开攻击分析主机") are one token, not dropped by an
+  # ASCII-only split, so they can lift a row into the offered head.
   defp tokenize(text) do
     text
     |> to_string()
     |> String.downcase()
-    |> String.split(~r/[^a-z0-9_]+/, trim: true)
+    |> String.split(~r/[^\p{L}\p{N}_]+/u, trim: true)
   end
 
   defp target(element) do
@@ -357,7 +484,8 @@ defmodule Exhub.BrowserAgent.Snapshot do
       role: element.role,
       label: element.name || element.value || "(unnamed)",
       value: element.value,
-      state: element.state
+      state: element.state,
+      context: element.context
     }
   end
 end

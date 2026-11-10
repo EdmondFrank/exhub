@@ -48,10 +48,43 @@ defmodule Exhub.BrowserAgent.BrowserMcp do
   @default_tool "browser"
   @default_text_limit 8_000
   @table_key {__MODULE__, :table}
+  @tabs_key {__MODULE__, :tabs}
 
   # Lines the tool adds around a command's own output: one per executed command,
   # the trailing page banner, and the truncation note of `get text`.
   @noise ~r/^(✓|✗|Page: |…)/
+
+  # Runs in the page for `icon_hints/3`. It emits `[row text, hint]` for every
+  # unnamed button (no text, no aria-label/title) inside a table row. The row
+  # text is the matching key, so page-wide ordering cannot misalign the hints;
+  # within a row both lists are in document order.
+  @icon_hint_script ~S"""
+  (() => {
+    const names = [];
+    for (const button of document.querySelectorAll('button')) {
+      if (!button.getClientRects().length) continue;
+      const text = (button.innerText || '').trim();
+      const label = button.getAttribute('aria-label') || button.getAttribute('title');
+      if (text || label) continue;
+      const row = button.closest('tr, [role=row]');
+      if (!row) continue;
+      const context = [...row.querySelectorAll('td, [role=cell]')]
+        .map((cell) => (cell.innerText || '').trim())
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(' | ');
+      if (!context) continue;
+      const icon = button.querySelector('i, svg');
+      const cls = icon ? icon.getAttribute('class') || '' : '';
+      const parts = cls
+        .split(/\s+/)
+        .map((token) => token.replace(/^fa-/, '').replace(/^el-icon-/, '').replace(/^icon-/, ''))
+        .filter((token) => token && !['fa', 'fas', 'far', 'fab', 'solid', 'regular', 'el', 'icon'].includes(token));
+      names.push([context, parts.length ? parts[parts.length - 1] + ' icon' : '']);
+    }
+    return names;
+  })()
+  """
 
   @typedoc "Result shared with the other backends."
   @type result :: {:ok, String.t()} | {:error, String.t()}
@@ -71,9 +104,87 @@ defmodule Exhub.BrowserAgent.BrowserMcp do
     with {:ok, text} <- run("snapshot -i", opts) do
       nodes = parse_snapshot(text)
       remember(nodes)
-      {:ok, actionable(nodes)}
+      elements = actionable(nodes)
+      contexts = Snapshot.context_map(Snapshot.parse(elements), Snapshot.parse(nodes))
+      elements = icon_hints(elements, contexts, opts)
+      {:ok, Enum.map(elements, &Map.put(&1, "context", Map.get(contexts, &1["ref"])))}
     end
   end
+
+  # The accessibility tree cannot see an icon, so an icon-only button has no
+  # name at all — two of them in one row are indistinguishable even with the row
+  # text. Pull a hint from the DOM: `aria-label`/`title` when present, otherwise
+  # the last meaningful class token of the inner icon (`fa-desktop` ->
+  # "desktop icon", `fa-star-o` -> "star-o icon"). Hints are matched to the
+  # unnamed buttons in document order, and only when both lists are the same
+  # length: a mismatch means the snapshot and the DOM disagree, and a wrong name
+  # is worse than none.
+  defp icon_hints(elements, contexts, opts) do
+    # Only row-scoped buttons: the row text is the matching key, so a page-wide
+    # count mismatch (hidden buttons, other widgets) cannot misalign the hints.
+    # Within one row both lists are in document order, so two identical rows of
+    # buttons still resolve left-to-right.
+    candidates =
+      Enum.filter(elements, fn element ->
+        element["role"] == "button" and blank?(element["name"]) and
+          Map.get(contexts, element["ref"]) not in [nil, ""]
+      end)
+
+    with true <- candidates != [],
+         {:ok, hints} <- fetch_icon_hints(opts) do
+      {elements, _leftover} =
+        Enum.map_reduce(elements, hints, fn element, remaining ->
+          context = Map.get(contexts, element["ref"])
+
+          case Enum.member?(candidates, element) && take_hint(remaining, context) do
+            {hint, rest} when is_binary(hint) and hint != "" ->
+              {Map.put(element, "name", hint), rest}
+
+            {_hint, rest} ->
+              {element, rest}
+
+            false ->
+              {element, remaining}
+          end
+        end)
+
+      elements
+    else
+      _ -> elements
+    end
+  end
+
+  # Takes the first hint for `context` and returns the list without it.
+  defp take_hint(hints, context) do
+    case Enum.split_while(hints, fn {ctx, _hint} -> ctx != context end) do
+      {before, [{_ctx, hint} | rest]} -> {hint, before ++ rest}
+      {_before, []} -> {nil, hints}
+    end
+  end
+
+  defp fetch_icon_hints(opts) do
+    case eval(@icon_hint_script, opts) do
+      {:ok, output} ->
+        case Jason.decode(output) do
+          {:ok, hints} when is_list(hints) ->
+            {:ok,
+             Enum.flat_map(hints, fn
+               [context, hint] when is_binary(context) and is_binary(hint) -> [{context, hint}]
+               _ -> []
+             end)}
+
+          _ ->
+            :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(_), do: false
 
   @doc """
   The DOM fallback, kept for interface parity.
@@ -122,6 +233,62 @@ defmodule Exhub.BrowserAgent.BrowserMcp do
   @spec click(String.t(), keyword()) :: result()
   def click(ref, opts \\ []), do: act(ref, "click #{ref}", opts)
 
+  @doc """
+  Records the open tabs so `follow_new_tab/1` can spot one an action opened.
+
+  Called by `Agent` before a `CLICK`/`TYPE_TEXT`/`PRESS`, because those can open
+  a tab without changing the current page.
+  """
+  @spec remember_tabs(keyword()) :: :ok
+  def remember_tabs(opts \\ []) do
+    Process.put(@tabs_key, tab_ids(opts) || [])
+    :ok
+  end
+
+  @doc """
+  Switches to a tab that appeared after the last click.
+
+  Some actions do not change the page but open one — JumpServer's connect
+  control opens a Luna terminal tab — and the loop would otherwise keep
+  observing the page it already left. Returns `{:ok, note}` when it switched,
+  `:none` when no tab appeared. The first observation after a process starts
+  never switches (there is no baseline to compare against).
+  """
+  @spec follow_new_tab(keyword()) :: {:ok, String.t()} | :none
+  def follow_new_tab(opts \\ []) do
+    current = tab_ids(opts) || []
+    before = Keyword.get(opts, :before) || Process.get(@tabs_key, current)
+    Process.put(@tabs_key, current)
+
+    case {before, current -- before} do
+      {[], _} ->
+        :none
+
+      {_, [id | _]} ->
+        with {:ok, _} <- run("tab select #{id}", opts), do: {:ok, "followed new tab #{id}"}
+
+      _ ->
+        :none
+    end
+  end
+
+  defp tab_ids(opts) do
+    case tabs(opts) do
+      {:ok, listing} ->
+        listing
+        |> String.split("\n", trim: true)
+        |> Enum.flat_map(fn line ->
+          case Regex.run(~r/^\s*\*?\s*(\d+)\s+"/, line) do
+            [_, id] -> [id]
+            _ -> []
+          end
+        end)
+
+      _ ->
+        nil
+    end
+  end
+
   @doc "Clears and fills an editable element."
   @spec fill(String.t(), String.t(), keyword()) :: result()
   def fill(ref, value, opts \\ []), do: act(ref, "fill #{ref} #{quote_arg(value)}", opts)
@@ -133,6 +300,18 @@ defmodule Exhub.BrowserAgent.BrowserMcp do
   """
   @spec type(String.t(), String.t(), keyword()) :: result()
   def type(ref, value, opts \\ []), do: act(ref, "click #{ref}\ntype #{quote_arg(value)}", opts)
+
+  @doc """
+  Presses a key in the focused element (`Enter`, `Escape`, `Tab`…).
+
+  Browser MCP has a native `press`, so the key event is real (not a synthetic
+  DOM event like the kuri backends fall back to).
+  """
+  @spec press(String.t(), keyword()) :: result()
+  def press(key, opts \\ []) when is_binary(key) do
+    with {:ok, output} <- run("press " <> key, opts),
+         do: {:ok, output |> lines() |> Enum.join("\n") |> String.trim()}
+  end
 
   @doc "Selects a value from a dropdown."
   @spec select(String.t(), String.t(), keyword()) :: result()
@@ -306,10 +485,16 @@ defmodule Exhub.BrowserAgent.BrowserMcp do
     end
   end
 
+  # A container with children is printed as `- row [ref=e1]:`, so the role keeps
+  # a trailing colon after the ref is removed. Strip it, or `row` never matches
+  # the context roles.
   defp take_role(rest) do
     case Regex.run(~r/^(\S+)/, rest) do
-      [_full, role] -> {role, String.replace_prefix(rest, role, "")}
-      _ -> {"unknown", rest}
+      [_full, role] ->
+        {String.trim_trailing(role, ":"), String.replace_prefix(rest, role, "")}
+
+      _ ->
+        {"unknown", rest}
     end
   end
 

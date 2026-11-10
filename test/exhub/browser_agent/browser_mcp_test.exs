@@ -12,6 +12,19 @@ defmodule Exhub.BrowserAgent.BrowserMcpTest do
               "- button \"Submit order\" [ref=e44]\n" <>
               "Page: https://httpbin.org/forms/post \u2014 \"\""
 
+  @rows """
+  ✓ snapshot -i
+  - row
+    - cell "host-a"
+    - cell "10.0.81.9"
+    - button [ref=e1]
+  - row
+    - cell "host-b"
+    - cell "10.0.81.10"
+    - button [ref=e2]
+  Page: https://jump.example — "Assets"
+  """
+
   # Queues canned `browser` tool outputs and records the commands sent.
   defp stub(responses) do
     Process.put(:browser_responses, responses)
@@ -129,6 +142,42 @@ defmodule Exhub.BrowserAgent.BrowserMcpTest do
       assert commands() == ["fill e5 \"Ada Lovelace\""]
     end
 
+    test "press sends the native key command" do
+      call = stub([{:ok, "✓ press Enter\nPage: https://x — \"X\""}])
+
+      assert {:ok, _} = BrowserMcp.press("Enter", call: call)
+      assert commands() == ["press Enter"]
+    end
+
+    test "follow_new_tab switches to the tab an action opened" do
+      listing = """
+      ✓ tab list
+        1 "Access assets - JumpServer" — https://jump.example/assets
+        2 "攻击分析主机" — https://jump.example/luna/session/1
+      Page: https://jump.example/assets — "Assets"
+      """
+
+      call = stub([{:ok, listing}, {:ok, "✓ tab select 2\nPage: https://x — \"X\""}])
+
+      assert {:ok, "followed new tab 2"} =
+               BrowserMcp.follow_new_tab(call: call, before: ["1"])
+
+      assert commands() == ["tab list", "tab select 2"]
+    end
+
+    test "follow_new_tab does nothing when no tab appeared" do
+      listing = """
+      ✓ tab list
+        1 "Access assets - JumpServer" — https://jump.example/assets
+      Page: https://jump.example/assets — "Assets"
+      """
+
+      call = stub([{:ok, listing}])
+
+      assert :none = BrowserMcp.follow_new_tab(call: call, before: ["1"])
+      assert commands() == ["tab list"]
+    end
+
     test "scroll maps the policy directions" do
       call = stub([{:ok, "\u2713 scroll up\nPage: https://x \u2014 \"X\""}])
 
@@ -185,6 +234,72 @@ defmodule Exhub.BrowserAgent.BrowserMcpTest do
       call = stub([{:ok, tabs}])
       assert {:ok, listing} = BrowserMcp.tabs(call: call)
       assert listing =~ "931804983"
+    end
+  end
+
+  describe "row context and icon hints" do
+    test "attaches the row text so icon-only buttons are distinguishable" do
+      call =
+        stub([
+          {:ok, @rows},
+          {:ok,
+           "✓ eval\n[[\"host-a | 10.0.81.9\", \"desktop icon\"], [\"host-b | 10.0.81.10\", \"star-o icon\"]]\nPage: https://x — \"X\""}
+        ])
+
+      assert {:ok, nodes} = BrowserMcp.snap(call: call)
+      assert Enum.find(nodes, &(&1["ref"] == "e1"))["context"] == "host-a | 10.0.81.9"
+      assert Enum.find(nodes, &(&1["ref"] == "e2"))["context"] == "host-b | 10.0.81.10"
+    end
+
+    test "names icon-only buttons from their icon so two row actions differ" do
+      page = """
+      ✓ snapshot -i
+      - row [ref=e1]:
+        - cell "host-a" [ref=e2]
+        - button [ref=e3]
+        - button [ref=e4]
+      Page: https://x — "X"
+      """
+
+      call =
+        stub([
+          {:ok, page},
+          {:ok,
+           "✓ eval\n[[\"host-a\", \"desktop icon\"], [\"host-a\", \"star-o icon\"]]\nPage: https://x — \"X\""}
+        ])
+
+      assert {:ok, nodes} = BrowserMcp.snap(call: call)
+      assert Enum.find(nodes, &(&1["ref"] == "e3"))["name"] == "desktop icon"
+      assert Enum.find(nodes, &(&1["ref"] == "e4"))["name"] == "star-o icon"
+      assert Enum.find(nodes, &(&1["ref"] == "e3"))["context"] == "host-a"
+    end
+
+    test "leaves an unnamed button alone when no hint matches its row" do
+      page = """
+      ✓ snapshot -i
+      - row [ref=e1]:
+        - cell "host-a" [ref=e2]
+        - button [ref=e3]
+        - button [ref=e4]
+      Page: https://x — "X"
+      """
+
+      call =
+        stub([
+          {:ok, page},
+          {:ok, "✓ eval\n[[\"other row\", \"desktop icon\"]]\nPage: https://x — \"X\""}
+        ])
+
+      assert {:ok, nodes} = BrowserMcp.snap(call: call)
+      assert Enum.find(nodes, &(&1["ref"] == "e3"))["name"] == nil
+      assert Enum.find(nodes, &(&1["ref"] == "e4"))["name"] == nil
+    end
+
+    test "parses a container's role without the trailing colon" do
+      [row, cell] = BrowserMcp.parse_snapshot("- row [ref=e1]:\n  - cell \"x\" [ref=e2]")
+
+      assert row["role"] == "row"
+      assert cell["role"] == "cell"
     end
   end
 

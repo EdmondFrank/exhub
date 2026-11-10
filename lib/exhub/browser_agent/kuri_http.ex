@@ -95,6 +95,30 @@ defmodule Exhub.BrowserAgent.KuriHttp do
       else: action(ref, "type", value, opts)
   end
 
+  @doc """
+  Presses a key in the focused element (`Enter`, `Escape`).
+
+  The daemon has no key command, so this dispatches synthetic `keydown` /
+  `keypress` / `keyup` events at `document.activeElement` — enough for the
+  frameworks that own a search field (Element Plus, React) to submit it.
+  """
+  @spec press(String.t(), keyword()) :: result()
+  def press(key, opts \\ []) when is_binary(key) do
+    script = """
+    (function () {
+      var el = document.activeElement || document.body;
+      var key = #{Jason.encode!(key)};
+      var event = {key: key, code: key, bubbles: true, cancelable: true};
+      ["keydown", "keypress", "keyup"].forEach(function (type) {
+        el.dispatchEvent(new KeyboardEvent(type, event));
+      });
+      return "pressed " + key;
+    })()
+    """
+
+    evaluate(script, opts)
+  end
+
   @doc "Selects a value from a dropdown."
   @spec select(String.t(), String.t(), keyword()) :: result()
   def select(ref, value, opts \\ []) do

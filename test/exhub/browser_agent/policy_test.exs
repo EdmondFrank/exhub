@@ -71,7 +71,8 @@ defmodule Exhub.BrowserAgent.PolicyTest do
       questions = Policy.build_questions(@targets, "goal")
 
       assert {:ok, normalized} = Exhub.MCP.Tools.SmartDecide.normalize_questions(questions)
-      assert map_size(normalized) == 2
+      # operation + click_target + press_key (an editable field is present).
+      assert map_size(normalized) == 3
     end
   end
 
@@ -88,14 +89,16 @@ defmodule Exhub.BrowserAgent.PolicyTest do
                  "role" => "combobox",
                  "label" => "Where from?",
                  "value" => "San Francisco",
-                 "state" => ""
+                 "state" => "",
+                 "context" => ""
                },
                %{
                  "index" => "5",
                  "role" => "link",
                  "label" => "Search",
                  "value" => "",
-                 "state" => ""
+                 "state" => "",
+                 "context" => ""
                }
              ]
 
@@ -203,6 +206,118 @@ defmodule Exhub.BrowserAgent.PolicyTest do
       assert {:error, "System One unavailable"} =
                Policy.choose(@page, @elements, @targets, "x", [], decider: decider)
     end
+  end
+
+  describe "PRESS" do
+    test "press_available?/2 requires an editable field or a recent TYPE_TEXT" do
+      assert Policy.press_available?(@targets, [])
+      refute Policy.press_available?(%{"CLICK" => @targets["CLICK"]}, [])
+
+      assert Policy.press_available?(%{"CLICK" => %{}}, [%{operation: "TYPE_TEXT"}])
+      assert Policy.press_available?(%{}, [%{"operation" => "TYPE_TEXT"}])
+      refute Policy.press_available?(%{}, [%{operation: "CLICK"}])
+    end
+
+    test "operation_criteria/2 offers PRESS only when a field is present" do
+      criteria = Policy.operation_criteria(@targets, [])
+      assert criteria["PRESS"] =~ "Press a key"
+
+      refute Map.has_key?(Policy.operation_criteria(%{"CLICK" => %{}}, []), "PRESS")
+    end
+
+    test "build_questions/3 asks for the key with both choices" do
+      questions = Policy.build_questions(@targets, "submit the filter")
+
+      assert Map.keys(questions["press_key"]["criteria"]) |> Enum.sort() == ["Enter", "Escape"]
+
+      assert {:ok, _} = Exhub.MCP.Tools.SmartDecide.normalize_questions(questions)
+    end
+
+    test "choose/6 turns a PRESS answer into a keyed decision" do
+      {:ok, decision} =
+        Policy.choose(@page, @elements, @targets, "submit", [], decider: &decider_press/3)
+
+      assert decision.operation == "PRESS"
+      assert decision.key == "Enter"
+      assert decision.target == nil
+      assert decision.ref == nil
+      assert decision.label == "Press Enter"
+      assert decision.model == Policy.default_model()
+    end
+
+    test "choose/6 rejects an unknown key instead of defaulting" do
+      decider = fn _state, _questions, _opts ->
+        {:ok,
+         %{
+           "answers" => %{
+             "operation" => choice("PRESS", operations(), 0.9),
+             "press_key" => choice("Space", %{"Space" => 1.0}, 1.0)
+           }
+         }}
+      end
+
+      assert {:error, message} =
+               Policy.choose(@page, @elements, @targets, "submit", [], decider: decider)
+
+      assert message =~ "outside the offered options"
+    end
+  end
+
+  describe "row context" do
+    test "target criteria carry the row text" do
+      targets = %{
+        "CLICK" => %{
+          "1" => %{
+            index: 1,
+            ref: "e1",
+            role: "button",
+            label: "(unnamed)",
+            value: nil,
+            state: nil,
+            context: "host-a | 10.0.81.9"
+          },
+          "2" => %{
+            index: 2,
+            ref: "e2",
+            role: "button",
+            label: "(unnamed)",
+            value: nil,
+            state: nil,
+            context: "host-b | 10.0.81.10"
+          }
+        }
+      }
+
+      questions = Policy.build_questions(targets, "connect to host-b")
+
+      assert questions["click_target"]["criteria"]["2"] =~
+               ~s{[2] button "(unnamed)" [row: host-b | 10.0.81.10]}
+    end
+
+    test "the element table carries context" do
+      element = %{
+        index: 1,
+        ref: "e1",
+        role: "button",
+        name: nil,
+        value: nil,
+        state: nil,
+        context: "host-a"
+      }
+
+      state = Policy.build_state(@page, [element], [])
+      assert hd(state["elements"])["context"] == "host-a"
+    end
+  end
+
+  defp decider_press(_state, _questions, _opts) do
+    {:ok,
+     %{
+       "answers" => %{
+         "operation" => choice("PRESS", operations(), 0.9),
+         "press_key" => choice("Enter", %{"Enter" => 0.9, "Escape" => 0.1}, 0.9)
+       }
+     }}
   end
 
   defp decider_click(_state, _questions, _opts) do

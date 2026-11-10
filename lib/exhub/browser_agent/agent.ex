@@ -129,11 +129,37 @@ defmodule Exhub.BrowserAgent.Agent do
     end
   end
 
-  defp predict_and_execute(agent) do
-    with {:ok, agent} <- predict(agent),
-         {:ok, agent} <- execute(agent) do
-      agent
+  # A single-page app can re-render between the snapshot and the input (results
+  # still applying, hydration), and the backend's stale-target guard then refuses
+  # a ref that vanished or now names another element. That is not a model
+  # failure, so re-observe and decide again once instead of ending the run.
+  @stale_markers ["is no longer on the page", "now names"]
+
+  defp predict_and_execute(agent, retries \\ 1) do
+    with {:ok, agent} <- predict(agent) do
+      case execute(agent) do
+        {:ok, agent} ->
+          agent
+
+        {:error, message} ->
+          if retries > 0 and stale_target?(message) do
+            retry_after_stale(agent, retries)
+          else
+            %{agent | status: :error, error: message}
+          end
+      end
     else
+      {:error, message} -> %{agent | status: :error, error: message}
+    end
+  end
+
+  defp stale_target?(message) do
+    Enum.any?(@stale_markers, &String.contains?(message, &1))
+  end
+
+  defp retry_after_stale(agent, retries) do
+    case observe(%{agent | decision: nil, status: :ready}) do
+      {:ok, agent} -> predict_and_execute(agent, retries - 1)
       {:error, message} -> %{agent | status: :error, error: message}
     end
   end
@@ -280,15 +306,39 @@ defmodule Exhub.BrowserAgent.Agent do
 
   def execute(%__MODULE__{} = agent) do
     decision = agent.decision
+    kuri = kuri(agent)
+    opens_tab? = decision.operation in ["CLICK", "TYPE_TEXT", "PRESS"]
+    if opens_tab?, do: maybe_backend(kuri, :remember_tabs)
 
     with {:ok, text} <- text_for(agent, decision),
          {:ok, _description} <- Executor.execute(decision, text, filter_opts(agent.opts, [:kuri])) do
-      entry = history_entry(agent, decision, text)
+      note = if opens_tab?, do: follow_new_tab(kuri)
+
+      entry = history_entry(agent, decision, text) |> put_note(note)
 
       {:ok,
        %{agent | decision: nil, history: agent.history ++ [entry], status: terminal(decision)}}
     end
   end
+
+  # An action can open a tab instead of changing the page (a bastion's connect
+  # control opens the terminal). Switching to it keeps the loop observing where
+  # the goal actually went; backends without tabs simply do nothing.
+  defp follow_new_tab(kuri) do
+    case maybe_backend(kuri, :follow_new_tab) do
+      {:ok, note} -> note
+      _ -> nil
+    end
+  end
+
+  defp maybe_backend(kuri, fun) do
+    if Code.ensure_loaded?(kuri) and function_exported?(kuri, fun, 0) do
+      apply(kuri, fun, [])
+    end
+  end
+
+  defp put_note(entry, nil), do: entry
+  defp put_note(entry, note), do: Map.put(entry, :note, note)
 
   @doc """
   Renders the agent's current observation and history as a JSON-ready map.
@@ -412,7 +462,10 @@ defmodule Exhub.BrowserAgent.Agent do
       ref: decision.ref,
       label: decision.label,
       text: text,
+      key: decision[:key],
+      note: nil,
       confidence: decision.confidence,
+      model: decision[:model],
       # Settled by the next `observe/1` (nil until then).
       page_changed: nil,
       elapsed_ms: elapsed(agent)
