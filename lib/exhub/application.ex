@@ -22,6 +22,8 @@ defmodule Exhub.Application do
       {Finch, name: Anubis.Finch, pools: %{default: [size: 15]}},
       # Sagents — agent orchestration framework (must start after Registry)
       Sagents.Supervisor,
+      # Agent Hub storage — SQLite conversations, transcripts, agent state
+      {Exhub.Sagents.Store, name: Exhub.Sagents.Store},
       # Agent Hub — manages sagents agent lifecycle
       {Exhub.Sagents.Hub, name: Exhub.Sagents.Hub},
       # Hercules — AI-powered E2E test runner

@@ -1,70 +1,54 @@
 defmodule Exhub.Sagents.Persistence do
   @moduledoc """
-  Optional file-based persistence for sagents agent state.
+  `Sagents.AgentPersistence` backed by `Exhub.Sagents.Store` (SQLite).
 
-  Implements `Sagents.AgentPersistence` behaviour. Saves/loads agent state
-  to `~/.config/exhub/agent_hub/{agent_id}/state.json`.
+  Sagents hands us its serialized state envelope
+  (`%{"version" => 1, "state" => %{...}, "serialized_at" => ...}`); we store
+  it as JSON in `agent_states`, keyed by conversation id. Because the
+  conversation is the unit of persistence, one agent process per conversation
+  restores exactly the messages it owned before it timed out.
   """
 
   @behaviour Sagents.AgentPersistence
 
-  require Logger
-
-  @base_dir "~/.config/exhub/agent_hub"
+  alias Exhub.Sagents.Store
 
   @impl true
   def persist_state(_scope, state_data, context) do
-    agent_id = Map.get(context, :agent_id)
-    dir = agent_dir(agent_id)
-    File.mkdir_p!(dir)
-
-    path = Path.join(dir, "state.json")
-
-    case Jason.encode(state_data, pretty: true) do
-      {:ok, json} ->
-        File.write!(path, json)
-        Logger.debug("[Sagents.Persistence] Persisted state for #{agent_id}")
+    case conversation_id(context) do
+      nil ->
+        # Unscoped write (no conversation configured) — nothing to key on.
         :ok
 
-      {:error, reason} ->
-        Logger.error("[Sagents.Persistence] Failed to encode state: #{inspect(reason)}")
-        {:error, reason}
+      id ->
+        Store.save_state(id, state_data)
     end
-  rescue
-    error ->
-      Logger.error("[Sagents.Persistence] Persist failed: #{inspect(error)}")
-      {:error, inspect(error)}
   end
 
   @impl true
   def load_state(_scope, context) do
-    agent_id = Map.get(context, :agent_id)
-    path = Path.join(agent_dir(agent_id), "state.json")
-
-    case File.read(path) do
-      {:ok, content} ->
-        case Jason.decode(content) do
-          {:ok, data} ->
-            Logger.debug("[Sagents.Persistence] Loaded state for #{agent_id}")
-            {:ok, data}
-
-          {:error, reason} ->
-            Logger.warning("[Sagents.Persistence] Failed to decode state: #{inspect(reason)}")
-            {:error, :not_found}
-        end
-
-      {:error, :enoent} ->
-        {:error, :not_found}
-
-      {:error, reason} ->
-        Logger.error("[Sagents.Persistence] Failed to read state: #{inspect(reason)}")
-        {:error, reason}
+    case conversation_id(context) do
+      nil -> {:error, :not_found}
+      id -> Store.load_state(id)
     end
   end
 
-  defp agent_dir(agent_id) do
-    @base_dir
-    |> Path.expand()
-    |> Path.join(agent_id)
+  @impl true
+  def set_interrupted(_scope, context, interrupted?) do
+    case conversation_id(context) do
+      nil ->
+        :ok
+
+      id ->
+        status = if interrupted?, do: "interrupted", else: "active"
+
+        case Store.update_conversation(id, %{status: status}) do
+          {:ok, _conversation} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
   end
+
+  defp conversation_id(%{conversation_id: id}) when is_binary(id), do: id
+  defp conversation_id(_context), do: nil
 end

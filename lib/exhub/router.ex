@@ -862,10 +862,159 @@ defmodule Exhub.Router do
     |> send_resp(200, Exhub.Router.AgentHubView.render())
   end
 
+  # One conversation == one persistent agent thread.
+  get "/agent-hub/c/:id" do
+    case Exhub.Sagents.Hub.get_conversation(conn.params["id"]) do
+      {:ok, conversation} ->
+        messages =
+          case Exhub.Sagents.Hub.list_messages(conversation.id) do
+            {:ok, messages} -> messages
+            {:error, _reason} -> []
+          end
+
+        conn
+        |> put_resp_content_type("text/html")
+        |> send_resp(200, Exhub.Router.AgentHubChatView.render(conversation, messages))
+
+      {:error, _reason} ->
+        conn
+        |> put_resp_content_type("text/html")
+        |> send_resp(
+          404,
+          "<h1>Conversation not found</h1><p><a href=\"/agent-hub\">Back to Agent Hub</a></p>"
+        )
+    end
+  end
+
+  # Legacy single-conversation URL — land on the agent's newest conversation.
   get "/agent-hub/agents/:name/chat" do
-    conn
-    |> put_resp_content_type("text/html")
-    |> send_resp(200, Exhub.Router.AgentHubChatView.render(name))
+    case Exhub.Sagents.Hub.latest_conversation(conn.params["name"]) do
+      {:ok, conversation} ->
+        conn
+        |> put_resp_header("location", "/agent-hub/c/#{conversation.id}")
+        |> send_resp(302, "")
+
+      {:error, _reason} ->
+        send_resp(conn, 404, "unknown agent")
+    end
+  end
+
+  # ============================================================================
+  # Agent Hub conversation API
+  # ============================================================================
+
+  get "/agent-hub/conversations" do
+    opts =
+      case conn.params["agent"] do
+        nil -> []
+        agent -> [agent_name: agent]
+      end
+
+    case Exhub.Sagents.Hub.list_conversations(opts) do
+      {:ok, conversations} -> agent_hub_json(conn, 200, %{conversations: conversations})
+      {:error, reason} -> agent_hub_json(conn, 503, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  post "/agent-hub/conversations" do
+    agent_name = conn.body_params["agent_name"]
+    title = conn.body_params["title"]
+    title = if is_binary(title) and title != "", do: title, else: nil
+
+    if is_binary(agent_name) and agent_name != "" do
+      case Exhub.Sagents.Hub.create_conversation(agent_name, title: title) do
+        {:ok, conversation} ->
+          agent_hub_json(conn, 201, %{conversation: conversation})
+
+        {:error, :unknown_agent} ->
+          agent_hub_json(conn, 400, %{error: "unknown agent profile"})
+
+        {:error, reason} ->
+          agent_hub_json(conn, 500, %{error: agent_hub_reason(reason)})
+      end
+    else
+      agent_hub_json(conn, 400, %{error: "agent_name is required"})
+    end
+  end
+
+  patch "/agent-hub/conversations/:id" do
+    case conn.body_params["title"] do
+      title when is_binary(title) ->
+        case Exhub.Sagents.Hub.rename_conversation(conn.params["id"], title) do
+          {:ok, conversation} -> agent_hub_json(conn, 200, %{conversation: conversation})
+          {:error, reason} -> agent_hub_json(conn, 404, %{error: agent_hub_reason(reason)})
+        end
+
+      _other ->
+        agent_hub_json(conn, 400, %{error: "title is required"})
+    end
+  end
+
+  delete "/agent-hub/conversations/:id" do
+    case Exhub.Sagents.Hub.delete_conversation(conn.params["id"]) do
+      :ok -> agent_hub_json(conn, 200, %{status: "deleted"})
+      {:error, reason} -> agent_hub_json(conn, 500, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  get "/agent-hub/c/:id/messages" do
+    case Exhub.Sagents.Hub.list_messages(conn.params["id"]) do
+      {:ok, messages} -> agent_hub_json(conn, 200, %{messages: messages})
+      {:error, reason} -> agent_hub_json(conn, 503, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  get "/agent-hub/c/:id/status" do
+    agent_hub_json(conn, 200, Exhub.Sagents.Hub.get_status(conn.params["id"]))
+  end
+
+  get "/agent-hub/c/:id/interrupt" do
+    case Exhub.Sagents.Hub.pending_interrupt(conn.params["id"]) do
+      {:ok, interrupt} -> agent_hub_json(conn, 200, %{interrupt: interrupt})
+      :none -> agent_hub_json(conn, 200, %{interrupt: nil})
+    end
+  end
+
+  post "/agent-hub/c/:id/chat" do
+    message = conn.body_params["message"]
+
+    if is_nil(message) or message == "" do
+      agent_hub_json(conn, 400, %{error: "message is required"})
+    else
+      agent_hub_stream(conn, conn.params["id"], message)
+    end
+  end
+
+  post "/agent-hub/c/:id/decision" do
+    case agent_hub_decisions(conn.body_params) do
+      {:ok, decisions} ->
+        case Exhub.Sagents.Hub.resume(conn.params["id"], decisions) do
+          :ok -> agent_hub_json(conn, 200, %{status: "resumed"})
+          {:error, reason} -> agent_hub_json(conn, 400, %{error: agent_hub_reason(reason)})
+        end
+
+      {:error, reason} ->
+        agent_hub_json(conn, 400, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  post "/agent-hub/c/:id/reset" do
+    case Exhub.Sagents.Hub.reset_conversation(conn.params["id"]) do
+      :ok -> agent_hub_json(conn, 200, %{status: "reset"})
+      {:error, reason} -> agent_hub_json(conn, 500, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  post "/agent-hub/c/:id/stop" do
+    Exhub.Sagents.Hub.stop_conversation(conn.params["id"])
+    agent_hub_json(conn, 200, %{status: "stopped"})
+  end
+
+  post "/agent-hub/c/:id/start" do
+    case Exhub.Sagents.Hub.start_conversation(conn.params["id"]) do
+      {:ok, _pid} -> agent_hub_json(conn, 200, %{status: "started"})
+      {:error, reason} -> agent_hub_json(conn, 500, %{error: agent_hub_reason(reason)})
+    end
   end
 
   # LLM server — LangChain chat (models, chat, chat_json)
@@ -1717,4 +1866,82 @@ defmodule Exhub.Router do
   end
 
   defp estimate_tool_tokens(_), do: 0
+
+  # --- Agent Hub helpers ---
+
+  defp agent_hub_json(conn, status, payload) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(status, Jason.encode!(payload))
+  end
+
+  defp agent_hub_stream(conn, conversation_id, message) do
+    conn =
+      conn
+      |> put_resp_header("content-type", "text/event-stream")
+      |> put_resp_header("cache-control", "no-cache")
+      |> put_resp_header("connection", "keep-alive")
+      |> send_chunked(200)
+
+    case Exhub.Sagents.Hub.chat_stream(conversation_id, message) do
+      {:ok, stream} ->
+        conn =
+          Enum.reduce_while(stream, conn, fn event, conn ->
+            case Jason.encode(event) do
+              {:ok, json} ->
+                case Plug.Conn.chunk(conn, "data: #{json}\n\n") do
+                  {:ok, conn} -> {:cont, conn}
+                  {:error, _reason} -> {:halt, conn}
+                end
+
+              {:error, _reason} ->
+                {:cont, conn}
+            end
+          end)
+
+        case Plug.Conn.chunk(conn, "data: [DONE]\n\n") do
+          {:ok, conn} -> conn
+          {:error, _reason} -> conn
+        end
+
+      {:error, reason} ->
+        payload = Jason.encode!(%{type: "error", error: agent_hub_reason(reason)})
+        _ = Plug.Conn.chunk(conn, "data: #{payload}\n\n")
+        conn
+    end
+  end
+
+  defp agent_hub_decisions(%{"decisions" => decisions}) when is_list(decisions) do
+    case Enum.map(decisions, &agent_hub_decision/1) do
+      list when list != [] ->
+        if Enum.all?(list, &is_map/1),
+          do: {:ok, list},
+          else: {:error, "unsupported decision type"}
+
+      [] ->
+        {:error, "decisions must not be empty"}
+    end
+  end
+
+  defp agent_hub_decisions(_body), do: {:error, "decisions are required"}
+
+  defp agent_hub_decision(%{"type" => "approve"}), do: %{type: :approve}
+  defp agent_hub_decision(%{"type" => "reject"}), do: %{type: :reject}
+
+  defp agent_hub_decision(%{"type" => "edit"} = decision) do
+    %{type: :edit, arguments: Map.get(decision, "arguments") || %{}}
+  end
+
+  defp agent_hub_decision(%{"type" => "answer"} = decision) do
+    %{
+      type: :answer,
+      selected: Map.get(decision, "selected") || [],
+      text: Map.get(decision, "text")
+    }
+  end
+
+  defp agent_hub_decision(_other), do: :unsupported
+
+  defp agent_hub_reason(reason) when is_binary(reason), do: reason
+  defp agent_hub_reason(reason), do: inspect(reason)
 end

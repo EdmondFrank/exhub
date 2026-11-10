@@ -43,12 +43,13 @@ defmodule Exhub.Sagents.McpAdapter do
     input_schema = Map.get(tool_map, "inputSchema", %{})
     namespaced_name = "#{server_name}__#{tool_name}"
 
-    parameters = extract_parameters(input_schema)
-
+    # MCP gives us a JSON Schema; hand it to LangChain unchanged. Building
+    # `parameters:` out of `%FunctionParam{}` structs would flatten nested
+    # objects and arrays, and langchain 0.9 rejects plain maps there.
     LangChain.Function.new!(%{
       name: namespaced_name,
       description: "[#{server_name}] #{description}",
-      parameters: parameters,
+      parameters_schema: parameters_schema(input_schema),
       function: fn args, _context ->
         case BuiltInRegistry.call_tool(server_name, tool_name, args) do
           {:ok, result} ->
@@ -65,27 +66,14 @@ defmodule Exhub.Sagents.McpAdapter do
     })
   end
 
-  defp extract_parameters(%{"properties" => properties} = schema) do
-    required = Map.get(schema, "required", [])
+  # Accept the MCP `inputSchema` as-is when it is an object schema; otherwise
+  # fall back to a no-argument schema so the tool stays callable.
+  defp parameters_schema(%{"type" => "object", "properties" => properties} = schema)
+       when is_map(properties),
+       do: schema
 
-    properties
-    |> Enum.map(fn {name, prop} ->
-      %{
-        name: name,
-        type: map_json_type(prop),
-        description: Map.get(prop, "description", ""),
-        required: name in required
-      }
-    end)
-  end
+  defp parameters_schema(%{"properties" => properties} = schema) when is_map(properties),
+    do: Map.put(schema, "type", "object")
 
-  defp extract_parameters(_), do: []
-
-  defp map_json_type(%{"type" => "string"}), do: :string
-  defp map_json_type(%{"type" => "integer"}), do: :integer
-  defp map_json_type(%{"type" => "number"}), do: :number
-  defp map_json_type(%{"type" => "boolean"}), do: :boolean
-  defp map_json_type(%{"type" => "array"}), do: :array
-  defp map_json_type(%{"type" => "object"}), do: :object
-  defp map_json_type(_), do: :string
+  defp parameters_schema(_schema), do: %{"type" => "object", "properties" => %{}}
 end

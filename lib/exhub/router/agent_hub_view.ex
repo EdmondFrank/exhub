@@ -2,12 +2,14 @@ defmodule Exhub.Router.AgentHubView do
   @moduledoc """
   HTML view for the Agent Hub overview page.
 
-  Displays all registered agents with their running status
-  and provides start/stop controls.
+  Lists chat conversations (most recently active first) and the registered
+  agent profiles, and lets the user start a new conversation against any
+  profile. Conversation state lives in SQLite, so this page is the durable
+  entry point — opening a conversation rehydrates its transcript.
   """
 
   @doc """
-  Returns the complete HTML content for the Agent Hub page.
+  Returns the complete HTML for the Agent Hub overview page.
   """
   @spec render() :: String.t()
   def render do
@@ -26,11 +28,7 @@ defmodule Exhub.Router.AgentHubView do
           color: #c9d1d9;
           line-height: 1.6;
         }
-        .container {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 16px;
-        }
+        .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
         header {
           background: #161b22;
           border-bottom: 1px solid #30363d;
@@ -44,166 +42,107 @@ defmodule Exhub.Router.AgentHubView do
           flex-wrap: wrap;
           gap: 8px;
         }
-        h1 {
-          color: #58a6ff;
-          font-size: 22px;
-        }
-        .subtitle {
-          color: #8b949e;
-          font-size: 13px;
-        }
-        .header-right {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .nav-link {
+        h1 { color: #58a6ff; font-size: 22px; }
+        h2 { color: #f0f6fc; font-size: 15px; margin-bottom: 12px; }
+        .subtitle { color: #8b949e; font-size: 13px; }
+        .header-right, .row { display: flex; align-items: center; gap: 8px; }
+        .nav-link, .btn {
           color: #58a6ff;
           text-decoration: none;
           font-size: 13px;
           padding: 6px 12px;
           border: 1px solid #30363d;
           border-radius: 6px;
+          background: transparent;
+          cursor: pointer;
           transition: background 0.15s;
         }
-        .nav-link:hover {
-          background: #21262d;
-        }
-        .refresh-btn {
-          background: #238636;
-          color: white;
-          border: none;
-          padding: 6px 14px;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 13px;
-        }
-        .refresh-btn:hover {
-          background: #2ea043;
-        }
-        .agents-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-          gap: 16px;
-          margin-bottom: 20px;
-        }
-        .agent-card {
+        .nav-link:hover, .btn:hover:not(:disabled) { background: #21262d; }
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #2ea043; }
+        .btn-danger { border-color: #6e2c2c; color: #f85149; }
+        .btn-danger:hover:not(:disabled) { background: #3d1d1d; }
+        .panel {
           background: #161b22;
           border: 1px solid #30363d;
           border-radius: 10px;
-          padding: 20px;
-          transition: transform 0.2s, box-shadow 0.2s;
+          padding: 16px;
+          margin-bottom: 20px;
         }
-        .agent-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        .panel .row { flex-wrap: wrap; }
+        select, input[type=text] {
+          background: #0d1117;
+          color: #c9d1d9;
+          border: 1px solid #30363d;
+          border-radius: 6px;
+          padding: 7px 10px;
+          font-size: 13px;
+          font-family: inherit;
+          min-width: 200px;
         }
-        .agent-header {
+        select:focus, input[type=text]:focus { outline: none; border-color: #1f6feb; }
+        .conversation {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 12px;
+          gap: 12px;
+          padding: 12px 14px;
+          border: 1px solid #30363d;
+          border-radius: 8px;
+          background: #161b22;
+          margin-bottom: 8px;
         }
-        .agent-name {
-          font-size: 18px;
-          font-weight: 600;
+        .conversation:hover { border-color: #1f6feb; }
+        .conversation-main { min-width: 0; }
+        .conversation-title {
           color: #f0f6fc;
+          font-size: 15px;
+          font-weight: 600;
+          text-decoration: none;
+          display: block;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
-        .status-badge {
+        .conversation-title:hover { color: #58a6ff; }
+        .conversation-meta { color: #8b949e; font-size: 12px; }
+        .badge {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          padding: 4px 10px;
+          padding: 2px 8px;
           border-radius: 12px;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 500;
-        }
-        .status-running {
-          background: #238636;
-          color: white;
-        }
-        .status-stopped {
-          background: #30363d;
+          border: 1px solid #30363d;
           color: #8b949e;
         }
-        .status-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          display: inline-block;
-        }
-        .status-dot.running {
-          background: #3fb950;
-          box-shadow: 0 0 6px #3fb950;
-        }
-        .status-dot.stopped {
-          background: #8b949e;
-        }
-        .agent-description {
-          color: #8b949e;
-          font-size: 13px;
-          margin-bottom: 16px;
-          min-height: 40px;
-        }
-        .agent-actions {
-          display: flex;
-          gap: 8px;
-        }
-        .btn {
-          padding: 8px 16px;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          border: none;
-          transition: background 0.15s, opacity 0.15s;
-        }
-        .btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .btn-start {
-          background: #238636;
-          color: white;
-        }
-        .btn-start:hover:not(:disabled) {
-          background: #2ea043;
-        }
-        .btn-stop {
-          background: #da3633;
-          color: white;
-        }
-        .btn-stop:hover:not(:disabled) {
-          background: #f85149;
-        }
-        .btn-chat {
-          background: #1f6feb;
-          color: white;
-        }
-        .btn-chat:hover:not(:disabled) {
-          background: #388bfd;
-        }
-        .btn-reset {
-          background: #30363d;
-          color: #c9d1d9;
-          border: 1px solid #484f58;
-        }
-        .btn-reset:hover:not(:disabled) {
-          background: #484f58;
-        }
-        .loading {
-          text-align: center;
-          padding: 40px;
-          color: #8b949e;
-        }
+        .badge-running { border-color: #238636; color: #3fb950; }
+        .badge-interrupted { border-color: #9e6a03; color: #d29922; }
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: #8b949e; }
+        .dot.running { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+        .dot.interrupted { background: #d29922; }
+        .empty { color: #8b949e; font-size: 14px; padding: 24px 0; text-align: center; }
         .error {
-          background: #da3633;
-          color: white;
-          padding: 12px;
+          background: #3d1d1d;
+          border: 1px solid #da3633;
+          color: #ffb3b0;
+          padding: 10px 12px;
           border-radius: 8px;
           margin-bottom: 16px;
-          font-size: 14px;
+          font-size: 13px;
         }
+        .agents { display: flex; flex-wrap: wrap; gap: 8px; }
+        .agent-chip {
+          border: 1px solid #30363d;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 12px;
+          color: #c9d1d9;
+          cursor: pointer;
+        }
+        .agent-chip:hover { border-color: #1f6feb; color: #58a6ff; }
         .toast {
           position: fixed;
           bottom: 20px;
@@ -213,28 +152,18 @@ defmodule Exhub.Router.AgentHubView do
           border-radius: 8px;
           padding: 12px 20px;
           font-size: 13px;
-          color: #c9d1d9;
           box-shadow: 0 4px 12px rgba(0,0,0,0.4);
           transform: translateY(100px);
           opacity: 0;
           transition: transform 0.3s, opacity 0.3s;
           z-index: 1000;
         }
-        .toast.show {
-          transform: translateY(0);
-          opacity: 1;
-        }
-        .toast.success {
-          border-color: #238636;
-        }
-        .toast.error {
-          border-color: #da3633;
-        }
-        @media (max-width: 768px) {
-          h1 { font-size: 18px; }
-          .agents-grid {
-            grid-template-columns: 1fr;
-          }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { border-color: #238636; }
+        .toast.error { border-color: #da3633; }
+        @media (max-width: 720px) {
+          .conversation { flex-direction: column; align-items: flex-start; }
+          select, input[type=text] { width: 100%; }
         }
       </style>
     </head>
@@ -243,128 +172,204 @@ defmodule Exhub.Router.AgentHubView do
         <div class="container">
           <div>
             <h1>Agent Hub</h1>
-            <p class="subtitle">Manage and interact with your AI agents</p>
+            <p class="subtitle">Persistent conversations with sagents agents</p>
           </div>
           <div class="header-right">
             <a href="/dashboard" class="nav-link">Token Dashboard</a>
-            <button class="refresh-btn" onclick="loadAgents()">↻ Refresh</button>
+            <button class="btn" onclick="loadAll()">↻ Refresh</button>
           </div>
         </div>
       </header>
 
       <div class="container">
         <div id="error"></div>
-        <div class="agents-grid" id="agents-grid">
-          <div class="loading">Loading agents...</div>
+
+        <div class="panel">
+          <h2>New conversation</h2>
+          <div class="row">
+            <select id="agent-select"></select>
+            <input type="text" id="new-title" placeholder="Title (optional)">
+            <button class="btn btn-primary" id="create-btn" onclick="createConversation()">Start conversation</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Conversations</h2>
+          <div id="conversations"><div class="empty">Loading…</div></div>
+        </div>
+
+        <div class="panel">
+          <h2>Agent profiles</h2>
+          <div class="agents" id="agents"><span class="subtitle">Loading…</span></div>
         </div>
       </div>
 
       <div class="toast" id="toast"></div>
 
       <script>
+        function escapeHtml(text) {
+          var div = document.createElement('div');
+          div.appendChild(document.createTextNode(text == null ? '' : String(text)));
+          return div.innerHTML;
+        }
+
         function showToast(message, type) {
           var toast = document.getElementById('toast');
           toast.textContent = message;
           toast.className = 'toast show ' + (type || '');
-          setTimeout(function() {
-            toast.className = 'toast';
-          }, 3000);
+          setTimeout(function() { toast.className = 'toast'; }, 3000);
+        }
+
+        function showError(message) {
+          document.getElementById('error').innerHTML =
+            '<div class="error">' + escapeHtml(message) + '</div>';
+        }
+
+        function timeAgo(iso) {
+          if (!iso) return 'never';
+          var then = new Date(iso).getTime();
+          if (isNaN(then)) return iso;
+          var seconds = Math.round((Date.now() - then) / 1000);
+          if (seconds < 60) return 'just now';
+          if (seconds < 3600) return Math.round(seconds / 60) + 'm ago';
+          if (seconds < 86400) return Math.round(seconds / 3600) + 'h ago';
+          return Math.round(seconds / 86400) + 'd ago';
+        }
+
+        async function loadAll() {
+          document.getElementById('error').innerHTML = '';
+          await Promise.all([loadAgents(), loadConversations()]);
         }
 
         async function loadAgents() {
           try {
-            document.getElementById('error').innerHTML = '';
-            var response = await fetch('/agent-hub/agents');
-            var data = await response.json();
+            var data = await (await fetch('/agent-hub/agents')).json();
             var agents = data.agents || [];
+            var select = document.getElementById('agent-select');
+            var previous = select.value;
 
-            if (agents.length === 0) {
-              document.getElementById('agents-grid').innerHTML =
-                '<div class="loading">No agents registered</div>';
+            select.innerHTML = agents.map(function(agent) {
+              return '<option value="' + escapeHtml(agent.name) + '">' + escapeHtml(agent.name) + '</option>';
+            }).join('');
+
+            if (previous) select.value = previous;
+
+            document.getElementById('agents').innerHTML = agents.map(function(agent) {
+              return '<span class="agent-chip" onclick="pickAgent(\\'' + escapeHtml(agent.name) + '\\')">' +
+                escapeHtml(agent.name) + (agent.running ? ' •' : '') + '</span>';
+            }).join('') || '<span class="subtitle">No agent profiles registered</span>';
+          } catch (err) {
+            showError('Failed to load agents: ' + err.message);
+          }
+        }
+
+        function pickAgent(name) {
+          document.getElementById('agent-select').value = name;
+        }
+
+        async function loadConversations() {
+          try {
+            var data = await (await fetch('/agent-hub/conversations')).json();
+            var conversations = data.conversations || [];
+            var container = document.getElementById('conversations');
+
+            if (conversations.length === 0) {
+              container.innerHTML = '<div class="empty">No conversations yet — start one above.</div>';
               return;
             }
 
-            var html = agents.map(function(agent) {
-              var statusClass = agent.running ? 'running' : 'stopped';
-              var statusText = agent.running ? 'Running' : 'Stopped';
+            container.innerHTML = conversations.map(function(conv) {
+              var state = conv.status === 'interrupted' ? 'interrupted' : (conv.running ? 'running' : 'idle');
+              var badge = conv.running
+                ? '<span class="badge badge-' + (state === 'interrupted' ? 'interrupted' : 'running') + '">' +
+                    '<span class="dot ' + (state === 'interrupted' ? 'interrupted' : 'running') + '"></span>' +
+                    (state === 'interrupted' ? 'Needs approval' : 'Live') + '</span>'
+                : '<span class="badge">Stopped</span>';
 
-              return '<div class="agent-card">' +
-                '<div class="agent-header">' +
-                  '<span class="agent-name">' + escapeHtml(agent.name) + '</span>' +
-                  '<span class="status-badge status-' + statusClass + '">' +
-                    '<span class="status-dot ' + statusClass + '"></span>' +
-                    statusText +
-                  '</span>' +
+              var title = conv.title || conv.agent_name + ' chat';
+
+              return '<div class="conversation">' +
+                '<div class="conversation-main">' +
+                  '<a class="conversation-title" href="/agent-hub/c/' + encodeURIComponent(conv.id) + '">' +
+                    escapeHtml(title) + '</a>' +
+                  '<div class="conversation-meta">' +
+                    escapeHtml(conv.agent_name) + ' · last message ' +
+                    escapeHtml(timeAgo(conv.last_message_at || conv.created_at)) +
+                  '</div>' +
                 '</div>' +
-                '<div class="agent-actions">' +
-                  (agent.running
-                    ? '<button class="btn btn-stop" onclick="stopAgent(\\'' + escapeHtml(agent.name) + '\\')">Stop</button>' +
-                      '<button class="btn btn-chat" onclick="openChat(\\'' + escapeHtml(agent.name) + '\\')">Chat</button>'
-                    : '<button class="btn btn-start" onclick="startAgent(\\'' + escapeHtml(agent.name) + '\\')">Start</button>'
-                  ) +
-                  '<button class="btn btn-reset" onclick="resetAgent(\\'' + escapeHtml(agent.name) + '\\')">Reset</button>' +
+                '<div class="row">' + badge +
+                  '<a class="btn" href="/agent-hub/c/' + encodeURIComponent(conv.id) + '">Open</a>' +
+                  '<button class="btn" onclick="renameConversation(\\'' + escapeHtml(conv.id) + '\\', ' +
+                    escapeHtml(JSON.stringify(title)) + ')">Rename</button>' +
+                  '<button class="btn btn-danger" onclick="deleteConversation(\\'' + escapeHtml(conv.id) + '\\')">Delete</button>' +
                 '</div>' +
               '</div>';
             }).join('');
-
-            document.getElementById('agents-grid').innerHTML = html;
           } catch (err) {
-            document.getElementById('error').innerHTML =
-              '<div class="error">Error: ' + err.message + '</div>';
-            console.error('Agent Hub error:', err);
+            showError('Failed to load conversations: ' + err.message);
           }
         }
 
-        async function startAgent(name) {
+        async function createConversation() {
+          var agent = document.getElementById('agent-select').value;
+          var title = document.getElementById('new-title').value.trim();
+          var button = document.getElementById('create-btn');
+
+          if (!agent) {
+            showToast('Pick an agent profile first', 'error');
+            return;
+          }
+
+          button.disabled = true;
+
           try {
-            var response = await fetch('/agent-hub/agents/' + encodeURIComponent(name) + '/start', {
-              method: 'POST'
+            var response = await fetch('/agent-hub/conversations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent_name: agent, title: title || null })
             });
             var result = await response.json();
 
-            if (response.ok) {
-              showToast('Agent started: ' + name, 'success');
-            } else {
-              showToast('Failed to start agent: ' + (result.error || 'Unknown error'), 'error');
-            }
+            if (!response.ok) throw new Error(result.error || ('HTTP ' + response.status));
 
-            setTimeout(loadAgents, 500);
+            window.location.href = '/agent-hub/c/' + encodeURIComponent(result.conversation.id);
           } catch (err) {
-            showToast('Failed to start agent: ' + err.message, 'error');
+            showToast('Failed to create conversation: ' + err.message, 'error');
+            button.disabled = false;
           }
         }
 
-        async function stopAgent(name) {
+        async function renameConversation(id, currentTitle) {
+          var title = prompt('Conversation title', currentTitle);
+          if (title === null) return;
+
           try {
-            await fetch('/agent-hub/agents/' + encodeURIComponent(name) + '/stop', { method: 'POST' });
-            showToast('Agent stopped: ' + name, 'success');
-            loadAgents();
+            await fetch('/agent-hub/conversations/' + encodeURIComponent(id), {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: title })
+            });
+            showToast('Renamed', 'success');
+            loadConversations();
           } catch (err) {
-            showToast('Failed to stop agent: ' + err.message, 'error');
+            showToast('Rename failed: ' + err.message, 'error');
           }
         }
 
-        async function resetAgent(name) {
+        async function deleteConversation(id) {
+          if (!confirm('Delete this conversation and its transcript?')) return;
+
           try {
-            await fetch('/agent-hub/agents/' + encodeURIComponent(name) + '/reset', { method: 'POST' });
-            showToast('Agent reset: ' + name, 'success');
+            await fetch('/agent-hub/conversations/' + encodeURIComponent(id), { method: 'DELETE' });
+            showToast('Deleted', 'success');
+            loadConversations();
           } catch (err) {
-            showToast('Failed to reset agent: ' + err.message, 'error');
+            showToast('Delete failed: ' + err.message, 'error');
           }
         }
 
-        function openChat(name) {
-          window.location.href = '/agent-hub/agents/' + encodeURIComponent(name) + '/chat';
-        }
-
-        function escapeHtml(text) {
-          var div = document.createElement('div');
-          div.appendChild(document.createTextNode(text));
-          return div.innerHTML;
-        }
-
-        loadAgents();
-        setInterval(loadAgents, 10000);
+        loadAll();
+        setInterval(loadConversations, 10000);
       </script>
     </body>
     </html>
