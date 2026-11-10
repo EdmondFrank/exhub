@@ -20,6 +20,10 @@ defmodule Exhub.Sagents.Hub do
 
   @chat_timeout 300_000
   @stream_timeout 120_000
+  # A browser EventSource reconnects on its own, so a follow stream only needs
+  # to be long enough to be useful; the client re-snapshots when it reopens.
+  @follow_timeout 1_800_000
+  @heartbeat 15_000
   @default_inactivity 3_600_000
 
   # --- Client API ---
@@ -197,8 +201,49 @@ defmodule Exhub.Sagents.Hub do
   def chat_stream(name_or_id, message) do
     with {:ok, conversation} <- resolve_conversation(name_or_id),
          {:ok, _pid} <- ensure_running(conversation) do
-      {:ok, build_event_stream(conversation.id, message)}
+      {:ok, build_stream(conversation.id, :turn, message)}
     end
+  end
+
+  @doc """
+  Queue a user message and return immediately.
+
+  Unlike `chat_stream/2`, this does not hold the request open for the turn: the
+  caller follows progress on `event_stream/1`. Returns `{:error, reason}` when
+  the agent refuses the message (sagents before 0.10 rejects a send while a run
+  is in flight).
+  """
+  @spec send_message(String.t(), String.t()) :: :ok | {:error, term()}
+  def send_message(name_or_id, message) when is_binary(message) do
+    with {:ok, conversation} <- resolve_conversation(name_or_id),
+         {:ok, _pid} <- ensure_running(conversation) do
+      Sagents.AgentServer.add_message(conversation.id, LangChain.Message.new_user!(message))
+    end
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  @doc """
+  Long-lived event stream for one conversation.
+
+  Emits `%{event: name, data: payload}` maps and `:heartbeat` atoms (written as
+  SSE comments by the router). The stream starts with a `snapshot` carrying the
+  persisted transcript, the live status, and any pending interrupt, then carries
+  display-message rows, tool status changes, LLM deltas, and status changes.
+  Starts the conversation's agent when it is not running.
+  """
+  @spec event_stream(String.t()) :: {:ok, Enumerable.t()} | {:error, term()}
+  def event_stream(conversation_id) do
+    with {:ok, conversation} <- Store.get_conversation(conversation_id),
+         {:ok, _pid} <- ensure_running(conversation) do
+      {:ok, build_stream(conversation.id, :follow)}
+    end
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
   end
 
   @doc """
@@ -467,6 +512,12 @@ defmodule Exhub.Sagents.Hub do
       {:agent, {:status_changed, :interrupted, data}} ->
         {:error, {:interrupted, interrupt_summary(data)}}
 
+      {:agent, {:status_changed, :cancelled, _}} ->
+        {:error, :cancelled}
+
+      {:agent, {:status_changed, :paused, reason}} ->
+        {:error, {:paused, reason}}
+
       {:agent, {:tool_execution_update, status, info}} ->
         Logger.debug("[Sagents.Hub] tool #{Map.get(info, :name)} -> #{status}")
         do_wait_for_completion(id, deadline, timeout, saw_running?)
@@ -512,26 +563,44 @@ defmodule Exhub.Sagents.Hub do
 
   # --- Streaming ---
 
+  # Both SSE endpoints share one state machine.
+  #
+  #   * `:turn`   — backs `chat_stream/2` (POST /chat). It subscribes, sends the
+  #     message, and ends when the run ends (idle, interrupt, cancel, error),
+  #     keeping the legacy `%{type: ...}` event shape.
+  #   * `:follow` — backs `event_stream/1` (GET /events). It keeps running:
+  #     transcript rows, tool status, deltas, and status changes are forwarded,
+  #     a heartbeat makes a dead connection or stopped agent visible, and the
+  #     client reconnects (getting a fresh snapshot) when the stream ends.
+  #
   # The stream runs in the process that consumes it (the HTTP request), so each
   # event is written to the socket as it arrives instead of at the end of the
-  # turn. The request subscribes itself before the message is queued, so no
-  # event from this turn can be missed.
-  defp build_event_stream(id, message) do
+  # turn.
+  defp build_stream(id, mode, message \\ nil) do
     Stream.resource(
       fn ->
         Sagents.AgentServer.subscribe(id)
 
-        case Sagents.AgentServer.add_message(id, LangChain.Message.new_user!(message)) do
-          :ok ->
-            %{
-              id: id,
-              deadline: System.monotonic_time(:millisecond) + @stream_timeout,
-              done: false,
-              saw_running: false
-            }
+        state = %{
+          id: id,
+          mode: mode,
+          deadline: System.monotonic_time(:millisecond) + stream_timeout(mode),
+          saw_running: false,
+          pending: [],
+          done: false
+        }
 
-          {:error, reason} ->
-            %{id: id, done: true, pending: [%{type: :error, error: inspect(reason)}]}
+        case mode do
+          :turn ->
+            case Sagents.AgentServer.add_message(id, LangChain.Message.new_user!(message)) do
+              :ok -> state
+              {:error, reason} -> %{state | done: true, pending: [{:error, inspect(reason)}]}
+            end
+
+          :follow ->
+            # Subscribe before reading the snapshot so nothing between the two
+            # is lost. Rows that land in both are de-duplicated by id in the UI.
+            %{state | pending: [{:snapshot, snapshot(id)}]}
         end
       end,
       &next_event/1,
@@ -539,66 +608,237 @@ defmodule Exhub.Sagents.Hub do
     )
   end
 
-  defp next_event(%{pending: [event | rest]} = state) do
-    {[event], %{state | pending: rest, done: rest == []}}
-  end
-
-  defp next_event(%{done: true} = state), do: {:halt, state}
+  defp stream_timeout(:turn), do: @stream_timeout
+  defp stream_timeout(:follow), do: @follow_timeout
 
   defp next_event(state) do
+    case step(state) do
+      {:halt, state} ->
+        {:halt, state}
+
+      {events, state} ->
+        events =
+          Enum.flat_map(events, fn
+            # Heartbeats are written as SSE comments by the router, not JSON.
+            :heartbeat -> [:heartbeat]
+            event -> List.wrap(present_event(state.mode, event))
+          end)
+
+        {events, state}
+    end
+  end
+
+  defp step(%{pending: [event | rest]} = state) do
+    {[event], %{state | pending: rest}}
+  end
+
+  defp step(%{pending: [], done: true} = state), do: {:halt, state}
+
+  defp step(state) do
     remaining = max(state.deadline - System.monotonic_time(:millisecond), 0)
 
     if remaining == 0 do
-      {[%{type: :error, error: "timeout"}], %{state | done: true}}
+      deadline_reached(state)
     else
+      wait = if state.mode == :follow, do: min(remaining, @heartbeat), else: remaining
+
       receive do
-        {:agent, {:status_changed, :running, _}} ->
-          next_event(%{state | saw_running: true})
-
-        {:agent, {:llm_deltas, deltas}} ->
-          {Enum.map(deltas, fn delta -> %{type: :delta, text: delta_text(delta)} end), state}
-
-        {:agent, {:tool_execution_update, :executing, info}} ->
-          event = %{
-            type: :tool_call,
-            tool: Map.get(info, :name),
-            call_id: Map.get(info, :call_id)
-          }
-
-          {[event], state}
-
-        {:agent, {:tool_execution_update, status, info}} when status in [:completed, :failed] ->
-          event = %{
-            type: :tool_result,
-            tool: Map.get(info, :name),
-            call_id: Map.get(info, :call_id),
-            status: status
-          }
-
-          {[event], state}
-
-        # The initial idle a fresh agent broadcasts is not a finished turn.
-        {:agent, {:status_changed, :idle, _}} when not state.saw_running ->
-          next_event(state)
-
-        {:agent, {:status_changed, :idle, _}} ->
-          {:ok, final_text} = extract_last_response(state.id)
-          {[%{type: :complete, text: final_text}], %{state | done: true}}
-
-        {:agent, {:status_changed, :error, reason}} ->
-          {[%{type: :error, error: inspect(reason)}], %{state | done: true}}
-
-        {:agent, {:status_changed, :interrupted, data}} ->
-          {[%{type: :interrupted, interrupt: interrupt_summary(data)}], %{state | done: true}}
-
-        {:agent, _other} ->
-          next_event(%{state | deadline: state.deadline})
+        {:agent, event} -> advance(state, event)
       after
-        remaining ->
-          {[%{type: :error, error: "timeout"}], %{state | done: true}}
+        wait -> on_wait(state)
       end
     end
   end
+
+  defp deadline_reached(%{mode: :turn} = state),
+    do: {[{:error, "timeout"}], %{state | done: true}}
+
+  defp deadline_reached(state), do: {:halt, state}
+
+  defp on_wait(%{mode: :turn} = state),
+    do: {[{:error, "timeout"}], %{state | done: true}}
+
+  defp on_wait(%{mode: :follow} = state) do
+    # Heartbeat tick: keep the connection open, and notice an agent that went
+    # away (inactivity timeout, stop, crash). Closing lets EventSource
+    # reconnect, which starts the agent again and sends a fresh snapshot.
+    if agent_alive?(state.id) do
+      {[:heartbeat], state}
+    else
+      {[{:status, :not_running, nil}], %{state | done: true}}
+    end
+  end
+
+  defp advance(state, {:status_changed, :running, _}) do
+    state = %{state | saw_running: true}
+
+    case state.mode do
+      :turn -> step(state)
+      :follow -> {[{:status, :running, nil}], state}
+    end
+  end
+
+  defp advance(state, {:llm_deltas, deltas}) do
+    {Enum.map(deltas, &{:delta, delta_text(&1)}), state}
+  end
+
+  defp advance(state, {:tool_execution_update, :executing, info}) do
+    {[{:tool, :executing, tool_info(info)}], state}
+  end
+
+  defp advance(state, {:tool_execution_update, status, info})
+       when status in [:completed, :failed, :interrupted, :cancelled] do
+    {[{:tool, status, tool_info(info)}], state}
+  end
+
+  defp advance(state, {:display_message_saved, row}) do
+    {[{:display_message, row}], state}
+  end
+
+  # sagents 0.10+ queues a message typed while a run is in flight.
+  defp advance(state, {:message_queued, _message}) do
+    {[:queued], state}
+  end
+
+  # The initial idle a fresh agent broadcasts is not a finished turn.
+  defp advance(state, {:status_changed, :idle, _}) do
+    cond do
+      not state.saw_running ->
+        step(state)
+
+      state.mode == :turn ->
+        {[{:complete, last_response(state.id)}], %{state | done: true}}
+
+      true ->
+        {[{:status, :idle, nil}], state}
+    end
+  end
+
+  defp advance(state, {:status_changed, :interrupted, data}) do
+    case state.mode do
+      :turn -> {[{:interrupted, interrupt_summary(data)}], %{state | done: true}}
+      :follow -> {[{:status, :interrupted, interrupt_summary(data)}], state}
+    end
+  end
+
+  # A cancel can come from another tab or `stop_conversation/1`; without this
+  # clause the stream waited for its deadline instead of ending.
+  defp advance(state, {:status_changed, :cancelled, _reason}) do
+    case state.mode do
+      :turn -> {[{:cancelled, nil}], %{state | done: true}}
+      :follow -> {[{:status, :cancelled, nil}], state}
+    end
+  end
+
+  defp advance(state, {:status_changed, :paused, reason}) do
+    case state.mode do
+      :turn -> {[{:paused, reason}], %{state | done: true}}
+      :follow -> {[{:status, :paused, reason}], state}
+    end
+  end
+
+  defp advance(state, {:status_changed, :error, reason}) do
+    case state.mode do
+      :turn -> {[{:error, inspect(reason)}], %{state | done: true}}
+      :follow -> {[{:status, :error, reason}], state}
+    end
+  end
+
+  defp advance(state, _other), do: step(state)
+
+  defp last_response(id) do
+    case extract_last_response(id) do
+      {:ok, text} -> text
+      _other -> ""
+    end
+  end
+
+  defp tool_info(info) do
+    %{
+      call_id: Map.get(info, :call_id),
+      name: Map.get(info, :name),
+      display_text: Map.get(info, :display_text)
+    }
+  end
+
+  # First event of a follow stream: everything a freshly loaded page needs.
+  defp snapshot(id) do
+    messages =
+      case Store.list_messages(id) do
+        {:ok, messages} -> messages
+        {:error, _reason} -> []
+      end
+
+    status = conversation_status(id)
+
+    interrupt =
+      case pending_interrupt(id) do
+        {:ok, interrupt} -> interrupt
+        :none -> nil
+      end
+
+    %{
+      messages: messages,
+      status: status.status,
+      # `alive` tracks the agent process; `running` inside a status event tracks
+      # an executing turn. The two differ between turns, so send both.
+      alive: status.running,
+      running: status.status == :running,
+      interrupt: interrupt
+    }
+  end
+
+  defp agent_alive?(id) do
+    case Sagents.AgentServer.get_pid(id) do
+      pid when is_pid(pid) -> Process.alive?(pid)
+      _other -> false
+    end
+  rescue
+    _error -> false
+  catch
+    :exit, _reason -> false
+  end
+
+  @doc false
+  # Maps an internal event to the wire shape for a stream mode. `nil` drops it;
+  # turn streams carry only turn events, follow streams only transcript/status
+  # events. Exposed for tests.
+  def present_event(:turn, {:delta, text}), do: %{type: :delta, text: text}
+
+  def present_event(:turn, {:tool, :executing, info}),
+    do: %{type: :tool_call, tool: info.name, call_id: info.call_id}
+
+  def present_event(:turn, {:tool, status, info}),
+    do: %{type: :tool_result, tool: info.name, call_id: info.call_id, status: status}
+
+  def present_event(:turn, {:complete, text}), do: %{type: :complete, text: text}
+  def present_event(:turn, {:interrupted, data}), do: %{type: :interrupted, interrupt: data}
+  def present_event(:turn, {:cancelled, _reason}), do: %{type: :cancelled}
+  def present_event(:turn, {:paused, reason}), do: %{type: :paused, reason: inspect(reason)}
+  def present_event(:turn, {:error, reason}), do: %{type: :error, error: reason}
+  def present_event(:turn, _event), do: nil
+
+  def present_event(:follow, {:snapshot, data}), do: %{event: "snapshot", data: data}
+  def present_event(:follow, {:display_message, row}), do: %{event: "display_message", data: row}
+
+  def present_event(:follow, {:tool, status, info}),
+    do: %{event: "tool_status", data: Map.put(info, :status, status)}
+
+  def present_event(:follow, {:delta, text}), do: %{event: "delta", data: %{text: text}}
+
+  def present_event(:follow, {:status, status, payload}),
+    do: %{
+      event: "status",
+      data: %{
+        status: status,
+        running: status == :running,
+        alive: status != :not_running,
+        payload: payload
+      }
+    }
+
+  def present_event(:follow, :queued), do: %{event: "queued", data: %{}}
+  def present_event(:follow, _event), do: nil
 
   defp delta_text(delta) do
     case Map.get(delta, :content) do

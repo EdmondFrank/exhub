@@ -985,6 +985,42 @@ defmodule Exhub.Router do
     end
   end
 
+  # Long-lived SSE feed for the browser (EventSource). Unlike the POST /chat
+  # stream, this one stays open across turns so a second tab, an approval
+  # resume, or a turn started elsewhere all render live.
+  get "/agent-hub/c/:id/events" do
+    case Exhub.Sagents.Hub.get_conversation(conn.params["id"]) do
+      {:ok, conversation} ->
+        agent_hub_events(conn, conversation.id)
+
+      {:error, :not_found} ->
+        agent_hub_json(conn, 404, %{error: "conversation not found"})
+
+      {:error, reason} ->
+        agent_hub_json(conn, 503, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  # Fire-and-forget alternative to POST /chat: progress arrives on /events.
+  post "/agent-hub/c/:id/messages" do
+    message = conn.body_params["message"]
+
+    if is_nil(message) or message == "" do
+      agent_hub_json(conn, 400, %{error: "message is required"})
+    else
+      case Exhub.Sagents.Hub.send_message(conn.params["id"], message) do
+        :ok ->
+          agent_hub_json(conn, 202, %{status: "queued"})
+
+        {:error, :not_found} ->
+          agent_hub_json(conn, 404, %{error: "conversation not found"})
+
+        {:error, reason} ->
+          agent_hub_json(conn, 409, %{error: agent_hub_reason(reason)})
+      end
+    end
+  end
+
   post "/agent-hub/c/:id/decision" do
     case agent_hub_decisions(conn.body_params) do
       {:ok, decisions} ->
@@ -1873,6 +1909,54 @@ defmodule Exhub.Router do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(status, Jason.encode!(payload))
+  end
+
+  defp agent_hub_events(conn, conversation_id) do
+    # Validate before the headers go out: once chunked, the status is fixed.
+    case Exhub.Sagents.Hub.event_stream(conversation_id) do
+      {:ok, stream} ->
+        conn =
+          conn
+          |> put_resp_header("content-type", "text/event-stream; charset=utf-8")
+          |> put_resp_header("cache-control", "no-cache, no-transform")
+          # Keep reverse proxies from buffering the stream.
+          |> put_resp_header("x-accel-buffering", "no")
+          |> put_resp_header("connection", "keep-alive")
+          |> send_chunked(200)
+
+        case Plug.Conn.chunk(conn, "retry: 3000\n\n") do
+          {:ok, conn} -> agent_hub_pump(stream, conn)
+          {:error, _reason} -> conn
+        end
+
+      {:error, reason} ->
+        agent_hub_json(conn, 503, %{error: agent_hub_reason(reason)})
+    end
+  end
+
+  defp agent_hub_pump(stream, conn) do
+    Enum.reduce_while(stream, conn, fn
+      :heartbeat, conn ->
+        case Plug.Conn.chunk(conn, ": ping\n\n") do
+          {:ok, conn} -> {:cont, conn}
+          {:error, _reason} -> {:halt, conn}
+        end
+
+      %{event: event, data: data}, conn ->
+        case Jason.encode(data) do
+          {:ok, json} ->
+            case Plug.Conn.chunk(conn, "event: #{event}\ndata: #{json}\n\n") do
+              {:ok, conn} -> {:cont, conn}
+              {:error, _reason} -> {:halt, conn}
+            end
+
+          {:error, _reason} ->
+            {:cont, conn}
+        end
+
+      _ignored, conn ->
+        {:cont, conn}
+    end)
   end
 
   defp agent_hub_stream(conn, conversation_id, message) do

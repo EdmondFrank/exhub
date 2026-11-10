@@ -1,107 +1,138 @@
 # Agent Hub (exhub-agent-hub)
 
-MCP-based agent orchestration platform powered by sagents. Manage multiple
-LLM-backed agents with middleware, tools, and conversation state.
+Multi-conversation agent platform powered by `sagents`. Each conversation is
+one agent thread with its own transcript, tool calls, approvals, and restored
+middleware state.
 
 ## Features
 
-- **Agent Factory** — Define agents in code with custom system prompts, middleware, and MCP tool groups
-- **Chat API** — HTTP REST with SSE streaming at `POST /agent-hub/agents/{name}/chat`
-- **MCP Server** — Single hub endpoint at `/agent-hub/mcp` with tools for agent management
-- **Selective MCP Tool Injection** — Each agent can use specific exhub MCP tool groups (desktop, web-tools, brain, etc.)
-- **Optional Persistence** — File-based state persistence per agent
-- **Web UI** — Browser-based interface for managing and chatting with agents
+- **Conversation store** — SQLite (`~/.config/exhub/agent_hub/hub.db`, WAL) via
+  `Exhub.Sagents.Store`: conversations, display messages, serialized agent
+  state, ordered by `last_message_at`
+- **Agent Factory** — agents defined in code with system prompts, middleware,
+  and MCP tool groups (`Exhub.Sagents.Factory`)
+- **Lazy agent lifecycle** — one agent process per conversation, started on the
+  first chat (or page load), stopped by the sagents inactivity timeout, state
+  restored from SQLite on the next start
+- **Live web UI** — server-rendered transcript plus a long-lived SSE feed for
+  turns, tool status, approvals, and multi-tab updates
+- **MCP server** — endpoint at `/agent-hub/mcp` (streamable HTTP). The hub MCP
+  tools are currently commented out in `Exhub.Sagents.AgentHubServer`; the HTTP
+  API and web UI are fully operational.
 
 ## Web UI
 
-The Agent Hub provides web pages for managing and interacting with agents:
+### Conversation list
 
-### Agent Overview
+`http://localhost:9069/agent-hub`
 
-URL: `http://localhost:9069/agent-hub`
+Lists registered agents and conversations (most recently active first), with
+create/rename/delete and start/stop controls.
 
-Displays all registered agents with their running status. Provides buttons to:
-- **Start** — Start a stopped agent
-- **Stop** — Stop a running agent
-- **Chat** — Open chat interface for a running agent
-- **Reset** — Reset agent conversation state
+### Conversation
 
-### Agent Chat
+`http://localhost:9069/agent-hub/c/{conversation_id}`
 
-URL: `http://localhost:9069/agent-hub/agents/{name}/chat`
+- The transcript is rendered on the server from SQLite, so a reload or a second
+  browser shows the whole conversation.
+- An `EventSource` on `GET /agent-hub/c/{id}/events` keeps the page live: new
+  rows, tool status changes, streamed deltas, status changes, and pending
+  approvals all arrive without polling or page reloads.
+- `POST /agent-hub/c/{id}/messages` queues a message and returns immediately;
+  the response body is not read.
+- Approve/Reject posts to `/decision`; the resumed turn streams on the same
+  feed.
 
-Real-time chat interface for a specific agent. Features:
-- Server-Sent Events (SSE) for streaming responses
-- Typing indicators
-- Tool call notifications
-- Message formatting (code blocks, inline code)
-- Auto-resizing input
-- Keyboard shortcuts (Enter to send, Shift+Enter for newline)
+The legacy `/agent-hub/agents/{name}/chat` URL redirects to the agent's newest
+conversation.
 
-## API Endpoints
+## API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/agent-hub/agents` | List all agents |
-| `POST` | `/agent-hub/agents/{name}/start` | Start an agent |
-| `POST` | `/agent-hub/agents/{name}/chat` | Chat with agent (SSE stream) |
-| `GET` | `/agent-hub/agents/{name}/status` | Agent status |
-| `POST` | `/agent-hub/agents/{name}/reset` | Reset agent state |
-| `POST` | `/agent-hub/agents/{name}/stop` | Stop agent |
+| `GET` | `/agent-hub` | Conversation list page |
+| `GET` | `/agent-hub/c/{id}` | Conversation page |
+| `GET` | `/agent-hub/c/{id}/events` | Long-lived SSE feed (EventSource) |
+| `POST` | `/agent-hub/c/{id}/messages` | Queue a message; `202` immediately |
+| `POST` | `/agent-hub/c/{id}/chat` | Send and stream this turn (legacy SSE) |
+| `POST` | `/agent-hub/c/{id}/decision` | Approve/reject a HITL interrupt |
+| `GET` | `/agent-hub/c/{id}/status` | Conversation status |
+| `GET` | `/agent-hub/c/{id}/interrupt` | Pending approval payload, if any |
+| `POST` | `/agent-hub/c/{id}/reset` | Clear transcript and agent state |
+| `POST` | `/agent-hub/c/{id}/stop` | Stop the conversation's agent |
+| `POST` | `/agent-hub/c/{id}/start` | Start the agent without sending a message |
+| `GET` | `/agent-hub/conversations` | List conversations (optional `?agent=`) |
+| `POST` | `/agent-hub/conversations` | Create a conversation |
+| `PATCH` | `/agent-hub/conversations/{id}` | Rename |
+| `DELETE` | `/agent-hub/conversations/{id}` | Delete (stops the agent first) |
+| `GET` | `/agent-hub/agents` | Registered agent profiles |
+| `POST` | `/agent-hub/agents/{name}/chat` | Legacy agent-name SSE chat |
+| `GET` | `/agent-hub/agents/{name}/status` | Aggregate status for an agent |
+| `POST` | `/agent-hub/agents/{name}/start`, `/stop`, `/reset` | Legacy controls |
 
-## MCP Tools
+## SSE contract
 
-> **Note:** MCP tools are temporarily disabled in `AgentHubServer` during refactoring.
-> The HTTP REST API and Web UI remain fully operational.
+`GET /agent-hub/c/{id}/events` responds with `text/event-stream` and:
 
-| Tool | Description |
-|------|-------------|
-| `agent_hub_list` | List all registered agents |
-| `agent_hub_start` | Start an agent |
-| `agent_hub_chat` | Send message to agent |
-| `agent_hub_status` | Get agent status |
-| `agent_hub_reset` | Reset agent state |
-| `agent_hub_stop` | Stop a running agent |
+- `retry: 3000` once at open, followed by named events.
+- A `: ping` comment every 15 seconds. If the agent process has gone away, the
+  stream sends `status: not_running` and closes so the client reconnects.
+- `event: snapshot` first — `{messages, status, alive, running, interrupt}`.
+  Rows are de-duplicated by `id`, so a reconnect is safe. `alive` means the
+  agent process exists; `running` means a turn is executing right now.
+- `event: display_message` — a saved transcript row (`id`, `message_type`,
+  `content_type`, `content`, `status`, `call_id`, …).
+- `event: tool_status` — `{call_id, name, status, display_text}` for
+  `executing`, `completed`, `failed`, `interrupted`, or `cancelled`.
+- `event: delta` — `{text}` LLM output as it streams.
+- `event: status` — `{status, running, alive, payload}`; `payload` carries the
+  approval summary for `interrupted`. `alive` is `false` only for
+  `not_running` (the agent process is gone).
+- `event: queued` — a message was queued (sagents 0.10+ only).
+- The connection closes after 30 minutes; `EventSource` reconnects and receives
+  a fresh snapshot. A closed HTTP connection ends the producer subscription.
 
-## Default Agents
+The POST `/chat` endpoints keep the older single-turn format: repeated
+`data: {json}` lines with `type` of `delta`, `tool_call`, `tool_result`,
+`complete`, `interrupted`, `cancelled`, `paused`, or `error`, terminated by
+`data: [DONE]`.
 
-- **coder** — Coding assistant with desktop + web-tools, HITL for dangerous operations
-- **researcher** — Research assistant with web-tools + brain + look
-- **assistant** — General-purpose with desktop + web-tools + todo
-- **genclaw** — Image generation agent powered by kimi-k2.6. Uses perception middleware (sub-LLM extracts painter notes) and completion guard middleware. Native tools: `t2i`, `i2i`, `search`, `reason`, `format_prompt`, `vlm_review`, `code_scene_draft` (SVG → headless Chrome PNG for exact object counts/positions), `code_text_draft` (HTML/CSS rendering for verbatim text). All image generation via Gitee AI (Qwen-Image-2512). See [priv/genclaw/diagrams.txt](../../priv/genclaw/diagrams.txt) for architecture diagrams.
+## MCP tools
 
-## Chat Example
+The endpoint `/agent-hub/mcp` is wired up, but the components in
+`lib/exhub/sagents/tools/` are commented out in `AgentHubServer` during the
+conversation refactor. The modules (`agent_hub_list`, `agent_hub_start`,
+`agent_hub_chat`, `agent_hub_status`, `agent_hub_reset`, `agent_hub_stop`) call
+the same `Exhub.Sagents.Hub` API and can be re-enabled by uncommenting them.
 
-```bash
-curl -N http://localhost:9069/agent-hub/agents/assistant/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What files are in the current directory?"}'
-```
+## Default agents
 
-## MCP Example
-
-```bash
-# List agents via MCP
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_hub_list","arguments":{}}}' | \
-  curl -s -X POST http://localhost:9069/agent-hub/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d @-
-```
+- **coder** — desktop + web-tools, HITL for `execute_command` and `write_file`
+- **researcher** — web-tools + brain + look
+- **assistant** — desktop + web-tools + todo
+- **genclaw** — image generation via `kimi-k2.6`; perception + completion-guard
+  middleware and native `t2i`, `i2i`, `search`, `reason`, `format_prompt`,
+  `vlm_review`, `code_scene_draft`, `code_text_draft` tools
+- **toonflow** — short-drama pipeline over the native `toonflow_*` tools
 
 ## Architecture
 
-The Agent Hub is built on the `sagents` agent orchestration framework:
+- **`Exhub.Sagents.Hub`** — conversation lifecycle GenServer, turn streams, and
+  the follow-mode event state machine
+- **`Exhub.Sagents.Store`** — SQLite persistence (conversations, display
+  messages, agent state)
+- **`Exhub.Sagents.Persistence`** — `Sagents.AgentPersistence` over the store
+- **`Exhub.Sagents.DisplayMessages`** — `Sagents.DisplayMessagePersistence`
+  over the store
+- **`Exhub.Sagents.Factory`** — builds `LangChain` models and agents from
+  Exhub's LLM configuration
+- **`Exhub.Sagents.McpAdapter`** — bridges Exhub MCP tools to
+  `LangChain.Function`, passing JSON Schema through as `parameters_schema`
+- **`Exhub.Sagents.AgentHubServer`** — MCP server for the hub
 
-- **`Exhub.Sagents.Factory`** — Creates agents using exhub's LLM config
-- **`Exhub.Sagents.Hub`** — GenServer managing agent lifecycle (lazy start, chat routing)
-- **`Exhub.Sagents.McpAdapter`** — Bridges exhub MCP tools → LangChain.Function
-- **`Exhub.Sagents.AgentHubServer`** — MCP server exposing hub management tools
-- **`Exhub.Sagents.Persistence`** — Optional file-based state persistence
+## Adding a custom agent
 
-## Adding Custom Agents
-
-Edit `lib/exhub/sagents/factory.ex` and add to the `agents/0` function:
+Add an entry to `agents/0` in `lib/exhub/sagents/factory.ex`:
 
 ```elixir
 "my-agent" => %{
@@ -110,30 +141,14 @@ Edit `lib/exhub/sagents/factory.ex` and add to the `agents/0` function:
   middleware: [
     {Sagents.Middleware.TodoList, []},
     {Sagents.Middleware.FileSystem, []}
-  ],
-  persistence: :file  # optional
+  ]
 }
 ```
 
-Then hot-reload: `curl -X POST http://localhost:9069/system/reload`
-
-## MCP Tool Groups
-
-Agents can selectively use exhub's MCP tools:
-
-| Group | Tools |
-|-------|-------|
-| `:desktop` | File read/write/edit, process management, search |
-| `:"web-tools"` | Web search, URL fetch |
-| `:brain` | Obsidian vault (list/search notes) |
-| `:look` | Image understanding via vision models |
-| `:todo` | Todo list management |
-| `:browser-use` | Chrome browser automation |
-| `:image-gen` | AI image generation |
-| `:doc-extract` | Document text extraction |
+Then hot-reload the code (the running release picks up new `:exhub` modules).
 
 ## Dependencies
 
-- `sagents ~> 0.7.0` — Agent orchestration framework
-- `langchain ~> 0.8.0` — LLM integration (upgraded from 0.4.1)
-- `anubis_mcp ~> 1.14.0` — MCP server framework
+- `sagents ~> 0.9.0` — agent orchestration
+- `langchain >= 0.8.11` — LLM integration
+- `ex_mcp ~> 0.9` + Anubis — MCP servers over streamable HTTP

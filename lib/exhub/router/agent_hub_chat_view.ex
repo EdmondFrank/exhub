@@ -326,8 +326,12 @@ defmodule Exhub.Router.AgentHubChatView do
 
       <script>
         var conversationId = document.body.dataset.conversationId;
-        var isStreaming = false;
-        var currentAssistantMessage = null;
+        var events = null;
+        var streamingBubble = null;
+        var seenIds = {};
+        var toolCards = {};
+        var toolStates = {};
+        var turnRunning = false;
 
         function escapeHtml(text) {
           var div = document.createElement('div');
@@ -364,29 +368,8 @@ defmodule Exhub.Router.AgentHubChatView do
           if (welcome) welcome.remove();
         }
 
-        function addMessage(role, content) {
-          clearWelcome();
-          var messagesDiv = document.getElementById('messages');
-          var messageDiv = document.createElement('div');
-          messageDiv.className = 'message ' + role;
-
-          var avatar = document.createElement('div');
-          avatar.className = 'message-avatar';
-          avatar.textContent = role === 'user' ? 'U' : (role === 'system' ? 'S' : 'A');
-
-          var contentDiv = document.createElement('div');
-          contentDiv.className = 'message-content';
-          contentDiv.textContent = content || '';
-
-          messageDiv.appendChild(avatar);
-          messageDiv.appendChild(contentDiv);
-          messagesDiv.appendChild(messageDiv);
-          scrollToBottom();
-
-          return contentDiv;
-        }
-
-        function addTypingIndicator() {
+        function typingIndicator() {
+          if (document.getElementById('typing-indicator')) return;
           clearWelcome();
           var messagesDiv = document.getElementById('messages');
           var messageDiv = document.createElement('div');
@@ -412,20 +395,143 @@ defmodule Exhub.Router.AgentHubChatView do
           if (indicator) indicator.remove();
         }
 
-        function addToolCall(tool) {
-          removeTypingIndicator();
-          var messagesDiv = document.getElementById('messages');
+        function pretty(value) {
+          if (value == null) return '';
+          if (typeof value === 'string') return value;
+          try { return JSON.stringify(value, null, 2); } catch (e) { return String(value); }
+        }
+
+        function truncateText(text, limit) {
+          text = text == null ? '' : String(text);
+          return text.length > limit ? text.slice(0, limit) + '\\n… (truncated)' : text;
+        }
+
+        // Mirrors the server-side render_message/1 clauses for rows that arrive
+        // live over SSE (the initial transcript is rendered in Elixir).
+        function renderRow(row) {
+          var content = row.content || {};
           var div = document.createElement('div');
-          div.className = 'tool-call';
-          div.innerHTML = '<div class="tool-header">🔧 <span class="tool-name">' + escapeHtml(tool) +
-            '</span><span class="tool-status pending">running</span></div>';
-          messagesDiv.appendChild(div);
+          div.dataset.messageId = String(row.id);
+
+          if (row.content_type === 'tool_call') {
+            var callId = content.call_id || row.call_id || '';
+            var status = row.status || 'pending';
+            div.className = 'tool-call';
+            if (callId) div.dataset.callId = callId;
+            div.innerHTML = '<div class="tool-header">🔧 <span class="tool-name">' +
+              escapeHtml(content.name || content.tool_name || 'tool') +
+              '</span><span class="tool-status ' + escapeHtml(status) + '">' + escapeHtml(status) + '</span></div>' +
+              (content.display_text ? '<div class="tool-body">' + escapeHtml(content.display_text) + '</div>' : '') +
+              (content.arguments ? '<div class="tool-body"><pre>' + escapeHtml(pretty(content.arguments)) + '</pre></div>' : '');
+            return div;
+          }
+
+          if (row.content_type === 'tool_result') {
+            var isError = content.is_error;
+            div.className = 'tool-result';
+            div.innerHTML = '<div class="tool-header">↩︎ <span class="tool-name">' +
+              escapeHtml(content.name || 'tool') + '</span><span class="tool-status ' +
+              (isError ? 'failed' : 'completed') + '">' + (isError ? 'failed' : 'result') + '</span></div>' +
+              (content.content == null ? '' : '<div class="tool-body"><pre>' +
+                escapeHtml(truncateText(pretty(content.content), 4000)) + '</pre></div>');
+            return div;
+          }
+
+          if (row.content_type === 'thinking') {
+            div.className = 'message assistant';
+            div.innerHTML = '<div class="message-avatar">A</div><div class="message-content"><div class="thinking">' +
+              escapeHtml(content.text || '') + '</div></div>';
+            return div;
+          }
+
+          if (row.content_type === 'error' || row.content_type === 'notification') {
+            div.className = 'message system';
+            div.innerHTML = '<div class="message-avatar">!</div><div class="message-content">' +
+              escapeHtml(content.text || content.error || '') + '</div>';
+            return div;
+          }
+
+          var role = row.message_type === 'user' ? 'user' : (row.message_type === 'system' ? 'system' : 'assistant');
+          div.className = 'message ' + role;
+          div.innerHTML = '<div class="message-avatar">' + (role === 'user' ? 'U' : role === 'system' ? 'S' : 'A') +
+            '</div><div class="message-content">' + escapeHtml(content.text || '') + '</div>';
+          return div;
+        }
+
+        function addRow(row) {
+          if (row == null || row.id == null) return;
+          var id = String(row.id);
+          if (seenIds[id]) return;
+
+          // The persisted assistant text replaces the live delta bubble.
+          if (row.content_type === 'text' && row.message_type === 'assistant') removeStreamingBubble();
+
+          var el = renderRow(row);
+          clearWelcome();
+          document.getElementById('messages').appendChild(el);
+          seenIds[id] = el;
+
+          if (row.content_type === 'tool_call') {
+            var callId = (row.content || {}).call_id || row.call_id;
+            if (callId) {
+              toolCards[callId] = el;
+              if (toolStates[callId]) updateTool(toolStates[callId]);
+            }
+          }
+
           scrollToBottom();
-          currentAssistantMessage = null;
+        }
+
+        function updateTool(data) {
+          if (!data || !data.call_id) return;
+          toolStates[data.call_id] = data;
+          var card = toolCards[data.call_id];
+          if (!card) return;
+
+          var status = data.status || '';
+          var badge = card.querySelector('.tool-status');
+          if (badge) {
+            badge.className = 'tool-status ' + status;
+            badge.textContent = status;
+          }
+          if (data.display_text && !card.querySelector('.tool-body')) {
+            var body = document.createElement('div');
+            body.className = 'tool-body';
+            body.textContent = data.display_text;
+            card.appendChild(body);
+          }
+          scrollToBottom();
+        }
+
+        function removeStreamingBubble() {
+          if (!streamingBubble) return;
+          var bubble = streamingBubble.closest('.message');
+          if (bubble) bubble.remove();
+          streamingBubble = null;
+        }
+
+        function appendDelta(text) {
+          if (!text) return;
+          clearWelcome();
+          removeTypingIndicator();
+          if (!streamingBubble) {
+            var div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = '<div class="message-avatar">A</div><div class="message-content"></div>';
+            document.getElementById('messages').appendChild(div);
+            streamingBubble = div.querySelector('.message-content');
+          }
+          streamingBubble.textContent += text;
+          scrollToBottom();
+        }
+
+        function removeApproval() {
+          document.querySelectorAll('.approval').forEach(function(el) { el.remove(); });
         }
 
         function addInterruptApproval(interrupt) {
           removeTypingIndicator();
+          if (document.querySelector('.approval')) return;
           var requests = (interrupt && interrupt.action_requests) || [];
           var messagesDiv = document.getElementById('messages');
           var panel = document.createElement('div');
@@ -463,100 +569,32 @@ defmodule Exhub.Router.AgentHubChatView do
         async function sendMessage() {
           var input = document.getElementById('message-input');
           var message = input.value.trim();
-          if (!message || isStreaming) return;
+          if (!message || turnRunning) return;
 
-          addMessage('user', message);
           input.value = '';
           input.style.height = 'auto';
-
-          isStreaming = true;
+          removeStreamingBubble();
+          typingIndicator();
+          // The status events re-enable it; this blocks a double send in the
+          // window before the agent reports :running.
           document.getElementById('send-btn').disabled = true;
-          addTypingIndicator();
 
           try {
-            var response = await fetch('/agent-hub/c/' + encodeURIComponent(conversationId) + '/chat', {
+            var response = await fetch('/agent-hub/c/' + encodeURIComponent(conversationId) + '/messages', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ message: message })
             });
 
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-
-            removeTypingIndicator();
-            currentAssistantMessage = addMessage('assistant', '');
-
-            var reader = response.body.getReader();
-            var decoder = new TextDecoder();
-            var buffer = '';
-            var finished = false;
-
-            while (true) {
-              var result = await reader.read();
-              if (result.done) break;
-
-              buffer += decoder.decode(result.value, { stream: true });
-              var lines = buffer.split('\\n');
-              buffer = lines.pop() || '';
-
-              for (var i = 0; i < lines.length; i++) {
-                var line = lines[i].trim();
-                if (!line.startsWith('data: ')) continue;
-
-                var data = line.slice(6);
-                if (data === '[DONE]') { finished = true; continue; }
-
-                try {
-                  finished = handleStreamEvent(JSON.parse(data)) || finished;
-                } catch (e) {
-                  console.error('Failed to parse event:', e);
-                }
-              }
+            if (!response.ok) {
+              var body = await response.json().catch(function() { return {}; });
+              throw new Error(body.error || ('HTTP ' + response.status));
             }
           } catch (err) {
             removeTypingIndicator();
-            showToast('Chat failed: ' + err.message, 'error');
-          } finally {
-            isStreaming = false;
             document.getElementById('send-btn').disabled = false;
-            currentAssistantMessage = null;
-            checkStatus();
-          }
-        }
-
-        function handleStreamEvent(event) {
-          switch (event.type) {
-            case 'delta':
-              if (!currentAssistantMessage) currentAssistantMessage = addMessage('assistant', '');
-              if (event.text) {
-                currentAssistantMessage.textContent += event.text;
-                scrollToBottom();
-              }
-              return false;
-
-            case 'tool_call':
-              addToolCall(event.tool);
-              return false;
-
-            case 'tool_result':
-              return false;
-
-            case 'complete':
-              if (currentAssistantMessage && event.text) {
-                currentAssistantMessage.textContent = event.text;
-              }
-              return true;
-
-            case 'interrupted':
-              addInterruptApproval(event.interrupt);
-              return true;
-
-            case 'error':
-              removeTypingIndicator();
-              showToast('Agent error: ' + event.error, 'error');
-              return true;
-
-            default:
-              return false;
+            input.value = message;
+            showToast('Send failed: ' + err.message, 'error');
           }
         }
 
@@ -588,29 +626,66 @@ defmodule Exhub.Router.AgentHubChatView do
 
             if (!response.ok) throw new Error('HTTP ' + response.status);
 
-            showToast('Decision sent — reloading transcript', 'success');
-            setTimeout(function() { window.location.reload(); }, 800);
+            removeApproval();
+            typingIndicator();
+            showToast('Decision sent', 'success');
           } catch (err) {
             showToast('Failed to send decision: ' + err.message, 'error');
           }
         }
 
-        async function checkStatus() {
+        function applyStatus(data) {
+          if (!data) return;
+
+          // `running` means "an agent process is alive"; `status == 'running'`
+          // means "a turn is executing right now". The process stays alive
+          // between turns, so only the latter may block sending.
+          var alive = data.alive != null ? !!data.alive : !!data.running;
+          turnRunning = data.status === 'running';
+
+          var dot = document.getElementById('status-dot');
+          var text = document.getElementById('status-text');
+          if (!dot || !text) return;
+
+          if (data.status === 'interrupted') {
+            dot.className = 'dot interrupted';
+            text.textContent = 'Needs approval';
+            if (data.payload) addInterruptApproval(data.payload);
+            else loadPendingInterrupt();
+          } else if (data.status === 'error') {
+            dot.className = 'dot interrupted';
+            text.textContent = 'Error';
+          } else if (turnRunning) {
+            dot.className = 'dot running';
+            text.textContent = 'Running';
+            typingIndicator();
+          } else if (alive) {
+            dot.className = 'dot';
+            text.textContent = 'Idle (live)';
+          } else if (data.status === 'not_running') {
+            dot.className = 'dot';
+            text.textContent = 'Stopped';
+          } else if (data.status === 'cancelled') {
+            dot.className = 'dot';
+            text.textContent = 'Cancelled';
+          } else {
+            dot.className = 'dot';
+            text.textContent = 'Idle';
+          }
+
+          if (!turnRunning && data.status !== 'interrupted') {
+            removeApproval();
+            removeTypingIndicator();
+          }
+
+          document.getElementById('send-btn').disabled = turnRunning;
+        }
+
+        // One-shot status refresh (the live feed normally keeps this current).
+        async function refreshStatus() {
           try {
             var status = await (await fetch('/agent-hub/c/' + encodeURIComponent(conversationId) + '/status')).json();
-            var dot = document.getElementById('status-dot');
-            var text = document.getElementById('status-text');
-
-            if (status.status === 'interrupted') {
-              dot.className = 'dot interrupted';
-              text.textContent = 'Needs approval';
-            } else if (status.running) {
-              dot.className = 'dot running';
-              text.textContent = status.status === 'running' ? 'Running' : 'Idle (live)';
-            } else {
-              dot.className = 'dot';
-              text.textContent = 'Stopped';
-            }
+            applyStatus(status);
           } catch (err) {
             console.error('Status check failed:', err);
           }
@@ -650,7 +725,7 @@ defmodule Exhub.Router.AgentHubChatView do
           try {
             await fetch('/agent-hub/c/' + encodeURIComponent(conversationId) + '/stop', { method: 'POST' });
             showToast('Agent stopped', 'success');
-            checkStatus();
+            refreshStatus();
           } catch (err) {
             showToast('Stop failed: ' + err.message, 'error');
           }
@@ -667,10 +742,56 @@ defmodule Exhub.Router.AgentHubChatView do
           }
         }
 
-        checkStatus();
-        loadPendingInterrupt();
-        setInterval(checkStatus, 5000);
-        scrollToBottom();
+        function connect() {
+          if (events) events.close();
+          events = new EventSource('/agent-hub/c/' + encodeURIComponent(conversationId) + '/events');
+
+          events.addEventListener('snapshot', function(e) {
+            var data = JSON.parse(e.data);
+            (data.messages || []).forEach(addRow);
+            applyStatus({ status: data.status, alive: data.alive, payload: data.interrupt });
+            scrollToBottom();
+          });
+
+          events.addEventListener('display_message', function(e) {
+            addRow(JSON.parse(e.data));
+          });
+
+          events.addEventListener('tool_status', function(e) {
+            updateTool(JSON.parse(e.data));
+          });
+
+          events.addEventListener('delta', function(e) {
+            appendDelta(JSON.parse(e.data).text);
+          });
+
+          events.addEventListener('status', function(e) {
+            applyStatus(JSON.parse(e.data));
+          });
+
+          events.addEventListener('queued', function() {
+            showToast('Message queued', 'success');
+          });
+
+          events.onerror = function() {
+            var text = document.getElementById('status-text');
+            if (text) text.textContent = 'Reconnecting…';
+          };
+        }
+
+        function init() {
+          document.querySelectorAll('[data-message-id]').forEach(function(el) {
+            seenIds[el.dataset.messageId] = el;
+            if (el.classList.contains('tool-call') && el.dataset.callId) {
+              toolCards[el.dataset.callId] = el;
+            }
+          });
+
+          connect();
+          scrollToBottom();
+        }
+
+        init();
       </script>
     </body>
     </html>
@@ -685,9 +806,10 @@ defmodule Exhub.Router.AgentHubChatView do
     status = message.status || "pending"
     arguments = format_arguments(content["arguments"])
     display_text = content["display_text"]
+    call_id = content["call_id"] || message.call_id
 
     """
-    <div class="tool-call">
+    <div class="tool-call" data-message-id="#{message.id}"#{if call_id, do: " data-call-id=\"#{escape(call_id)}\"", else: ""}>
       <div class="tool-header">
         <span>🔧</span>
         <span class="tool-name">#{escape(name)}</span>
@@ -707,7 +829,7 @@ defmodule Exhub.Router.AgentHubChatView do
     label = if is_error, do: "failed", else: "result"
 
     """
-    <div class="tool-result">
+    <div class="tool-result" data-message-id="#{message.id}">
       <div class="tool-header">
         <span>↩︎</span>
         <span class="tool-name">#{escape(name)}</span>
@@ -722,7 +844,7 @@ defmodule Exhub.Router.AgentHubChatView do
     text = (message.content || %{})["text"] || ""
 
     """
-    <div class="message assistant">
+    <div class="message assistant" data-message-id="#{message.id}">
       <div class="message-avatar">A</div>
       <div class="message-content"><div class="thinking">#{escape(text)}</div></div>
     </div>
@@ -733,7 +855,7 @@ defmodule Exhub.Router.AgentHubChatView do
     text = (message.content || %{})["text"] || (message.content || %{})["error"] || ""
 
     """
-    <div class="message system">
+    <div class="message system" data-message-id="#{message.id}">
       <div class="message-avatar">!</div>
       <div class="message-content">#{escape(text)}</div>
     </div>
@@ -745,7 +867,7 @@ defmodule Exhub.Router.AgentHubChatView do
     role = message_role(message.message_type)
 
     """
-    <div class="message #{role}">
+    <div class="message #{role}" data-message-id="#{message.id}">
       <div class="message-avatar">#{avatar(role)}</div>
       <div class="message-content">#{escape(text)}</div>
     </div>
