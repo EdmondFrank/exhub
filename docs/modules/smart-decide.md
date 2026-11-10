@@ -164,6 +164,8 @@ and differ mainly in context, modality, calibration, and price:
 | `APUS-OpenJev-v1-4B` | Qwen3.5-4B | 128K | 0.10 | lightweight APUS |
 | `APUS-OpenJev-v1-9B` | Qwen3.5-9B | 128K | 0.20 | fastest median; 128K context |
 | `Bespoke-Nimble-9B` | Qwen3.5-9B | 2K | 0.20 | older Open-Jev LoRA |
+| `d3-turbo` | — | ≥32K (128 K chars verified) | n/a | **most accurate on ExHub's `noul` gates** (cost + secret sweeps); ~384 ms |
+| `d3-flash` | — | ≥32K (128 K chars verified) | n/a | faster sibling (~251 ms); weaker calibration on secret tasks |
 
 The `Intern-Decision-4B`, `NeoHorse-Jev-4B`, and `DiffusionGemma` checkpoints are
 multimodal upstream, but **Moark's hosted deployments are text-only today** —
@@ -181,6 +183,7 @@ hosted deployment (returns `422 unsupported_effort`).
 | Long prompts / wide browser pages | `APUS-OpenJev-v1-9B` / `APUS-OpenJev-v1-4B` | 128K context |
 | Cheapest acceptable filtering | `NeoHorse-Jev-4B` / `APUS-OpenJev-v1-4B` | 0.10 ￥/M, 32K/128K |
 | Multilingual / non-English content | `laya-multilingual` | 100+ languages, ~2× faster, 0.01 ￥/M (weak on English) |
+| Desktop cost / secret gates | `d3-turbo` | the only model with no error on either labelled gate, tuning **and** held-out (threshold 0.5 cost, 0.45 secret) |
 
 These are informed by ExHub's own labelled benchmark (177 cases spanning the
 hub/brain/web/desktop relevance filters, the working-dir and browser-agent
@@ -202,6 +205,9 @@ overridden per scenario via the module's config (`:model` under
   128K tokens; `DiffusionGemma-26B-A4B-it-Jev` 64K, `NeoHorse-Jev-4B` 32K,
   `Intern-Decision-4B` and `laya-multilingual` 8K, and the older
   `Bespoke-Nimble-9B` rejects prompts exceeding 2048 tokens.
+- The `d3-*` context window is undocumented: `d3-turbo` and `d3-flash` both
+  accept a 128 K-character state and reject 400 K characters. `d3` itself is
+  listed in the catalogue but **not served** on `/v1/systemone` (HTTP 503).
 - `instructions` is required for every question and must be non-empty.
 - The model is selected by name; the API serves `Intern-Decision-4B` (default)
   and the rest of the family listed above.

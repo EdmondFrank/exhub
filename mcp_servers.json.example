@@ -9,7 +9,8 @@
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
       },
       "enabled": true,
-      "expose_route": "github"
+      "expose_route": "github",
+      "instructions": "Guidance published in the hub's MCP initialize result; put an upstream server's own usage notes here (see docs/modules/mcp-hub.md)."
     },
     {
       "name": "gitee",

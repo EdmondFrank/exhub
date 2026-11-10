@@ -258,9 +258,9 @@ defmodule Exhub.MCP.Tools.Desktop.SecretGuardTest do
                SecretGuard.check("read_file", %{"path" => "/Users/me/.env"}, enabled: false)
     end
 
-    test "defaults to the SemIf-OpenJev-4B model (task-specific pick)" do
-      assert Keyword.get(SecretGuard.config(), :model) == "SemIf-OpenJev-4B"
-      assert Keyword.get(SecretGuard.config(), :threshold) == 0.3
+    test "defaults to the d3-turbo model (task-specific pick)" do
+      assert Keyword.get(SecretGuard.config(), :model) == "d3-turbo"
+      assert Keyword.get(SecretGuard.config(), :threshold) == 0.45
     end
 
     test "passes the configured model to the decider, and honours an override" do
@@ -272,7 +272,7 @@ defmodule Exhub.MCP.Tools.Desktop.SecretGuardTest do
       end
 
       assert :ok = SecretGuard.check("read_file", %{"path" => "/Users/me/n.md"}, decider: decider)
-      assert Agent.get(agent, & &1) == "SemIf-OpenJev-4B"
+      assert Agent.get(agent, & &1) == "d3-turbo"
 
       assert :ok =
                SecretGuard.check("read_file", %{"path" => "/Users/me/n.md"},

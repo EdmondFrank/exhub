@@ -37,6 +37,15 @@ defmodule Exhub.MCP.Hub.ServerConfig do
         "headers" => %{"Authorization" => "Bearer token"},
         "enabled" => false
       }
+
+  ### Instructions
+
+  An optional `"instructions"` string carries the usage guidance an agent should
+  read before calling this server's tools. It is published verbatim in the hub's
+  MCP `initialize` result (see `Exhub.MCP.Hub.Instructions`), which is the only
+  way to surface an upstream server's own handshake instructions: the Anubis
+  client keeps `serverInfo`/`capabilities` from that handshake but drops its
+  `instructions` field.
   """
 
   @type transport_type :: :stdio | :sse | :streamable_http | :websocket
@@ -52,6 +61,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
           headers: map() | nil,
           expose_route: String.t() | nil,
           builtin: boolean(),
+          instructions: String.t() | nil,
           created_at: DateTime.t(),
           updated_at: DateTime.t()
         }
@@ -66,6 +76,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
     :url,
     :headers,
     :expose_route,
+    :instructions,
     :created_at,
     :updated_at,
     builtin: false
@@ -88,6 +99,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       url: data["url"] || data[:url],
       headers: data["headers"] || data[:headers] || %{},
       expose_route: data["expose_route"] || data[:expose_route],
+      instructions: data["instructions"] || data[:instructions],
       builtin: parse_boolean(data["builtin"]) || parse_boolean(data[:builtin]) || false,
       created_at: parse_datetime(data["created_at"]),
       updated_at: parse_datetime(data["updated_at"])
@@ -198,6 +210,7 @@ defmodule Exhub.MCP.Hub.ServerConfig do
       "url" => config.url,
       "headers" => config.headers,
       "expose_route" => config.expose_route,
+      "instructions" => config.instructions,
       "builtin" => config.builtin,
       "created_at" => DateTime.to_iso8601(config.created_at),
       "updated_at" => DateTime.to_iso8601(config.updated_at)

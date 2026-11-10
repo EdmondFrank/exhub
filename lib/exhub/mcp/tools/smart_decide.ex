@@ -8,8 +8,11 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   System One / Jev contract; served by the `Intern-Decision-4B` model (8K
   context) by default. The same endpoint serves the rest of the decision-model
   family — `APUS-OpenJev-v1-9B`/`APUS-OpenJev-v1-4B` (128K), `SemIf-OpenJev-4B`,
-  `NeoHorse-Jev-4B`, `laya-multilingual`, `DiffusionGemma-26B-A4B-it-Jev`, and
-  the older `Bespoke-Nimble-9B` (2k context) — selectable via the `model` field.
+  `NeoHorse-Jev-4B`, `laya-multilingual`, `DiffusionGemma-26B-A4B-it-Jev`,
+  `d3-turbo`/`d3-flash`, and the older `Bespoke-Nimble-9B` (2k context) —
+  selectable via the `model` field. `d3-turbo` is the most accurate on ExHub's
+  labelled `noul` gates (both the cost and secret sweeps) and `d3-flash` is the
+  faster, cheaper-calibrated sibling.
 
   No free-form text is generated: the model scores the allowed answer tokens
   directly and returns the chosen answer plus calibrated probabilities.
@@ -75,7 +78,7 @@ defmodule Exhub.MCP.Tools.SmartDecide do
 
     field(:model, :string,
       description:
-        "System One model. Default: Intern-Decision-4B (8K context). Also served: APUS-OpenJev-v1-9B, APUS-OpenJev-v1-4B, SemIf-OpenJev-4B (128K), NeoHorse-Jev-4B (32K), laya-multilingual (8K), DiffusionGemma-26B-A4B-it-Jev (64K), Bespoke-Nimble-9B (2k)"
+        "System One model. Default: Intern-Decision-4B (8K context). Also served: APUS-OpenJev-v1-9B, APUS-OpenJev-v1-4B, SemIf-OpenJev-4B (128K), NeoHorse-Jev-4B (32K), laya-multilingual (8K), DiffusionGemma-26B-A4B-it-Jev (64K), d3-turbo / d3-flash (long context; d3-turbo is the most accurate on cost/secret gates), Bespoke-Nimble-9B (2k)"
     )
 
     field(:compact, :boolean,

@@ -129,11 +129,13 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     server_info = Exhub.MCP.Hub.BuiltInRegistry.server_info(group)
     capabilities = Exhub.MCP.Hub.BuiltInRegistry.server_capabilities(group)
 
-    result = %{
-      "protocolVersion" => "2024-11-05",
-      "serverInfo" => server_info,
-      "capabilities" => capabilities
-    }
+    result =
+      %{
+        "protocolVersion" => "2024-11-05",
+        "serverInfo" => server_info,
+        "capabilities" => capabilities
+      }
+      |> put_instructions(group)
 
     response = %{
       "jsonrpc" => "2.0",
@@ -247,11 +249,13 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
     server_info = fetch_server_info(client_ref, group)
     capabilities = fetch_capabilities(client_ref)
 
-    result = %{
-      "protocolVersion" => "2024-11-05",
-      "serverInfo" => server_info,
-      "capabilities" => Map.merge(capabilities, %{"tools" => %{}})
-    }
+    result =
+      %{
+        "protocolVersion" => "2024-11-05",
+        "serverInfo" => server_info,
+        "capabilities" => Map.merge(capabilities, %{"tools" => %{}})
+      }
+      |> put_instructions(group)
 
     response = %{
       "jsonrpc" => "2.0",
@@ -390,6 +394,17 @@ defmodule Exhub.MCP.Hub.ProxyPlug do
       _ -> %{}
     catch
       _, _ -> %{}
+    end
+  end
+
+  # The handshake is synthesized here rather than forwarded, so guidance has to
+  # be re-attached explicitly — an upstream's own `instructions` never reaches
+  # this plug (see Exhub.MCP.Hub.Instructions).
+  defp put_instructions(result, group) do
+    case Exhub.MCP.Hub.Instructions.compose(group) do
+      nil -> result
+      text when is_binary(text) and text != "" -> Map.put(result, "instructions", text)
+      _ -> result
     end
   end
 

@@ -17,6 +17,17 @@ defmodule Exhub.MCP.Hub.Server do
   The server is accessible via HTTP Streamable transport at `/mcp-hub/mcp`.
   """
 
+  # Defined before `use Anubis.Server` on purpose: the macro only generates a
+  # `nil` default when the module does not already define the callback, and a
+  # second clause would warn. The text is composed per session so it reflects
+  # whatever servers are connected at that moment.
+  @doc """
+  Guidance published in the MCP `initialize` result (see
+  `Exhub.MCP.Hub.Instructions`).
+  """
+  @impl Anubis.Server
+  def server_instructions, do: Exhub.MCP.Hub.Instructions.compose()
+
   use Anubis.Server,
     name: "exhub-mcp-hub",
     version: "1.0.0",

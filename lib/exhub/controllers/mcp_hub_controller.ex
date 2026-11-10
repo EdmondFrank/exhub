@@ -250,6 +250,7 @@ defmodule Exhub.Controllers.MCPHubController do
       url: config.url,
       headers: config.headers,
       expose_route: config.expose_route,
+      instructions: Map.get(config, :instructions),
       created_at: DateTime.to_iso8601(config.created_at),
       updated_at: DateTime.to_iso8601(config.updated_at)
     }

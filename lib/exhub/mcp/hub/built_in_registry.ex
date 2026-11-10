@@ -124,6 +124,33 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
   end
 
   @doc """
+  Returns the `instructions` a built-in server publishes in its MCP `initialize`
+  result, or `nil` when it defines none.
+
+  `Anubis.Server` reads `server_instructions/0` once per session, which the hub
+  routes need so the guidance is not dropped by the synthesized handshake.
+  """
+  @spec server_instructions(String.t()) :: String.t() | nil
+  def server_instructions(name) do
+    case Map.get(@built_in_servers, name) do
+      nil ->
+        nil
+
+      server_module ->
+        try do
+          case server_module.server_instructions() do
+            text when is_binary(text) and text != "" -> text
+            _ -> nil
+          end
+        rescue
+          _ -> nil
+        catch
+          _, _ -> nil
+        end
+    end
+  end
+
+  @doc """
   Checks if a server name is a built-in server.
   """
   @spec built_in?(String.t()) :: boolean()

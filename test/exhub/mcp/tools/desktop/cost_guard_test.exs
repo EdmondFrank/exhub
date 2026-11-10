@@ -151,8 +151,8 @@ defmodule Exhub.MCP.Tools.Desktop.CostGuardTest do
       assert {:refuse, _} = CostGuard.check("search_files", %{"path" => "~"}, enabled: false)
     end
 
-    test "defaults to the APUS-OpenJev-v1-9B model" do
-      assert Keyword.get(CostGuard.config(), :model) == "APUS-OpenJev-v1-9B"
+    test "defaults to the d3-turbo model" do
+      assert Keyword.get(CostGuard.config(), :model) == "d3-turbo"
     end
 
     test "passes the configured model to the decider, and honours an override" do
@@ -164,7 +164,7 @@ defmodule Exhub.MCP.Tools.Desktop.CostGuardTest do
       end
 
       assert :ok = CostGuard.check("search_files", %{"path" => "~/data"}, decider: decider)
-      assert Agent.get(agent, & &1) == "APUS-OpenJev-v1-9B"
+      assert Agent.get(agent, & &1) == "d3-turbo"
 
       assert :ok =
                CostGuard.check("search_files", %{"path" => "~/data"},

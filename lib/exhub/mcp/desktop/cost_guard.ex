@@ -48,9 +48,13 @@ defmodule Exhub.MCP.Desktop.CostGuard do
 
   @cache_table :exhub_cost_guard_cache
 
+  # Model picked by a labeled sweep of the whole decision family for *this*
+  # task (17/18 tuning, 11/11 held-out, zero missed expensive scans). `d3-turbo`
+  # separates cleanly (cheap p ≤ 0.29, expensive p ≥ 0.82), so the default
+  # threshold needs no tuning. See `knowledge-base/exhub/decision-models.md`.
   @defaults [
     enabled: true,
-    model: "APUS-OpenJev-v1-9B",
+    model: "d3-turbo",
     threshold: 0.5,
     timeout: 30_000,
     cache_ttl_ms: 60_000,
@@ -136,8 +140,8 @@ defmodule Exhub.MCP.Desktop.CostGuard do
       can avoid network calls; providing it also disables the cache unless
       `:cache` is set explicitly.
     * `:model` — System One model id for this decision, overriding the
-      CostGuard default (`APUS-OpenJev-v1-9B`, chosen over the Smart Decide
-      default by a labeled accuracy sweep)
+      CostGuard default (`d3-turbo`, chosen over the Smart Decide default by a
+      labeled accuracy sweep)
     * `:threshold` — minimum `noul` probability to refuse (`0.5`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)
     * `:cache` — cache this verdict (`true`; off when a `:decider` is injected)

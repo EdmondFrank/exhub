@@ -48,15 +48,16 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
 
   # Model + threshold chosen by a labeled sweep for *this* task, not inherited
   # from CostGuard. On 18 secret-risk cases (9 secret / 9 not — the residual the
-  # fast path leaves to the model) `SemIf-OpenJev-4B` scored 17/18 at 0.3 with no
-  # missed secret, whereas CostGuard's `APUS-OpenJev-v1-9B` managed only 10/18 and
-  # emitted out-of-range probabilities (up to 9.1). The ranking is task-specific:
-  # do not copy CostGuard's model here. See
-  # `knowledge-base/exhub/decision-models.md` → *SecretGuard gate*.
+  # fast path leaves to the model) plus a 12-case held-out set, `d3-turbo` was
+  # the only model with no error on either (18/18, 12/12); the previous pick
+  # `SemIf-OpenJev-4B` scored 16/18 and 7/12. Its probability scale is
+  # well-behaved but narrow: the worst non-secret case sits at 0.36 and the
+  # weakest secret at 0.55, so the threshold has to be 0.45 rather than 0.3.
+  # See `knowledge-base/exhub/decision-models.md` → *SecretGuard gate*.
   @defaults [
     enabled: true,
-    model: "SemIf-OpenJev-4B",
-    threshold: 0.3,
+    model: "d3-turbo",
+    threshold: 0.45,
     timeout: 30_000,
     cache_ttl_ms: 60_000,
     cache_limit: 2_000,

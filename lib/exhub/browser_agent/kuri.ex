@@ -9,18 +9,21 @@ defmodule Exhub.BrowserAgent.Kuri do
       (default). Refs live server-side, so `snap` → `click` works.
     * `Exhub.BrowserAgent.KuriCli` — the `kuri-agent` CLI, one process per
       command. Its refs are per-process, so ref-based actions cannot succeed.
+    * `Exhub.BrowserAgent.BrowserMcp` — the user's own signed-in Chrome, through
+      the `chrome` upstream MCP server (Browser MCP). Same loop, real profile:
+      logins, existing tabs, and no separate browser to start.
 
   Configure with:
 
-      config :exhub, Exhub.BrowserAgent, backend: :http | :cli
+      config :exhub, Exhub.BrowserAgent, backend: :http | :cli | :chrome
 
   Tests inject a stub module instead (`Agent.new(goal, kuri: StubKuri)`), which is
   why `backend_for/1` stays a pure function.
   """
 
-  alias Exhub.BrowserAgent.{KuriCli, KuriHttp}
+  alias Exhub.BrowserAgent.{BrowserMcp, KuriCli, KuriHttp}
 
-  @backends %{http: KuriHttp, cli: KuriCli}
+  @backends %{http: KuriHttp, cli: KuriCli, chrome: BrowserMcp}
 
   # The setting lives under the feature namespace `Exhub.BrowserAgent` (see
   # config/config.exs), not under this facade module — reading it from
@@ -34,7 +37,8 @@ defmodule Exhub.BrowserAgent.Kuri do
   @doc """
   Maps a `:backend` setting (or an explicit module) to a backend module.
 
-  `nil` and `:http` select the daemon; `:cli` selects `kuri-agent`.
+  `nil` and `:http` select the daemon; `:cli` selects `kuri-agent`;
+  `:chrome` selects Browser MCP.
   """
   @spec backend_for(term()) :: module()
   def backend_for(nil), do: KuriHttp

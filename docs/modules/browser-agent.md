@@ -5,7 +5,10 @@ page, asks the Smart Decide (System One) decision model to pick an *operation*
 and a *target*, and executes only the chosen operation. It is the ExHub port of
 [browser-use/jev-ultrafast](https://github.com/browser-use/jev-ultrafast) — *"a
 browser agent that chooses instead of generating"* — built on the existing
-`browser-use` (kuri/CDP) tools and the `smart-decide` module.
+`browser-use` (kuri/CDP) tools and the `smart-decide` module. The same loop can
+drive either the ExHub-managed headless Chrome or — with `source: "chrome"` —
+the user's own signed-in Chrome through the `chrome` (Browser MCP) server; see
+[Driving the user's own Chrome](#driving-the-users-own-chrome-source-chrome).
 
 The model never emits selectors, coordinates, shell commands, or JavaScript. It
 chooses from the operations and numbered elements the loop observes.
@@ -51,11 +54,45 @@ backends, selected by `config :exhub, Exhub.BrowserAgent, backend:`:
 |---------|--------|-----------|-------|
 | `:http` (default) | `Exhub.BrowserAgent.KuriHttp` | `Exhub.KuriDaemon` HTTP API (`127.0.0.1:18080`) | Refs survive between calls; no per-call `Exile` spawn |
 | `:cli` | `Exhub.BrowserAgent.KuriCli` | `kuri-agent` via `Exile` | Refs do **not** survive between processes (see *Notes*) |
+| `:chrome` (or `source: "chrome"`) | `Exhub.BrowserAgent.BrowserMcp` | `chrome` upstream MCP server (Browser MCP command DSL) | The user's own signed-in Chrome; every target is re-checked before input |
 
 Both backends expose the same surface (`snap`, `dom_snapshot`, `text`, `eval`,
 `click`, `fill`, `type`, `select`, `scroll(:up | :down)`, `go`, `tabs`, `status`,
 `use`), so `Agent`, `Executor` and `Policy` are backend-agnostic. `KuriHttp.use/1`
 delegates to `KuriCli` because attaching a tab means writing `~/.kuri/session.json`.
+
+## Driving the user's own Chrome (`source: "chrome"`)
+
+`Exhub.BrowserAgent.BrowserMcp` runs the same observe → choose → execute loop
+against the `chrome` upstream server (Browser MCP), whose single `browser` tool
+executes a command DSL (`snapshot -i`, `click e12`, `fill e5 "Ada"`,
+`get text --max all`, `eval "..."`). Use it when the goal needs the real browser
+profile — a signed-in session, an existing tab, a site that blocks headless
+clients — and the default kuri backend does not have that state.
+
+```json
+{"command": "run", "goal": "Open the first unread notification", "source": "chrome", "max_steps": 6}
+```
+
+What changes versus the kuri backends:
+
+- **Observation.** `snapshot -i` is Playwright's compact tree, so the
+  `Accessibility.getFullAXTree` failures behind the DOM fallback do not occur;
+  `dom_snapshot/1` therefore just re-snapshots. Ref schemes are Browser MCP's
+  own (`e12`, `f1e3` inside iframes).
+- **Stale-target guard.** Refs belong to a page and can be reused after a
+  re-render, so `click`/`fill`/`type`/`select` re-snapshot first and refuse the
+  action when the ref is gone or now names a different role/label than the table
+  the decision was made from — the jev-cdp rule that a stale decision must not
+  execute. The baseline is the table `snap/1` handed the loop in that step.
+  `verify: false` (an option on the backend, not the tool) opts out.
+- **No browser to start, and a tab of its own.** With `url` the loop runs
+  `goto`, which opens a background tab in the agent's tab group; without it the
+  session has no tab and the first observation fails with Browser MCP's
+  "There's no tab yet" (use `browser_tabs`-style `tab select` through the
+  `chrome` tools, then `start`). The user's own tabs are never closed.
+- **Console errors** for a step that failed silently: `Exhub.BrowserAgent.BrowserMcp.console/1`
+  wraps `console --errors`.
 
 ## Prerequisites
 
@@ -86,6 +123,7 @@ Built-in hub server name: `browser-agent`.
 | `session_id` | string  |          | Session id from `start` (required for `step`/`status`/`stop`) |
 | `max_steps`  | integer |          | Decision-cycle budget for `run` (default 15) |
 | `model`      | string  |          | System One model override (default `Intern-Decision-4B`) |
+| `source`     | string  |          | `kuri` (default: managed headless Chrome) or `chrome` (your own signed-in Chrome) |
 
 - `run` — runs the loop synchronously and returns the full trace.
 - `start` / `step` / `status` / `stop` — interactive control; state lives in
@@ -133,6 +171,7 @@ for the last step), so a caller can see whether an action actually moved the pag
 | `Exhub.BrowserAgent.Agent` | The observe → choose → execute loop and state machine |
 | `Exhub.BrowserAgent.Kuri` | Backend facade (`:http` / `:cli`) |
 | `Exhub.BrowserAgent.KuriHttp` | Default backend: the kuri daemon HTTP API |
+| `Exhub.BrowserAgent.BrowserMcp` | The user's own Chrome: Browser MCP's `browser` command DSL, with a stale-target guard |
 | `Exhub.BrowserAgent.KuriCli` | Fallback backend: the `kuri-agent` CLI |
 | `Exhub.BrowserAgent.DomBridge` | Stamped-DOM observation + `dN` action replay for wide pages |
 | `Exhub.BrowserAgent.Scroll` | Scrolls the element that actually scrolls (a docs pane, not the window) |
@@ -229,7 +268,13 @@ loop is unit-tested without a browser or network.
 
 ```elixir
 config :exhub, Exhub.BrowserAgent,
-  backend: :http   # :http (kuri daemon, default) | :cli (kuri-agent)
+  backend: :http   # :http (kuri daemon, default) | :cli (kuri-agent) | :chrome (browsermcp)
+
+# The chrome backend's upstream server/tool (both default to these values).
+config :exhub, Exhub.BrowserAgent.BrowserMcp,
+  server: "chrome",
+  tool: "browser"
+
 
 config :exhub, Exhub.BrowserAgent.TextHelper,
   endpoint: "https://api.moark.com/v1/chat/completions",

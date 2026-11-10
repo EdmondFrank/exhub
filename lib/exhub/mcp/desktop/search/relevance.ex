@@ -86,7 +86,8 @@ defmodule Exhub.MCP.Desktop.Search.Relevance do
       can avoid network calls.
     * `:model` — System One model id for this pass, overriding the Smart Decide
       default (`Intern-Decision-4B`). e.g. `laya-multilingual` for multilingual
-      content, `APUS-OpenJev-v1-9B` for long states (128K).
+      content, `d3-turbo` for the most accurate judgment, `APUS-OpenJev-v1-9B`
+      for long states (128K).
     * `:threshold` — minimum `noul` probability to keep a block (`0.5`)
     * `:max_concurrency` — concurrent System One requests (`8`)
     * `:timeout` — per-request timeout in milliseconds (`30_000`)

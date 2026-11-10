@@ -497,7 +497,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
           status: if(client, do: client.status, else: :disconnected),
           tool_count: tool_count,
           last_error: if(client, do: client.last_error),
-          expose_route: config.expose_route
+          expose_route: config.expose_route,
+          # Published in the hub handshake; see Exhub.MCP.Hub.Instructions.
+          # `Map.get/2` because a struct loaded before this field existed (during
+          # a hot reload) has no `:instructions` key.
+          instructions: Map.get(config, :instructions)
         }
       end)
 
@@ -775,7 +779,11 @@ defmodule Exhub.MCP.Hub.ClientManager do
           status: if(client, do: client.status, else: :disconnected),
           tool_count: tool_count,
           last_error: if(client, do: client.last_error),
-          expose_route: config.expose_route
+          expose_route: config.expose_route,
+          # Published in the hub handshake; see Exhub.MCP.Hub.Instructions.
+          # `Map.get/2` because a struct loaded before this field existed (during
+          # a hot reload) has no `:instructions` key.
+          instructions: Map.get(config, :instructions)
         }
       else
         nil

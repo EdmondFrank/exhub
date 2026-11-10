@@ -383,9 +383,12 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir,
 # are judged by a Smart Decide (System One) `noul` question, and a failed/disabled
 # judgment falls back to allowing the call (fail open).
 #   - `enabled`: master switch (off ⇒ only the deterministic fast path refuses)
-#   - `model`: System One model id. Defaults to `APUS-OpenJev-v1-9B`, picked by a
-#     labeled accuracy sweep (94%, perfect recall) over the Smart Decide default
-#   - `threshold`: minimum `noul` probability to refuse
+#   - `model`: System One model id. Defaults to `d3-turbo`, picked by a labeled
+#     accuracy sweep over the whole decision family (17/18 on the tuning set,
+#     11/11 on a held-out set, 0 missed expensive scans — the only model with no
+#     error on either), over the Smart Decide default
+#   - `threshold`: minimum `noul` probability to refuse (`0.5`; `d3-turbo`
+#     separates cleanly, cheap ≤ 0.29 / expensive ≥ 0.82, so no tuning needed)
 #   - `timeout`: per-request timeout in milliseconds
 #   - `cache_ttl_ms`/`cache_limit`: per-`{tool, arguments}` verdict cache
 #   - `guarded_tools`: tool names the gate applies to
@@ -393,7 +396,7 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir,
 # In-code defaults in `Exhub.MCP.Desktop.CostGuard` apply for any missing key.
 config :exhub, Exhub.MCP.Desktop.CostGuard,
   enabled: true,
-  model: "APUS-OpenJev-v1-9B",
+  model: "d3-turbo",
   threshold: 0.5,
   timeout: 30_000,
   cache_ttl_ms: 60_000,
@@ -410,11 +413,12 @@ config :exhub, Exhub.MCP.Desktop.CostGuard,
 # Smart Decide (System One) `noul` question, and a failed/disabled judgment falls
 # back to allowing the call (fail open).
 #   - `enabled`: master switch (off ⇒ only the deterministic fast path refuses)
-#   - `model`: System One model id. Defaults to `SemIf-OpenJev-4B` — the winner of
-#     a labeled sweep for *this* task (17/18, zero missed secrets at 0.3), which
-#     is deliberately NOT the cost gate's `APUS-OpenJev-v1-9B` (that model scored
-#     10/18 here). The ranking is task-specific.
-#   - `threshold`: minimum `noul` probability to refuse (`0.3`, tuned to the model)
+#   - `model`: System One model id. Defaults to `d3-turbo` — the only model with
+#     no error on this task across the tuning and held-out sweeps (18/18 and
+#     12/12), where the previous pick `SemIf-OpenJev-4B` scored 16/18 and 7/12.
+#     The ranking is task-specific: do not copy the cost gate's tuning blindly.
+#   - `threshold`: minimum `noul` probability to refuse (`0.45`, tuned to the
+#     model: its worst non-secret case is 0.36, its weakest secret 0.55)
 #   - `timeout`: per-request timeout in milliseconds
 #   - `cache_ttl_ms`/`cache_limit`: per-`{tool, arguments}` verdict cache
 #   - `guarded_tools`: tool names the gate applies to
@@ -424,8 +428,8 @@ config :exhub, Exhub.MCP.Desktop.CostGuard,
 # In-code defaults in `Exhub.MCP.Desktop.SecretGuard` apply for any missing key.
 config :exhub, Exhub.MCP.Desktop.SecretGuard,
   enabled: true,
-  model: "SemIf-OpenJev-4B",
-  threshold: 0.3,
+  model: "d3-turbo",
+  threshold: 0.45,
   timeout: 30_000,
   cache_ttl_ms: 60_000,
   cache_limit: 2000,

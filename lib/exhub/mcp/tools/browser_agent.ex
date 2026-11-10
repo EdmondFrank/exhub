@@ -43,7 +43,13 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
     target, and executes only that. `TYPE_TEXT` values are written by a small
     text model. Stops on DONE, BLOCKED, or `max_steps`.
 
-    Requires an attached tab (see `browser_tabs`).
+    With `source: "chrome"` the same loop drives the user's own signed-in Chrome
+    through the `chrome` upstream server (Browser MCP) instead of the headless
+    kuri daemon: logins and existing tabs are available, and the backend
+    re-checks every target before acting.
+
+    Requires an attached tab (see `browser_tabs`) for the default kuri source;
+    the chrome source attaches its own tab.
 
     **Commands:**
     - `run`    — run to completion and return the trace (needs `goal`; optional `url`, `max_steps`, `model`)
@@ -77,7 +83,12 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
 
     field(:model, :string,
       description:
-        "System One model override (default Intern-Decision-4B); e.g. APUS-OpenJev-v1-9B for wide pages (128K) or NeoHorse-Jev-4B"
+        "System One model override (default Intern-Decision-4B); e.g. APUS-OpenJev-v1-9B for wide pages (128K), NeoHorse-Jev-4B, or d3-turbo for the most accurate choice"
+    )
+
+    field(:source, :string,
+      description:
+        "Which browser to drive: `kuri` (default, ExHub's managed headless Chrome) or `chrome` (the user's own signed-in Chrome through the `chrome`/Browser MCP upstream server)"
     )
   end
 
@@ -111,7 +122,8 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
   end
 
   defp run(params, frame) do
-    with {:ok, goal} <- require_goal(params) do
+    with :ok <- validate_source(params),
+         {:ok, goal} <- require_goal(params) do
       agent = goal |> Agent.new(build_opts(params)) |> Agent.run()
       id = Store.new_id()
       Store.put(id, agent)
@@ -122,7 +134,8 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
   end
 
   defp start(params, frame) do
-    with {:ok, goal} <- require_goal(params) do
+    with :ok <- validate_source(params),
+         {:ok, goal} <- require_goal(params) do
       id = Store.new_id()
       agent = Agent.new(goal, build_opts(params))
       Store.put(id, agent)
@@ -204,6 +217,22 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
     |> put_opt(:model, Map.get(params, :model))
     |> put_opt(:max_steps, Map.get(params, :max_steps))
     |> put_opt(:start_url, Map.get(params, :url))
+    |> put_source(Map.get(params, :source))
+  end
+
+  # `Agent`/`Executor` take the backend module directly, so choosing the user's
+  # own Chrome is a matter of handing them `Exhub.BrowserAgent.BrowserMcp`.
+  defp put_source(opts, "chrome"), do: Keyword.put(opts, :kuri, Exhub.BrowserAgent.BrowserMcp)
+  defp put_source(opts, _source), do: opts
+
+  @sources ~w(kuri chrome)
+
+  defp validate_source(params) do
+    case Map.get(params, :source) do
+      source when source in [nil, ""] -> :ok
+      source when source in @sources -> :ok
+      other -> {:error, "Unknown source #{inspect(other)}. Valid: #{Enum.join(@sources, ", ")}"}
+    end
   end
 
   defp put_opt(opts, _key, nil), do: opts

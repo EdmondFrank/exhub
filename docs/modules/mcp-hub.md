@@ -182,6 +182,46 @@ See `mcp_servers.json.example`.
 | `url`          | string  | yes*     | —         | Remote URL (required for `sse`, `streamable_http`, `websocket`) |
 | `headers`      | object  | no       | `{}`      | HTTP headers for remote transports                              |
 | `expose_route` | string  | no       | `null`    | Virtual route name for direct proxy access                      |
+| `instructions` | string  | no       | `null`    | Guidance published in the MCP `initialize` result (see below)   |
+
+### Server Instructions
+
+MCP clients accept an `instructions` string in the `initialize` result — the
+place a server states how its tools are meant to be used. The hub publishes one
+composed from every enabled server (`Exhub.MCP.Hub.Instructions`):
+
+```
+GET /mcp-hub/mcp   → initialize → instructions: "<preamble>\n\n## chrome\n..."
+POST /chrome/mcp   → initialize → instructions: "## chrome\n..."
+```
+
+Two sources feed it:
+
+1. a built-in server's `server_instructions/0` callback (read through
+   `BuiltInRegistry`, no wire round trip);
+2. the `instructions` field of an entry in `mcp_servers.json`.
+
+The second exists because upstream instructions cannot be forwarded: the Anubis
+client keeps `serverInfo`/`capabilities` from the upstream handshake but drops
+its `instructions`, so a server whose usage discipline is essential — Browser
+MCP's "act in batches / re-snapshot after navigating" is the difference between
+a working and a flailing browser session — has to be copied into its entry:
+
+```json
+{
+  "name": "chrome",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@browsermcp/mcp@2.4.0"],
+  "env": {"BROWSER_MCP_HOME": "${HOME}/.browsermcp"},
+  "expose_route": "chrome",
+  "instructions": "Browser MCP drives the user's own signed-in Chrome through the single `browser` tool; one command per line, stopping at the first error. Look with `snapshot -i`, re-snapshot after navigating: refs from an older page fail."
+}
+```
+
+Guidance is capped at 8 KB in total, ordered by server name, and a failure to
+read a server's config degrades to "no instructions" rather than a failed
+handshake.
 
 ### Validation Rules
 
