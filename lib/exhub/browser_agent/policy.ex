@@ -16,6 +16,13 @@ defmodule Exhub.BrowserAgent.Policy do
 
   @operations ~w(CLICK TYPE_TEXT)
 
+  # Picked by ExHub's labelled browser-agent sweep: the only model with no
+  # error on 32 tuning + held-out cycles (see `bench/browser_agent_findings.md`),
+  # at ~1.7x the latency of the `APUS-OpenJev` runners-up. Callers can still
+  # override it per request (`model:`) or per deployment
+  # (`config :exhub, Exhub.BrowserAgent, model:`).
+  @default_model "d3-turbo"
+
   # System One (APUS-OpenJev) accepts between 2 and 16 candidates per `choice`
   # question, so every target head is truncated to its first elements in
   # document order. The rendered element table still lists all of them; only
@@ -65,6 +72,19 @@ defmodule Exhub.BrowserAgent.Policy do
   @doc "Maximum candidates System One accepts per `choice` question."
   @spec max_choice_options() :: pos_integer()
   def max_choice_options, do: @max_choice_options
+
+  @doc """
+  The System One model used when the caller passes no `:model`.
+
+  Defaults to `#{@default_model}` (the browser-agent benchmark winner) and can be
+  overridden with `config :exhub, Exhub.BrowserAgent, model: "..."`.
+  """
+  @spec default_model() :: String.t()
+  def default_model do
+    :exhub
+    |> Application.get_env(Exhub.BrowserAgent, [])
+    |> Keyword.get(:model, @default_model)
+  end
 
   @doc """
   Builds the operations criteria for the operation question.
@@ -151,12 +171,12 @@ defmodule Exhub.BrowserAgent.Policy do
           {:ok, map()} | {:error, String.t()}
   def choose(page, elements, targets, goal, history, opts \\ []) do
     decider = Keyword.get(opts, :decider, &SmartDecide.decide/3)
-    model = Keyword.get(opts, :model)
+    model = Keyword.get(opts, :model) || default_model()
 
     questions = build_questions(targets, goal)
     state = build_state(page, elements, history)
 
-    decide_opts = if model, do: [model: model], else: []
+    decide_opts = [model: model]
 
     with {:ok, questions} <- SmartDecide.normalize_questions(questions),
          {:ok, %{"answers" => answers}} <- decider.(state, questions, decide_opts),

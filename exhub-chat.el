@@ -222,19 +222,23 @@ If nil, it uses the current buffer."
           (push code exhub-chat-drafts))))))
 
 (defun exhub-chat--commit-buffer-p (buffer)
-  "Return non-nil when BUFFER (a buffer or buffer name) is a git commit buffer."
+  "Return non-nil when BUFFER (a buffer or buffer name) is a git commit buffer.
+Magit's `git-commit-mode' is a minor mode, so it is checked as a variable;
+the `COMMIT_EDITMSG' file name covers commit buffers set up without it."
   (let ((buf (get-buffer buffer)))
     (when (buffer-live-p buf)
       (with-current-buffer buf
-        (or (derived-mode-p 'git-commit-mode)
+        (or (bound-and-true-p git-commit-mode)
+            (derived-mode-p 'git-commit-mode)
             (and (buffer-file-name)
                  (string-equal (file-name-nondirectory (buffer-file-name))
                                "COMMIT_EDITMSG")))))))
 
 (defun exhub-chat-return-text (serial-number content buffer begin end)
   (when (and begin end)
-    ;; The replaced region of a commit buffer ends at git's comment scaffold, so
-    ;; the message has to bring its own blank separator line.
+    ;; The replaced region is only git's subject, so the generated title has
+    ;; to bring its own blank separator line above the preserved body (or the
+    ;; comment scaffold when the buffer was empty).
     (when (exhub-chat--commit-buffer-p buffer)
       (setq content (concat (string-trim content) "\n\n")))
     (if (equal serial-number 1)
@@ -429,19 +433,31 @@ Works from COMMIT_EDITMSG buffers (whose `buffer-file-name' lives inside
     (file-truename toplevel)))
 
 (defun exhub-chat--commit-message-region ()
-  "Return (BEGIN . END) of the message part of a commit buffer.
-Everything before git's comment scaffold is the message; the scaffold itself
-is left untouched.  Outside a commit buffer the region is empty, so the reply
-is inserted at point and no existing text is removed."
+  "Return (BEGIN . END) of the subject paragraph of a commit buffer.
+Only git's subject is replaced, so an existing body and trailer block stay
+untouched.  Everything below git's comment scaffold is left alone as well.
+Outside a commit buffer the region is empty, so the reply is inserted at
+point and no existing text is removed."
   (if (not (exhub-chat--commit-buffer-p (current-buffer)))
       (cons (point) (point))
     (save-excursion
       (goto-char (point-min))
-      (let ((begin (point-min))
-            (end (point-max)))
-        (when (re-search-forward "^#" nil t)
-          (setq end (line-beginning-position)))
-        (cons begin end)))))
+      (let* ((comment (or (and (bound-and-true-p comment-start) comment-start) "#"))
+             (begin (point-min))
+             (message-end (if (re-search-forward (concat "^" (regexp-quote comment)) nil t)
+                              (line-beginning-position)
+                            (point-max))))
+        (goto-char begin)
+        ;; The subject is git's first paragraph.  Skip it plus the blank
+        ;; separator lines after it, so the reply's own "\n\n" re-creates
+        ;; exactly one blank line above the preserved body.
+        (if (re-search-forward "^[ \t]*$" message-end t)
+            (progn
+              (forward-line 1)
+              (while (and (< (point) message-end) (looking-at "[ \t]*$"))
+                (forward-line 1))
+              (cons begin (min (point) message-end)))
+          (cons begin message-end))))))
 
 (defun exhub-chat-generate-commit-message ()
   "Generate a commit message for the staged changes of the current repository."

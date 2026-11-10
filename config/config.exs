@@ -299,10 +299,14 @@ config :exhub, Exhub.MCP.Hub.ToolRelevance,
 #     keeps accessibility refs server-side so CLICK/TYPE_TEXT resolve; `:cli`
 #     shells out to `kuri-agent`, which assigns refs per process and therefore
 #     cannot act on a ref printed by an earlier snapshot.
-#   - `endpoint`/`model`: the OpenAI-compatible chat model used to write
-#     TYPE_TEXT field values; uses the shared :giteeai_api_key
-# In-code defaults in `Exhub.BrowserAgent.TextHelper` apply for any missing key.
-config :exhub, Exhub.BrowserAgent, backend: :http
+#   - `model`: System One decision model for the operation/target choice.
+#     Defaults to `d3-turbo`, the only model with no error on ExHub's 32-case
+#     labelled browser-agent sweep (bench/browser_agent_findings.md); the
+#     `APUS-OpenJev` runners-up are ~1.7x faster and one case behind.
+#   - `Exhub.BrowserAgent.TextHelper` `endpoint`/`model`: the OpenAI-compatible
+#     chat model used to write TYPE_TEXT field values; uses the shared
+#     :giteeai_api_key, and its in-code defaults apply for any missing key.
+config :exhub, Exhub.BrowserAgent, backend: :http, model: "d3-turbo"
 
 config :exhub, Exhub.BrowserAgent.TextHelper,
   endpoint: "https://api.moark.com/v1/chat/completions",

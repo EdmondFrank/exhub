@@ -163,6 +163,40 @@ defmodule Exhub.BrowserAgent.PolicyTest do
       assert message =~ "outside the offered options"
     end
 
+    test "defaults to the configured decision model (d3-turbo)" do
+      parent = self()
+
+      decider = fn _state, _questions, opts ->
+        send(parent, {:decider_opts, opts})
+        {:ok, %{"answers" => %{"operation" => %{"choice" => "DONE"}}}}
+      end
+
+      assert {:ok, _decision} =
+               Policy.choose(@page, @elements, @targets, "done", [], decider: decider)
+
+      assert_received {:decider_opts, opts}
+      assert opts[:model] == Policy.default_model()
+      assert Policy.default_model() == "d3-turbo"
+    end
+
+    test "lets an explicit model override the default" do
+      parent = self()
+
+      decider = fn _state, _questions, opts ->
+        send(parent, {:decider_opts, opts})
+        {:ok, %{"answers" => %{"operation" => %{"choice" => "DONE"}}}}
+      end
+
+      assert {:ok, _decision} =
+               Policy.choose(@page, @elements, @targets, "done", [],
+                 decider: decider,
+                 model: "APUS-OpenJev-v1-4B"
+               )
+
+      assert_received {:decider_opts, opts}
+      assert opts[:model] == "APUS-OpenJev-v1-4B"
+    end
+
     test "propagates a decider error" do
       decider = fn _state, _questions, _opts -> {:error, "System One unavailable"} end
 

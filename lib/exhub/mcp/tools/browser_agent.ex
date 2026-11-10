@@ -83,7 +83,7 @@ defmodule Exhub.MCP.Tools.BrowserAgent do
 
     field(:model, :string,
       description:
-        "System One model override (default Intern-Decision-4B); e.g. APUS-OpenJev-v1-9B for wide pages (128K), NeoHorse-Jev-4B, or d3-turbo for the most accurate choice"
+        "System One model override (default d3-turbo, the most accurate on ExHub's browser-agent benchmark); e.g. APUS-OpenJev-v1-9B/-4B for ~1.7x faster decisions, or a 128K-context model for very wide pages"
     )
 
     field(:source, :string,

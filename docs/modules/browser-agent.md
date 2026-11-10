@@ -45,6 +45,12 @@ Operations: `CLICK`, `TYPE_TEXT`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`,
 `tab`, `option`, `checkbox`, `radio`, `switch`, …); `TYPE_TEXT` targets are
 editable roles (`textbox`, `searchbox`, `combobox`, `spinbutton`).
 
+The decision model defaults to `d3-turbo` — the only model with no error on
+ExHub's 32-case labelled sweep ([`bench/browser_agent_findings.md`](../../bench/browser_agent_findings.md)).
+Override it per call with `model`, or per deployment with
+`config :exhub, Exhub.BrowserAgent, model:`. `APUS-OpenJev-v1-4B` is the faster,
+cheaper runner-up (31/32 at ~390 ms versus ~675 ms).
+
 ## Backends
 
 The `Exhub.BrowserAgent.Kuri` facade delegates to one of two interchangeable
@@ -122,7 +128,7 @@ Built-in hub server name: `browser-agent`.
 | `url`        | string  |          | Navigate before the first observation |
 | `session_id` | string  |          | Session id from `start` (required for `step`/`status`/`stop`) |
 | `max_steps`  | integer |          | Decision-cycle budget for `run` (default 15) |
-| `model`      | string  |          | System One model override (default `Intern-Decision-4B`) |
+| `model`      | string  |          | System One model override (default `d3-turbo`, the only model with no error on ExHub's 32-case browser-agent sweep; `APUS-OpenJev-v1-9B`/`-v1-4B` are ~1.7× faster and one case behind) |
 | `source`     | string  |          | `kuri` (default: managed headless Chrome) or `chrome` (your own signed-in Chrome) |
 
 - `run` — runs the loop synchronously and returns the full trace.
