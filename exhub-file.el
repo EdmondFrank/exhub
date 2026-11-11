@@ -11,7 +11,9 @@
 ;; server-side, so diagrams display without any client-side JavaScript.
 ;;
 ;; The preview renders the active region when there is one, and the whole
-;; buffer otherwise.
+;; buffer otherwise.  Both preview targets leave the buffer you are editing
+;; in place: the posframe shows the result near point, and the EWW variant
+;; opens a side window next to it.
 
 ;;; Code:
 
@@ -53,18 +55,35 @@ number of lines."
                  (integer :tag "Lines"))
   :group 'exhub-file)
 
+(defcustom exhub-markdown-preview-eww-display 'side-window
+  "How the EWW Markdown preview buffer is displayed.
+`side-window' shows it in a side window on the right of the frame,
+`bottom' in a window at the bottom of the frame, `popup' in a window
+created by `display-buffer-pop-up-window', and `switch' switches the
+selected window to the preview buffer (the historical behavior).
+In every mode but `switch' the buffer you are editing keeps the
+selected window, so you can keep working next to the preview."
+  :type '(choice (const :tag "Side window" side-window)
+                 (const :tag "Bottom window" bottom)
+                 (const :tag "Pop-up window" popup)
+                 (const :tag "Switch to buffer" switch))
+  :group 'exhub-file)
+
 (defconst exhub-markdown-preview-buffer-name "*exhub-markdown-preview*"
   "Buffer holding the rendered Markdown shown in the preview posframe.")
 
 (defvar exhub-markdown-preview-posframe-buffer nil
   "Buffer currently shown in the Markdown preview posframe, or nil.")
 
+(defvar exhub-markdown-preview-eww-buffer nil
+  "EWW buffer holding the last Markdown preview, or nil.")
+
 (defun exhub-preview-markdown ()
   "Preview the current buffer's Markdown, or the active region, using Exhub.
 The region takes precedence over the whole buffer.  The rendered preview
 is shown in a posframe near point when possible; with a prefix argument,
-or where posframe cannot work, it opens in a dedicated EWW buffer
-instead."
+or where posframe cannot work, it goes to an EWW buffer displayed
+according to `exhub-markdown-preview-eww-display' instead."
   (interactive)
   (let ((content (exhub-markdown-preview--content)))
     (if (string-empty-p (string-trim content))
@@ -78,8 +97,11 @@ instead."
                        content (buffer-name)))))
 
 (defun exhub-preview-markdown-in-eww ()
-  "Preview the buffer or active region Markdown in a dedicated EWW buffer.
-Same as `exhub-preview-markdown' with a prefix argument."
+  "Preview the buffer or active region Markdown in an EWW buffer.
+Same as `exhub-preview-markdown' with a prefix argument: the preview is
+shown in a separate window according to
+`exhub-markdown-preview-eww-display', so the buffer being previewed
+keeps the selected window."
   (interactive)
   (let ((current-prefix-arg '(4)))
     (exhub-preview-markdown)))
@@ -238,22 +260,84 @@ This function is used to interact with the Exhub File API to perform
 various file operations such as reading, writing, and deleting files."
   (exhub-call "exhub-file" action callback args))
 
+(defun exhub-markdown-preview--eww-display-action ()
+  "Return the `display-buffer' action used for the EWW preview.
+The action follows `exhub-markdown-preview-eww-display' and always
+starts with `display-buffer-reuse-window', so previewing again updates
+the window that already shows the preview instead of splitting the
+frame once more."
+  (pcase exhub-markdown-preview-eww-display
+    ('side-window
+     '((display-buffer-reuse-window display-buffer-in-side-window)
+       (side . right)
+       (slot . 0)
+       (window-width . 0.45)
+       (preserve-size . (t . t))))
+    ('bottom
+     '((display-buffer-reuse-window display-buffer-at-bottom)
+       (window-height . 0.4)
+       (preserve-size . (nil . t))))
+    (_
+     ;; `display-buffer-pop-up-window' gives up when the split thresholds
+     ;; cannot be met; splitting below the selected window still works then,
+     ;; and is preferable to `display-buffer's fallback, which would steal
+     ;; the buffer of another window.
+     '((display-buffer-reuse-window
+        display-buffer-pop-up-window
+        display-buffer-below-selected)
+       (window-height . 0.4)))))
+
+(defun exhub-markdown-preview-quit-eww ()
+  "Delete the windows showing the EWW Markdown preview and bury its buffer.
+Bound to `q' in the preview buffer."
+  (interactive)
+  (let ((buffer (if (and (derived-mode-p 'eww-mode)
+                         (string-prefix-p "*eww-" (buffer-name)))
+                    (current-buffer)
+                  exhub-markdown-preview-eww-buffer)))
+    (when (buffer-live-p buffer)
+      (dolist (window (get-buffer-window-list buffer nil t))
+        (ignore-errors (delete-window window)))
+      (bury-buffer buffer)))
+  (setq exhub-markdown-preview-eww-buffer nil))
+
 (defun exhub-file-show-with-eww-casual (html-content buffer-name)
-  "Display HTML content in EWW buffer.
+  "Display HTML content in an EWW buffer.
 HTML-CONTENT is the HTML content to be displayed.
-BUFFER-NAME is the name of the buffer where the content will be displayed."
+BUFFER-NAME is the name of the buffer where the content will be displayed.
+
+The preview goes to a reusable `*eww-<BUFFER-NAME>*' buffer, displayed
+according to `exhub-markdown-preview-eww-display'.  Except in `switch'
+mode the buffer you are editing keeps the selected window, so a
+preview can be shown without leaving it.  The buffer is displayed
+before rendering so `shr' wraps text and scales images to the width of
+the preview window rather than to the selected one."
   (require 'shr)
-  (let ((eww-buffer (get-buffer (format "*eww-%s*" buffer-name))))
-    (when eww-buffer
-      (kill-buffer eww-buffer))
-    (setq eww-buffer (get-buffer-create (format "*eww-%s*" buffer-name)))
-    (with-current-buffer eww-buffer
-      (erase-buffer)
-      (insert html-content)
-      (goto-char (point-min))
-      (shr-render-region (point-min) (point-max))
-      (eww-mode))
-    (switch-to-buffer eww-buffer)))
+  (let* ((eww-buffer (get-buffer-create (format "*eww-%s*" buffer-name)))
+         (window (or (get-buffer-window eww-buffer t)
+                     (if (eq exhub-markdown-preview-eww-display 'switch)
+                         (progn (switch-to-buffer eww-buffer)
+                                (selected-window))
+                       (display-buffer eww-buffer
+                                       (exhub-markdown-preview--eww-display-action))))))
+    (unless (window-live-p window)
+      ;; `display-buffer' can fail (e.g. `popup' mode with split thresholds
+      ;; the frame cannot satisfy); never leave the preview invisible.
+      (switch-to-buffer eww-buffer)
+      (setq window (selected-window)))
+    (setq exhub-markdown-preview-eww-buffer eww-buffer)
+    (with-selected-window window
+      (let ((inhibit-read-only t)
+            (shr-width (max 20 (- (window-body-width window) 2))))
+        (erase-buffer)
+        (insert html-content)
+        (goto-char (point-min))
+        (shr-render-region (point-min) (point-max))
+        (goto-char (point-min))
+        (unless (eq major-mode 'eww-mode)
+          (eww-mode))
+        (local-set-key (kbd "q") #'exhub-markdown-preview-quit-eww)))
+    eww-buffer))
 
 ;; (defun exhub-live-preview-markdown ()
 ;;   "Preview the current buffer with markdown using Exhub in real-time"

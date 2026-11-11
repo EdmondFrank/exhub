@@ -1,5 +1,17 @@
 # Recent Enhancements
 
+## exhub-file — EWW Preview Without Switching Buffers
+
+- **Feature**: the EWW preview (`exhub-preview-markdown-in-eww`, `C-c C-v`, `C-u M-x exhub-preview-markdown`, the non-posframe fallback, and `exhub-markdown-preview-use-posframe` = nil) no longer calls `switch-to-buffer`. It goes through `display-buffer` with an action chosen by the new `exhub-markdown-preview-eww-display` option — `side-window` (default, right side window, 45% wide), `bottom` (full-width window at the bottom, 40% high), `popup` (split below the selected window), `switch` (historical behavior). The buffer you are editing keeps the selected window in every mode but `switch`.
+- **Reuse**: the preview buffer is no longer killed and recreated; an existing window showing `*eww-<buffer>*` is reused, so previewing again updates the visible preview instead of splitting the frame a second time or leaving a stale buffer behind.
+- **Sizing**: the buffer is displayed *before* it is rendered, and `shr-width` is bound to the preview window's width, so text wraps and Mermaid images scale to the side window instead of to the wider selected window.
+- **Quit**: `q` in the preview buffer runs `exhub-markdown-preview-quit-eww`, which deletes the preview windows and buries the buffer. If `display-buffer` cannot find or make a window (e.g. `popup` mode with split thresholds the frame cannot satisfy), the preview falls back to `switch-to-buffer` rather than staying invisible.
+- **Modified Files**:
+  - `exhub-file.el` — new `exhub-markdown-preview-eww-display` defcustom, `exhub-markdown-preview-eww-buffer`, `exhub-markdown-preview--eww-display-action`, `exhub-markdown-preview-quit-eww`, rewritten `exhub-file-show-with-eww-casual`
+  - `docs/modules/file.md` — EWW display behavior, `q` key, new customization row
+
+---
+
 ## exhub-file — Posframe Markdown/Mermaid Preview with Region Support
 
 - **Feature**: `exhub-preview-markdown` now previews the **active region** when there is one (whole buffer otherwise) and shows the result in a **posframe near point** instead of switching to an EWW buffer. The frame closes on the next key press; `exhub-preview-markdown-in-eww` (or `C-u M-x exhub-preview-markdown`) keeps the old dedicated-EWW-buffer behavior, and the posframe path also falls back to it when posframe cannot work (terminal Emacs) or when `exhub-markdown-preview-use-posframe` is nil.
