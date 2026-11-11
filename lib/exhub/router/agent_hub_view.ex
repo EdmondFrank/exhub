@@ -133,16 +133,64 @@ defmodule Exhub.Router.AgentHubView do
           margin-bottom: 16px;
           font-size: 13px;
         }
-        .agents { display: flex; flex-wrap: wrap; gap: 8px; }
-        .agent-chip {
-          border: 1px solid #30363d;
-          border-radius: 999px;
-          padding: 4px 10px;
-          font-size: 12px;
-          color: #c9d1d9;
-          cursor: pointer;
+        .agents {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 10px;
         }
-        .agent-chip:hover { border-color: #1f6feb; color: #58a6ff; }
+        .agent-card {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          border: 1px solid #30363d;
+          border-radius: 10px;
+          padding: 12px;
+          background: #0d1117;
+          cursor: pointer;
+          transition: border-color 0.15s, background 0.15s;
+        }
+        .agent-card:hover { border-color: #1f6feb; }
+        .agent-card.selected { border-color: #1f6feb; background: #101a2b; }
+        .agent-card-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .agent-name { color: #f0f6fc; font-size: 14px; font-weight: 600; }
+        .agent-section { display: flex; flex-direction: column; gap: 5px; }
+        .agent-label {
+          color: #8b949e;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+        .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+        .tag {
+          border: 1px solid #30363d;
+          border-radius: 6px;
+          padding: 1px 7px;
+          font-size: 11px;
+          color: #c9d1d9;
+          background: #161b22;
+          white-space: nowrap;
+        }
+        .tag .count { color: #8b949e; margin-left: 5px; font-size: 10px; }
+        .tag-native { border-color: #1f6feb; color: #79c0ff; }
+        .tag-mw { color: #8b949e; border-style: dashed; }
+        .tag-hitl { border-color: #9e6a03; color: #d29922; }
+        .tag-none { color: #6e7681; border-style: dashed; }
+        .agent-hint {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+          margin-top: 10px;
+          font-size: 12px;
+          color: #8b949e;
+        }
+        .agent-hint .tag { cursor: default; }
         .toast {
           position: fixed;
           bottom: 20px;
@@ -163,6 +211,7 @@ defmodule Exhub.Router.AgentHubView do
         .toast.error { border-color: #da3633; }
         @media (max-width: 720px) {
           .conversation { flex-direction: column; align-items: flex-start; }
+          .agents { grid-template-columns: 1fr; }
           select, input[type=text] { width: 100%; }
         }
       </style>
@@ -191,6 +240,7 @@ defmodule Exhub.Router.AgentHubView do
             <input type="text" id="new-title" placeholder="Title (optional)">
             <button class="btn btn-primary" id="create-btn" onclick="createConversation()">Start conversation</button>
           </div>
+          <div class="agent-hint" id="agent-hint"></div>
         </div>
 
         <div class="panel">
@@ -200,6 +250,9 @@ defmodule Exhub.Router.AgentHubView do
 
         <div class="panel">
           <h2>Agent profiles</h2>
+          <p class="subtitle" style="margin-bottom: 12px;">
+            Tool groups each profile can call. Click a profile to select it for a new conversation.
+          </p>
           <div class="agents" id="agents"><span class="subtitle">Loading…</span></div>
         </div>
       </div>
@@ -241,23 +294,121 @@ defmodule Exhub.Router.AgentHubView do
           await Promise.all([loadAgents(), loadConversations()]);
         }
 
+        var AGENTS = [];
+
+        function toolTag(text, cls, count) {
+          return '<span class="tag ' + (cls || '') + '">' + escapeHtml(text) +
+            (count ? '<span class="count">' + count + '</span>' : '') + '</span>';
+        }
+
+        function middlewareTag(middleware) {
+          var interrupts = middleware.interrupts || [];
+          var chips = [toolTag(middleware.name, interrupts.length ? 'tag-hitl' : 'tag-mw')];
+
+          interrupts.forEach(function(tool) {
+            chips.push(toolTag(tool, 'tag-hitl'));
+          });
+
+          return chips.join('');
+        }
+
+        function agentCard(agent, index) {
+          var groups = (agent.tool_groups || []).map(function(group) {
+            return toolTag(group.name, '', group.tool_count || null);
+          });
+
+          var native = (agent.native_tools || []).map(function(name) {
+            return toolTag(name, 'tag-native');
+          });
+
+          var middleware = (agent.middleware || []).map(middlewareTag);
+
+          function section(label, tags) {
+            var body = tags.length
+              ? '<div class="tags">' + tags.join('') + '</div>'
+              : '<div class="tags"><span class="tag tag-none">none</span></div>';
+
+            return '<div class="agent-section"><div class="agent-label">' + label + '</div>' + body + '</div>';
+          }
+
+          var live = agent.running
+            ? '<span class="badge badge-running"><span class="dot running"></span>Live</span>'
+            : '';
+
+          return '<div class="agent-card" data-agent-index="' + index + '">' +
+            '<div class="agent-card-head"><span class="agent-name">' + escapeHtml(agent.name) + '</span>' + live + '</div>' +
+            section('MCP tool groups', groups) +
+            section('Native tools', native) +
+            section('Middleware', middleware) +
+          '</div>';
+        }
+
+        function selectedAgent() {
+          var select = document.getElementById('agent-select');
+
+          return AGENTS.filter(function(agent) {
+            return agent.name === select.value;
+          })[0];
+        }
+
+        function markSelectedCard() {
+          var current = document.getElementById('agent-select').value;
+          var cards = document.querySelectorAll('#agents .agent-card');
+
+          for (var i = 0; i < cards.length; i++) {
+            var agent = AGENTS[Number(cards[i].getAttribute('data-agent-index'))];
+            cards[i].classList.toggle('selected', !!agent && agent.name === current);
+          }
+        }
+
+        function renderAgentHint() {
+          var hint = document.getElementById('agent-hint');
+          var agent = selectedAgent();
+
+          markSelectedCard();
+
+          if (!agent) {
+            hint.innerHTML = '';
+            return;
+          }
+
+          var groups = (agent.tool_groups || []).map(function(group) {
+            return toolTag(group.name, '', group.tool_count || null);
+          });
+
+          var parts = ['<span>Tool groups:</span>'].concat(
+            groups.length ? groups : ['<span class="tag tag-none">none</span>']
+          );
+
+          var nativeCount = (agent.native_tools || []).length;
+
+          if (nativeCount > 0) {
+            parts.push('<span>' + nativeCount + ' native tool' + (nativeCount === 1 ? '' : 's') + '</span>');
+          }
+
+          hint.innerHTML = parts.join('');
+        }
+
         async function loadAgents() {
           try {
             var data = await (await fetch('/agent-hub/agents')).json();
-            var agents = data.agents || [];
+            AGENTS = data.agents || [];
+
             var select = document.getElementById('agent-select');
             var previous = select.value;
 
-            select.innerHTML = agents.map(function(agent) {
+            select.innerHTML = AGENTS.map(function(agent) {
               return '<option value="' + escapeHtml(agent.name) + '">' + escapeHtml(agent.name) + '</option>';
             }).join('');
 
-            if (previous) select.value = previous;
+            if (previous && AGENTS.some(function(agent) { return agent.name === previous; })) {
+              select.value = previous;
+            }
 
-            document.getElementById('agents').innerHTML = agents.map(function(agent) {
-              return '<span class="agent-chip" onclick="pickAgent(\\'' + escapeHtml(agent.name) + '\\')">' +
-                escapeHtml(agent.name) + (agent.running ? ' •' : '') + '</span>';
-            }).join('') || '<span class="subtitle">No agent profiles registered</span>';
+            document.getElementById('agents').innerHTML = AGENTS.map(agentCard).join('') ||
+              '<span class="subtitle">No agent profiles registered</span>';
+
+            renderAgentHint();
           } catch (err) {
             showError('Failed to load agents: ' + err.message);
           }
@@ -265,6 +416,7 @@ defmodule Exhub.Router.AgentHubView do
 
         function pickAgent(name) {
           document.getElementById('agent-select').value = name;
+          renderAgentHint();
         }
 
         async function loadConversations() {
@@ -367,6 +519,16 @@ defmodule Exhub.Router.AgentHubView do
             showToast('Delete failed: ' + err.message, 'error');
           }
         }
+
+        document.getElementById('agents').addEventListener('click', function(event) {
+          var card = event.target.closest('.agent-card');
+          if (!card) return;
+
+          var agent = AGENTS[Number(card.getAttribute('data-agent-index'))];
+          if (agent) pickAgent(agent.name);
+        });
+
+        document.getElementById('agent-select').addEventListener('change', renderAgentHint);
 
         loadAll();
         setInterval(loadConversations, 10000);

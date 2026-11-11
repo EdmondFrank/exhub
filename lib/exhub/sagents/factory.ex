@@ -153,7 +153,10 @@ defmodule Exhub.Sagents.Factory do
     end
   end
 
-  defp default_middleware do
+  @doc """
+  Middleware applied to every agent that does not override `:middleware`.
+  """
+  def default_middleware do
     [
       {Sagents.Middleware.TodoList, []},
       {Sagents.Middleware.FileSystem, []},

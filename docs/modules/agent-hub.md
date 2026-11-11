@@ -27,7 +27,11 @@ middleware state.
 `http://localhost:9069/agent-hub`
 
 Lists registered agents and conversations (most recently active first), with
-create/rename/delete and start/stop controls.
+create/rename/delete and start/stop controls. Each agent profile is rendered as
+a card showing what it can do: its MCP tool groups (with tool counts), its
+native in-process tools, and its middleware (HITL entries also list the tools
+they pause on). Clicking a card selects it in the "New conversation" picker,
+which repeats the selected profile's tool groups as a hint.
 
 ### Conversation
 
@@ -70,7 +74,7 @@ conversation.
 | `POST` | `/agent-hub/conversations` | Create a conversation |
 | `PATCH` | `/agent-hub/conversations/{id}` | Rename |
 | `DELETE` | `/agent-hub/conversations/{id}` | Delete (stops the agent first) |
-| `GET` | `/agent-hub/agents` | Registered agent profiles |
+| `GET` | `/agent-hub/agents` | Registered agent profiles with `tool_groups`, `native_tools`, `middleware` |
 | `POST` | `/agent-hub/agents/{name}/chat` | Legacy agent-name SSE chat |
 | `GET` | `/agent-hub/agents/{name}/status` | Aggregate status for an agent |
 | `POST` | `/agent-hub/agents/{name}/start`, `/stop`, `/reset` | Legacy controls |

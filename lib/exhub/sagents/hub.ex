@@ -16,6 +16,7 @@ defmodule Exhub.Sagents.Hub do
   use GenServer
   require Logger
 
+  alias Exhub.MCP.Hub.BuiltInRegistry
   alias Exhub.Sagents.{DisplayMessages, Factory, Markdown, Persistence, Store}
 
   @chat_timeout 300_000
@@ -33,15 +34,57 @@ defmodule Exhub.Sagents.Hub do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @doc "Registered agent profiles, each flagged with whether any conversation is live."
+  @doc """
+  Registered agent profiles with their capabilities.
+
+  Each entry carries `:name`, `:running` (whether any conversation of this
+  profile is live), `:tool_groups` (`%{name:, tool_count:}` for every MCP group
+  the profile mounts), `:native_tools` (in-process tool names), and
+  `:middleware` (`%{name:, interrupts: [tool_name]}` — `interrupts` lists the
+  tool calls a HITL middleware pauses on).
+  """
   def list_agents do
     running = running_map()
 
     Factory.agents()
-    |> Enum.map(fn {name, _config} ->
-      %{name: name, running: Enum.any?(Map.values(running), &(&1 == name))}
+    |> Enum.map(fn {name, config} ->
+      %{
+        name: name,
+        running: Enum.any?(Map.values(running), &(&1 == name)),
+        tool_groups: config |> Map.get(:mcp_tools) |> List.wrap() |> Enum.map(&tool_group/1),
+        native_tools: config |> Map.get(:tools) |> List.wrap() |> Enum.map(& &1.name),
+        middleware: Enum.map(effective_middleware(config), &middleware_summary/1)
+      }
     end)
     |> Enum.sort_by(& &1.name)
+  end
+
+  defp effective_middleware(config), do: config[:middleware] || Factory.default_middleware()
+
+  defp tool_group(group) when is_atom(group) do
+    name = Atom.to_string(group)
+    %{name: name, tool_count: length(BuiltInRegistry.list_tools(name))}
+  end
+
+  defp middleware_summary({module, opts}),
+    do: %{name: module_label(module), interrupts: interrupt_tools(opts)}
+
+  defp middleware_summary(module) when is_atom(module),
+    do: %{name: module_label(module), interrupts: []}
+
+  defp module_label(module), do: module |> Module.split() |> List.last()
+
+  defp interrupt_tools(opts) do
+    case opts do
+      %{interrupt_on: map} ->
+        map |> Map.keys() |> Enum.sort()
+
+      list when is_list(list) ->
+        list |> Keyword.get(:interrupt_on, %{}) |> Map.keys() |> Enum.sort()
+
+      _ ->
+        []
+    end
   end
 
   @doc "Conversations, most recently active first, each with a `:running` flag."
