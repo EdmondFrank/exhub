@@ -1,5 +1,17 @@
 # Recent Enhancements
 
+## exhub-file — Posframe Markdown/Mermaid Preview with Region Support
+
+- **Feature**: `exhub-preview-markdown` now previews the **active region** when there is one (whole buffer otherwise) and shows the result in a **posframe near point** instead of switching to an EWW buffer. The frame closes on the next key press; `exhub-preview-markdown-in-eww` (or `C-u M-x exhub-preview-markdown`) keeps the old dedicated-EWW-buffer behavior, and the posframe path also falls back to it when posframe cannot work (terminal Emacs) or when `exhub-markdown-preview-use-posframe` is nil.
+- **Sizing**: the frame is sized from the rendered content, not left to `posframe-show`'s fitting — text is re-wrapped to `exhub-markdown-preview-posframe-width` (84) and images count toward the width/height in character cells, so a Mermaid diagram gets the rows it needs. `exhub-markdown-preview-posframe-max-height` (0.7) caps the height.
+- **Image clamping**: `shr-rescale-image` only scales images when their buffer already has a window, so a buffer rendered ahead of the posframe kept the natural SVG size (a 12-node `flowchart LR` was 1448 px in a ~590 px frame, i.e. clipped). `exhub-markdown-preview--clamp-images` now rewrites each embedded image with `:max-width`/`:max-height` limits before display; small diagrams keep their natural size.
+- **No Elixir change**: `Exhub.ResponseHandlers.ExhubFile` already renders fences server-side and returns base64 SVG, so both preview targets share the same Markdown pipeline.
+- **Modified Files**:
+  - `exhub-file.el` — region-aware `exhub-preview-markdown`, `exhub-preview-markdown-in-eww`, `exhub-file-show-with-posframe`, `exhub-markdown-preview-{content,--render,--clamp-images,--line-metrics,--posframe-max-height,hide-posframe,quit-on-key}`, three new defcustoms
+  - `docs/modules/file.md` — usage, customization table, Mermaid/posframe caveats
+
+---
+
 ## Gitee AI Token Pool — Faithful Context Estimate & Decision Logging
 
 - **Fix**: the pool's estimate only counted textual `content` and divided characters by 4, so tool-call arguments, `tool_results`, `reasoning_content` and (on the LangChain path) the tool definitions were invisible. Long agent requests therefore looked small and stayed on the token-based pool past the break-even — a 180k-token request was estimated below the 100k threshold.

@@ -244,7 +244,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-chat         | Chat, code generation, translation, and document polishing            | [docs/modules/chat.md](docs/modules/chat.md)                 |
 | exhub-agent        | Agent-based interactions and tool orchestration                       | [docs/modules/agent.md](docs/modules/agent.md)               |
 | exhub-translate    | Symbol and region translation utilities                               | [docs/modules/translate.md](docs/modules/translate.md)       |
-| exhub-file         | File operations and Markdown preview                                  | [docs/modules/file.md](docs/modules/file.md)                 |
+| exhub-file         | File operations and posframe Markdown/Mermaid preview                 | [docs/modules/file.md](docs/modules/file.md)                 |
 | exhub-fim          | LLM-powered fill-in-the-middle code completion                        | [docs/modules/fim.md](docs/modules/fim.md)                   |
 | exhub-keep-alive   | macOS Bluetooth connection maintenance                                | [docs/modules/keep-alive.md](docs/modules/keep-alive.md)     |
 | exhub-health-check | URL monitoring with webhook notifications                             | [docs/modules/health-check.md](docs/modules/health-check.md) |
