@@ -1,5 +1,18 @@
 # Recent Enhancements
 
+## MCP Gateway — a `tools/call` Is Answered on Its Own POST Connection
+
+- **Fix**: `Exhub.MCP.ConcurrentToolDispatcher` pushed a `tools/call` response onto the session's standalone GET SSE stream and acknowledged the POST with `202 Accepted {}` whenever such a stream was attached. Per MCP Streamable HTTP a request must be answered on the stream that carried it — `202` is only legal for notifications and responses — and clients that keep a GET stream open, pi-mcp (`@earendil-works/pi-mcp`) among them, treat `202` for a request as a fatal transport error and drop the response that arrives on GET. In practice ~67% of nested tool calls failed on such a client, drifting per server with "is the GET stream up at call time?". The dispatcher now always writes `200` + `application/json` back on the POST connection; nothing is diverted to the GET stream, which carries only keepalives and server-initiated messages. Anubis' own plug already behaved this way for non-`tools/call` requests.
+- **Fix**: `brain_search_vault` rejected an integer `min_score` (`expected type of :float received 0`) even though its published schema says `number` and JSON cannot distinguish `0` from `0.0`. The field is now `{:either, {:float, :integer}}`, the same pattern `image_gen`/`i2i` use for `guidance_scale`.
+- **Tests**: `test/exhub/mcp/concurrent_tool_dispatcher_test.exs` — with a fake SSE handler registered for the session, a `tools/call` still answers on the POST and the handler receives nothing; `search_vault_test.exs` gains an integer-`min_score` validation case.
+- **Modified Files**:
+  - `lib/exhub/mcp/concurrent_tool_dispatcher.ex` — response transport documented in the moduledoc, SSE-divert branch removed
+  - `lib/exhub/mcp/tools/brain/search_vault.ex` — `min_score` field type
+  - `docs/modules/mcp-hub.md` — response step of "Concurrent Tool Dispatch"
+  - `test/exhub/mcp/concurrent_tool_dispatcher_test.exs`, `test/exhub/mcp/tools/brain/search_vault_test.exs`
+
+---
+
 ## exhub-file — EWW Preview Without Switching Buffers
 
 - **Feature**: the EWW preview (`exhub-preview-markdown-in-eww`, `C-c C-v`, `C-u M-x exhub-preview-markdown`, the non-posframe fallback, and `exhub-markdown-preview-use-posframe` = nil) no longer calls `switch-to-buffer`. It goes through `display-buffer` with an action chosen by the new `exhub-markdown-preview-eww-display` option — `side-window` (default, right side window, 45% wide), `bottom` (full-width window at the bottom, 40% high), `popup` (split below the selected window), `switch` (historical behavior). The buffer you are editing keeps the selected window in every mode but `switch`.

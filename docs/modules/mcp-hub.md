@@ -952,7 +952,7 @@ HTTP POST /desktop/mcp
 3. **Tool discovery**: Tools are obtained from `server_module.__components__(:tool)` — the same source Anubis uses. `x-include-tools` / `x-exclude-tools` header filtering is applied via `ServerHelpers.filter_tools_by_headers/2`.
 4. **Param validation**: Input parameters are validated using `tool.validate_input.(params)`, identical to `Anubis.Server.Handlers.Tools.validate_params/3`.
 5. **Concurrent execution**: The tool handler (`tool.handler.execute(params, frame)`) runs in a `Task.Supervisor.async_nolink/2` child under `Exhub.MCP.ToolTaskSupervisor`. The calling Plug process waits via `Task.yield/2` with the configured `request_timeout`.
-6. **Response**: The result is encoded via `Response.to_protocol/1` → `Message.build_response/2` → `JSON.encode!/1` and sent directly to the HTTP client. SSE responses are routed through the existing SSE handler if one is registered.
+6. **Response**: The result is encoded via `Response.to_protocol/1` → `Message.build_response/2` → `JSON.encode!/1` and written back **on the same POST connection** (`200` + `application/json`). Request responses are never diverted to the session's standalone GET stream: per the MCP Streamable HTTP spec a request must be answered on the stream that carried it, `202 Accepted` is only legal for notifications/responses, and clients that keep a GET stream open (e.g. pi-mcp) treat `202` for a request as a fatal transport error.
 7. **Error handling**: Tool-not-found, invalid params, execution crashes, and timeouts all produce proper MCP error responses (`Error.build_json_rpc/2`).
 
 ### Safety Guarantees

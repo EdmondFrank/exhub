@@ -79,7 +79,10 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
         "Scorer weights, e.g. %{\"freshness\" => 0.3, \"bm25\" => 0.5}. Merged over defaults."
     )
 
-    field(:min_score, :float,
+    # JSON has no integer/float distinction on the wire, so `0` and `0.0` are
+    # indistinguishable to a client — accept both rather than rejecting the
+    # integer form, which the schema advertises as `number`.
+    field(:min_score, {:either, {:float, :integer}},
       description: "Drop results with final score below this threshold (default 0.0)",
       default: 0.0
     )

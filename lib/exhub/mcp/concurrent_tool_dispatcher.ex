@@ -22,6 +22,16 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
   session GenServer), we can execute tool handlers in separate Tasks, keeping
   the session GenServer free for other requests (tools/list, initialize, etc.).
 
+  ## Response transport
+
+  A JSON-RPC response is always written back on the POST connection that carried
+  the request: `200` with `application/json`. It is never diverted to the
+  session's standalone GET stream. Per the MCP Streamable HTTP spec a request
+  must be answered on the stream that carried it — `202 Accepted` is only legal
+  for notifications and responses — and clients that keep a GET stream open
+  (e.g. pi-mcp) treat `202` for a request as a fatal transport error, dropping
+  the response that arrives on the GET stream.
+
   ## Safety
 
   - Because this path builds a fresh Frame per request and discards the frame
@@ -41,7 +51,6 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
   alias Anubis.Server.Context
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
-  alias Anubis.Server.Transport.StreamableHTTP
   alias Exhub.MCP.Encoding
   alias Exhub.MCP.ServerHelpers
 
@@ -67,7 +76,6 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
          %{"name" => tool_name} <- Map.get(body, "params", %{}) do
       arguments = Map.get(body["params"], "arguments", %{})
       session_id = get_session_id(conn)
-      wants_sse = wants_sse?(conn)
 
       conn =
         handle_concurrent(
@@ -77,9 +85,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
           request_id,
           tool_name,
           arguments,
-          session_id,
-          wants_sse,
-          opts
+          session_id
         )
 
       {:handled, conn}
@@ -97,9 +103,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
          request_id,
          tool_name,
          arguments,
-         session_id,
-         wants_sse,
-         opts
+         session_id
        ) do
     frame = build_frame(conn, session_id)
 
@@ -111,7 +115,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
     case find_tool(filtered_tools, tool_name) do
       nil ->
         error = Error.protocol(:invalid_params, %{message: "Tool not found: #{tool_name}"})
-        reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
+        reply_error(conn, error, request_id, session_id)
 
       tool ->
         case validate_params(arguments, tool) do
@@ -124,13 +128,11 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
               frame,
               timeout,
               request_id,
-              session_id,
-              wants_sse,
-              opts
+              session_id
             )
 
           {:error, error} ->
-            reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
+            reply_error(conn, error, request_id, session_id)
         end
     end
   end
@@ -143,9 +145,7 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
          frame,
          timeout,
          request_id,
-         session_id,
-         wants_sse,
-         opts
+         session_id
        ) do
     task =
       Task.Supervisor.async_nolink(Exhub.MCP.ToolTaskSupervisor, fn ->
@@ -154,21 +154,21 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
     case Task.yield(task, timeout) do
       {:ok, {:ok, result}} ->
-        reply_result(conn, result, request_id, session_id, wants_sse, server, opts)
+        reply_result(conn, result, request_id, session_id)
 
       {:ok, {:error, error}} ->
-        reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
+        reply_error(conn, error, request_id, session_id)
 
       nil ->
         Task.shutdown(task, :brutal_kill)
         error = Error.execution("Tool execution timed out after #{timeout}ms")
-        reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
+        reply_error(conn, error, request_id, session_id)
 
       {:exit, reason} ->
         Logger.error("[ConcurrentToolDispatcher] Tool '#{tool.name}' crashed: #{inspect(reason)}")
 
         error = Error.execution("Tool execution failed: #{format_exit_reason(reason)}")
-        reply_error(conn, error, request_id, session_id, wants_sse, server, opts)
+        reply_error(conn, error, request_id, session_id)
     end
   end
 
@@ -232,53 +232,21 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
 
   # --- Reply helpers ---
 
-  defp reply_result(
-         conn,
-         {:reply, result, _frame},
-         request_id,
-         session_id,
-         wants_sse,
-         server,
-         opts
-       ) do
+  defp reply_result(conn, {:reply, result, _frame}, request_id, session_id) do
     response = Message.build_response(result, request_id)
     encoded = response |> Encoding.sanitize_utf8() |> JSON.encode!()
-    send_response(conn, encoded, session_id, wants_sse, server, opts)
+    send_response(conn, encoded, session_id)
   end
 
-  defp reply_error(conn, %Error{} = error, request_id, session_id, wants_sse, server, opts) do
+  defp reply_error(conn, %Error{} = error, request_id, session_id) do
     error_map = Error.build_json_rpc(error, request_id)
     encoded = error_map |> Encoding.sanitize_utf8() |> JSON.encode!()
-    send_response(conn, encoded, session_id, wants_sse, server, opts)
+    send_response(conn, encoded, session_id)
   end
 
-  defp send_response(conn, encoded, session_id, false = _wants_sse, _server, _opts) do
-    send_json_response(conn, encoded, session_id)
-  end
-
-  defp send_response(conn, encoded, session_id, true = _wants_sse, server, _opts) do
-    transport = Anubis.Server.Registry.transport_name(server, :streamable_http)
-
-    case StreamableHTTP.get_sse_handler(transport, session_id) do
-      pid when is_pid(pid) ->
-        if Process.alive?(pid) do
-          send(pid, {:sse_message, encoded})
-
-          conn
-          |> Plug.Conn.put_resp_content_type("application/json")
-          |> maybe_add_session_header(session_id)
-          |> Plug.Conn.send_resp(202, "{}")
-        else
-          send_json_response(conn, encoded, session_id)
-        end
-
-      _ ->
-        # No SSE handler — fall back to JSON response
-        send_json_response(conn, encoded, session_id)
-    end
-  end
-
-  defp send_json_response(conn, encoded, session_id) do
+  # The response belongs on the POST connection that carried the request — see
+  # "Response transport" in the moduledoc.
+  defp send_response(conn, encoded, session_id) do
     conn
     |> Plug.Conn.put_resp_content_type("application/json")
     |> maybe_add_session_header(session_id)
@@ -341,13 +309,6 @@ defmodule Exhub.MCP.ConcurrentToolDispatcher do
       [session_id | _] when is_binary(session_id) and session_id != "" -> session_id
       _ -> nil
     end
-  end
-
-  defp wants_sse?(conn) do
-    conn
-    |> Plug.Conn.get_req_header("accept")
-    |> List.first("")
-    |> String.contains?("text/event-stream")
   end
 
   defp normalize_headers(req_headers) when is_list(req_headers) do

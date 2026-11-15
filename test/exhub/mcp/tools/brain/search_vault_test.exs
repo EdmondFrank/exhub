@@ -97,6 +97,16 @@ defmodule Exhub.MCP.Tools.Brain.SearchVaultTest do
     assert text_of(resp) =~ "Found"
   end
 
+  test "min_score accepts an integer as well as a float" do
+    # JSON has no integer/float distinction on the wire, so a client sending
+    # `0` must not be rejected — the published schema advertises `number`.
+    assert {:ok, params} = SearchVault.mcp_schema(%{"query" => "agenda", "min_score" => 0})
+    assert params.min_score == 0
+
+    assert {:ok, _} = SearchVault.mcp_schema(%{"query" => "agenda", "min_score" => 0.1})
+    assert {:error, _} = SearchVault.mcp_schema(%{"query" => "agenda", "min_score" => "high"})
+  end
+
   test "title-match note ranks above body-only note", %{vault: vault} do
     # "meeting.md" matches via filename + heading; "notes.md" only in body
     File.write!(Path.join(vault, "meeting.md"), "# Weekly Meeting\nbody text")
