@@ -92,7 +92,8 @@ defmodule Exhub.MCP.Hub.Server do
         case Exhub.MCP.Hub.ClientManager.call_tool(
                server_name,
                actual_tool_name,
-               arguments
+               arguments,
+               headers: Exhub.MCP.ServerHelpers.request_headers(frame)
              ) do
           {:ok, result} ->
             {:ok, result, frame}

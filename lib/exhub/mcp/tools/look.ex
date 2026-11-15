@@ -73,42 +73,21 @@ defmodule Exhub.MCP.Tools.Look do
   @impl true
   def description do
     """
-    Analyze images using AI vision models via Gitee AI.
+    Analyze images with AI vision models (Gitee AI). Accepts local paths or URLs;
+    use it to extract text, describe contents, or answer questions about an image.
 
-    Accepts local file paths or remote URLs. Use this to extract text,
-    describe contents, answer questions about images, or analyze visual data.
+    Modes:
+    - `analyze` (default) — answers `prompt` about the image.
+    - `text` — exact transcription for terminal/code/log/UI screenshots (faster,
+      no reasoning, raw text; `prompt` optional). Prefer it for plain text — do not
+      use `doc_extract` for terminal screenshots, its OCR pipeline fails on them.
+      Screen controls: `max_lines` (last N lines, ~30-40 for a terminal), `only_new`
+      (previous transcription → only changed lines), `expect` (newline-separated
+      substrings; the reply ends `[expect: ok]` / `[expect: MISSING ...]`).
 
-    **Modes:**
-    - `analyze` (default) — answer `prompt` about the image.
-    - `text` — exact text transcription, tuned for terminal / code / log /
-      UI screenshots. `prompt` becomes optional (extra instructions are
-      appended to a strict transcription prompt). Disables model reasoning
-      for lower latency and returns raw text without Markdown or box art.
-
-    **Screen-reading controls (mode `text`):**
-    - `max_lines` — only the last N visible lines (use ~30-40 for a terminal).
-    - `only_new` — previous transcription; returns only changed lines. Ideal
-      when polling a terminal that is still producing output.
-    - `expect` — newline-separated substrings that must appear in the result;
-      the reply ends with `[expect: ok]` or `[expect: MISSING ...]`.
-
-    For plain text extraction prefer `mode: "text"` — it is materially faster
-    and cleaner than asking for a transcription through `analyze`. Do not use
-    `doc_extract` for terminal screenshots: its document-OCR pipeline fails on
-    them.
-
-    **Supported models:**
-    - `deepseek-v4.1-flash` (default) — DeepSeek V4.1 Flash vision model
-    - `kimi-k2.6` — Moonshot AI vision model
-    - `kimi-k2.5` — Moonshot AI vision model
-    - `qwen3.5-122b-a10b` — Alibaba Qwen3.5 vision model
-    - `qwen3.8-omni-flash` — Alibaba Qwen3.8 native omni-modal model (1M context)
-    - `minimax-m3.1-flash` — MiniMax M3.1 Flash multimodal model (avoid for long
-      transcriptions; it can return an empty string)
-
-    **Supported formats:** PNG, JPG, JPEG, GIF, WebP, BMP
-
-    Returns the model's analysis as text (or JSON if response_format="json").
+    Models: `deepseek-v4.1-flash` (default), `kimi-k2.6`, `kimi-k2.5`,
+    `qwen3.5-122b-a10b`, `qwen3.8-omni-flash` (1M ctx), `minimax-m3.1-flash`
+    (avoid for long transcriptions). Formats: PNG, JPG, JPEG, GIF, WebP, BMP.
     """
   end
 

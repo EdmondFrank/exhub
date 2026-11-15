@@ -21,13 +21,6 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
     with "/" to distinguish them from files. Optionally recurse into subdirectories
     up to a given depth. Entry paths are relative to the requested directory.
 
-    Parameters:
-    - path: Absolute path or ~ shorthand to the directory to list
-    - depth: How many levels deep to recurse (0 = immediate children only, default 0)
-    - show_modified: Include last modified time in entries (default false)
-    - pattern: Glob pattern to filter entries (e.g. "*.rb", "**/*.ex"). Directories are
-      always recursed into, but only entries matching the pattern are included in results.
-      Default nil (no filter).
     """
   end
 
@@ -54,7 +47,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListDirectory do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       depth = Map.get(params, :depth, 0)
       show_modified = Map.get(params, :show_modified, false)
       pattern = Map.get(params, :pattern)

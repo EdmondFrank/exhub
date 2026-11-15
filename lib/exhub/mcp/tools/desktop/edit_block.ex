@@ -65,11 +65,6 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
     Use this tool for surgical edits — prefer it over rewriting the whole file
     when only a small section needs to change.
 
-    Parameters:
-    - file_path: Absolute path or ~ shorthand to the file to edit
-    - old_string: The exact text to find and replace
-    - new_string: The replacement text
-    - expected_replacements: Number of replacements expected (default 1)
     """
   end
 
@@ -89,7 +84,7 @@ defmodule Exhub.MCP.Tools.Desktop.EditBlock do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, file_path} <- Map.get(params, :file_path) |> Helpers.validate_absolute_path() do
+    with {:ok, file_path} <- Helpers.resolve_path(Map.get(params, :file_path), frame) do
       old_string = Map.get(params, :old_string)
       new_string = Map.get(params, :new_string)
       expected = Map.get(params, :expected_replacements, 1)

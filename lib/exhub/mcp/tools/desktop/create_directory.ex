@@ -20,8 +20,6 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
     Creates the directory and all missing parent directories (equivalent to `mkdir -p`).
     Succeeds silently if the directory already exists.
 
-    Parameters:
-    - path: Absolute path or ~ shorthand of the directory to create
     """
   end
 
@@ -33,7 +31,7 @@ defmodule Exhub.MCP.Tools.Desktop.CreateDirectory do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       case File.mkdir_p(path) do
         :ok ->
           resp =

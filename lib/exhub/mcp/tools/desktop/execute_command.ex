@@ -26,13 +26,6 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
     Uses Exile for robust process execution with separate stdout/stderr capture.
 
-    Parameters:
-    - command: The shell command to execute
-    - timeout_ms: Maximum time to wait in milliseconds (default 30000)
-    - working_dir: Working directory for the command. Required unless the command
-      specifies its own location (an absolute or ~ path, or a cd into one) or does
-      not depend on the working directory.
-      (Current server pwd: #{Helpers.current_pwd()})
     """
   end
 
@@ -51,7 +44,10 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   def execute(params, frame) do
     command = Map.get(params, :command)
     timeout_ms = Map.get(params, :timeout_ms, 30_000)
-    working_dir = Map.get(params, :working_dir)
+    # A client that knows its repository root (AiderDesk sends `x-project-dir`)
+    # gets it as the default instead of paying a round trip to be told off for
+    # an omitted `working_dir`. Without the header nothing changes.
+    working_dir = Map.get(params, :working_dir) |> Helpers.with_request_cwd(frame)
 
     cond do
       is_nil(command) ->
@@ -73,7 +69,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
             {:ok, result} ->
               resp =
                 Response.tool()
-                |> Helpers.toon_response(result)
+                |> Helpers.toon_response(Helpers.put_cwd(result, working_dir))
 
               {:reply, resp, frame}
 

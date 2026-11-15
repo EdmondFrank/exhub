@@ -56,41 +56,15 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
     - semantic (default): AST-aware BM25 code search over `query`, returning whole
       code blocks. Supports Elasticsearch syntax (AND/OR/NOT, +required, -excluded,
-      "phrases") and hints such as ext:ts, file:src/**/*.py, dir:tests,
-      lang:typescript. Results are filtered for relevance by the Smart Decide model
-      (on by default; set `filter: false` for the raw, unfiltered results),
-      judged against the natural-language `purpose` (falling back to `query`).
-    - glob: match file and directory paths against a glob `pattern` relative to
-      `path` (e.g. `src/**/*.ts`, `*.md`), returning paths relative to `path`.
-      Directories are included and suffixed with "/" (set `include_dirs: false`
-      for files only; a `pattern` ending in "/" returns directories only).
-      Hidden dotfiles and entries matched by .gitignore/.ignore/.rgignore are
-      excluded unless `include_ignored` is true; pass `ignore` to exclude extra
-      globs.
-    - content: match file contents against `pattern`, with `context_lines` of
-      surrounding context.
+      "phrases") and hints (ext:ts, file:src/**/*.py, dir:tests, lang:typescript).
+      Results are relevance-filtered by Smart Decide against `purpose`; set
+      `filter: false` for the raw ranking.
+    - glob: match paths against a `pattern` relative to `path` (`src/**/*.ts`,
+      `*.md`); results are relative to `path`, directories suffixed "/". Hidden and
+      ignored files are excluded unless `include_ignored: true`.
+    - content: match file contents against `pattern`, with `context_lines` of context.
 
-    `query` is required for search_type "semantic"; `pattern` is required for
-    search_type "glob" or "content".
-
-    Parameters:
-    - path: Absolute path or ~ shorthand to the directory (or a single file) to search in
-    - search_type: "semantic" (default), "glob" or "content"
-    - query: Semantic search query with Elasticsearch syntax (required for search_type "semantic"). Use + for important terms.
-    - purpose: Natural-language purpose of the semantic search, used by the Smart Decide relevance filter to judge each result. Falls back to `query` when omitted.
-    - pattern: Required for search_type "glob" or "content". For "glob", a glob pattern relative to `path` (e.g. "src/**/*.ts", "*.md"); a trailing "/" returns directories only. For "content", a substring or regex.
-    - allow_tests: Include test files in semantic search results (default false)
-    - exact: Exact (tokenization-free, case-insensitive) semantic search (default false)
-    - max_results: Maximum number of results to return (default 1000 for glob, 50 for content; optional for semantic)
-    - max_tokens: Maximum tokens of code content returned by semantic search (default 5000)
-    - language: Limit semantic search to a programming language (e.g. "typescript", "python", "rust")
-    - file_pattern: Optional glob pattern to filter files (e.g. "*.ex"; content search only)
-    - ignore: Glob patterns to exclude from glob results (e.g. ["**/node_modules/**"])
-    - ignore_case: Case-insensitive matching for content search (default true)
-    - context_lines: Number of context lines around content matches (default 2)
-    - include_ignored: Include files excluded by .gitignore/.ignore/.rgignore and hidden dotfiles (default false)
-    - include_dirs: Glob search only: include directories (suffixed with "/") in results (default true)
-    - filter: Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw results
+    `query` is required for "semantic"; `pattern` for "glob"/"content".
     """
   end
 
@@ -183,7 +157,7 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       search_type = Map.get(params, :search_type, "semantic")
 
       case search_type do

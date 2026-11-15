@@ -19,8 +19,6 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
 
     Returns information including type, size, permissions, and timestamps.
 
-    Parameters:
-    - path: Absolute path or ~ shorthand to the file or directory
     """
   end
 
@@ -32,7 +30,7 @@ defmodule Exhub.MCP.Tools.Desktop.GetFileInfo do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       case File.stat(path) do
         {:ok, stat} ->
           resp =

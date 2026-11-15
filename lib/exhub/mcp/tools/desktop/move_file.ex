@@ -20,9 +20,6 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
     Moves the source path to the destination path. If the destination's parent
     directory does not exist, it will be created automatically.
 
-    Parameters:
-    - source: Absolute path or ~ shorthand of the file or directory to move
-    - destination: Absolute path or ~ shorthand of the new location
     """
   end
 
@@ -38,8 +35,8 @@ defmodule Exhub.MCP.Tools.Desktop.MoveFile do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, source} <- Map.get(params, :source) |> Helpers.validate_absolute_path(),
-         {:ok, destination} <- Map.get(params, :destination) |> Helpers.validate_absolute_path() do
+    with {:ok, source} <- Helpers.resolve_path(Map.get(params, :source), frame),
+         {:ok, destination} <- Helpers.resolve_path(Map.get(params, :destination), frame) do
       case move_file(source, destination) do
         :ok ->
           resp =

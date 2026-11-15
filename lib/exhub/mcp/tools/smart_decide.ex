@@ -40,26 +40,20 @@ defmodule Exhub.MCP.Tools.SmartDecide do
   @impl true
   def description do
     """
-    Make fast, typed decisions about a piece of content ("state") using the
-    System One decision model (Intern-Decision-4B) via Gitee AI.
+    Fast, typed decisions about a piece of content ("state") via the System One
+    model (Intern-Decision-4B, Gitee AI). No free-form text: it scores the allowed
+    answer tokens directly and returns the chosen answer with calibrated
+    probabilities. Use for routing, policy checks, yes/no judgments, rubric scoring.
 
-    This tool generates no reasoning or free-form text: it scores the allowed
-    answer tokens directly and returns the chosen answer with its calibrated
-    probability. Use it for routing, policy checks, yes/no judgments, and
-    rubric scoring.
+    Question types (`questions.<id>.type`), each needing non-empty `instructions`:
+    - `noul` — yes/no; returns P(yes) (0–1).
+    - `choice` — one option from `criteria` (option → rubric description, or a list
+      of option strings); returns the choice + full distribution.
+    - `score` — ordered rubric `criteria` (2+ levels); returns the
+      probability-weighted score + legend.
 
-    Every question requires a non-empty `instructions` description.
-
-    **Question types** (`questions.<id>.type`):
-    - `noul` — yes/no judgment; returns the probability the answer is yes (0–1).
-    - `choice` — pick one option from a set you define; `criteria` maps each
-      option to its rubric description, or a list of option strings. Returns the
-      chosen option plus the full probability distribution.
-    - `score` — rate along an ordered rubric; `criteria` is an ordered list of
-      levels (at least 2). Returns the probability-weighted score plus legend.
-
-    **Returns:** `{ "model": ..., "answers": { "<id>": { ... } } }`, one answer
-    per question. Set `compact: true` to drop the probability/confidence detail.
+    Returns `{"model": ..., "answers": {"<id>": {...}}}`; `compact: true` drops
+    probabilities/confidence/legend.
     """
   end
 

@@ -31,37 +31,18 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   @impl true
   def description do
     """
-    Search for notes in the Obsidian brain vault with configurable ranking.
+    Search the Obsidian brain vault with configurable ranking. Candidates are
+    retrieved by content, filename, or tag (BM25 prefilter), then ranked by a
+    multi-signal pipeline (bm25, title_match, tag_match, freshness,
+    link_authority, semantic) fused via `weighted_sum` (default), `rrf`, or `max`.
 
-    Search types:
-    - content:  Search within note content (default)
-    - filename: Search by filename/path
-    - both:     Search both content and filenames
+    Search types: "content" (default), "filename", "both". Tag search: prefix the
+    query with `tag:` (e.g. `tag:project/active`).
 
-    Tag search: prefix query with "tag:" to search by tag (e.g. "tag:project/active")
-
-    Ranking options:
-    - fusion: "weighted_sum" (default), "rrf" (Reciprocal Rank Fusion), or "max"
-    - weights: map of scorer name to weight, e.g. {"freshness": 0.3, "bm25": 0.5}
-    - min_score: drop results below this final score (default 0.0)
-
-    Search policies (policy):
-    - "auto" (default): pick the policy from query heuristics
-    - "balanced", "keyword", "semantic", "recency", "filename": built-ins
-    - custom policy name configured under :exhub -> :brain_search
-    - inline map, e.g. {"semantic": "on", "weights": {"semantic": 0.9}, "top_n": 5}
-    Explicit params (search_type/semantic/fusion/weights/min_score) override the policy.
-
-    Scorers: bm25, title_match, tag_match, freshness, link_authority, semantic
-
-    Examples:
-    - Content search:  { "query": "meeting notes" }
-    - Filename search: { "query": "journal", "search_type": "filename" }
-    - Tag search:      { "query": "tag:status/active" }
-    - Recency-first:   { "query": "meeting", "fusion": "weighted_sum", "weights": {"freshness": 0.8} }
-    - Semantic search: { "query": "how do we handle logins", "semantic": true }
-    - Scoped search:   { "query": "todo", "path": "projects" }
-    - Absolute paths:  { "query": "meeting", "abs_path": true }
+    Tuning: `fusion`, `weights` (scorer → weight, merged over defaults),
+    `min_score`. Explicit params override the search `policy` ("auto" default,
+    "balanced"/"keyword"/"semantic"/"recency"/"filename", or a custom name).
+    `semantic: true` adds RAG vector search (needs an embedding key).
     """
   end
 
@@ -158,7 +139,10 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
           search_type == "both" ->
             fn_notes = search_filenames(vault, files, query, case_sensitive)
-            ct_notes = search_content(vault, files, query_terms, is_tag_search, tag_query, case_sensitive)
+
+            ct_notes =
+              search_content(vault, files, query_terms, is_tag_search, tag_query, case_sensitive)
+
             merge_notes(fn_notes, ct_notes)
 
           true ->
@@ -194,6 +178,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
           n = if r.matches == [] and Map.get(r, :preview), do: 1, else: length(r.matches)
           acc + n
         end)
+
       output = format_results(ranked, total_matches, vault, stats)
       resp = Response.tool() |> Response.text(output)
       {:reply, resp, frame}
@@ -244,11 +229,18 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   defp retrieval_to_search_type(_), do: "content"
 
   defp effective_semantic(_policy, _params, query) when is_nil(query), do: false
+
   defp effective_semantic(policy, params, query) when is_binary(query) do
     cond do
-      Map.get(params, :semantic, false) == true -> true
-      policy.semantic == :on -> true
-      policy.semantic == :off -> false
+      Map.get(params, :semantic, false) == true ->
+        true
+
+      policy.semantic == :on ->
+        true
+
+      policy.semantic == :off ->
+        false
+
       true ->
         not String.starts_with?(query, "tag:") and
           Selector.semantic_query?(query) and
@@ -545,6 +537,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   end
 
   defp split_query_into_words(nil), do: []
+
   defp split_query_into_words(query) do
     query
     |> String.split(~r/\s+/, trim: true)
@@ -645,7 +638,9 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
         signals =
           scores
           |> Enum.sort_by(fn {_, v} -> v end, :desc)
-          |> Enum.map_join(", ", fn {name, v} -> "#{name}=#{:erlang.float_to_binary(v, decimals: 3)}" end)
+          |> Enum.map_join(", ", fn {name, v} ->
+            "#{name}=#{:erlang.float_to_binary(v, decimals: 3)}"
+          end)
 
         match_lines =
           Enum.map_join(result.matches, "\n", fn %{line: line, text: text} ->

@@ -45,7 +45,9 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
     require Logger
     Logger.info("[MCP Hub] call_tools: #{server_name}:#{tool_name}")
 
-    case Exhub.MCP.Hub.ClientManager.call_tool(server_name, tool_name, arguments) do
+    ctx = [headers: Exhub.MCP.ServerHelpers.request_headers(frame)]
+
+    case Exhub.MCP.Hub.ClientManager.call_tool(server_name, tool_name, arguments, ctx) do
       {:ok, result} ->
         resp = Response.tool() |> Response.structured(%{result: result})
         {:reply, resp, frame}
@@ -55,7 +57,7 @@ defmodule Exhub.MCP.Tools.Hub.CallTools do
           {:ok, bare_name} ->
             Logger.info("[MCP Hub] Retrying call_tools with stripped prefix: #{bare_name}")
 
-            case Exhub.MCP.Hub.ClientManager.call_tool(server_name, bare_name, arguments) do
+            case Exhub.MCP.Hub.ClientManager.call_tool(server_name, bare_name, arguments, ctx) do
               {:ok, result} ->
                 resp = Response.tool() |> Response.structured(%{result: result})
                 {:reply, resp, frame}

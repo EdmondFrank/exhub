@@ -15,21 +15,23 @@ defmodule Exhub.MCP.Tools.Desktop.ListProcesses do
   @impl true
   def description do
     """
-    List currently running system processes.
-
-    Returns a list of processes with PID, CPU%, MEM%, and command. Uses `ps aux` on Unix/macOS.
-
-    Parameters:
-      - filter: optional regexp to filter by command (e.g. "ruby|rails", "^python")
-      - limit: maximum number of results to return (default 20, 0 = unlimited)
+    List currently running system processes (`ps aux` on Unix/macOS).
 
     Returns per process: pid, cpu, mem, command.
     """
   end
 
   schema do
-    field(:filter, :string, default: nil)
-    field(:limit, :integer, default: 20)
+    field(:filter, :string,
+      default: nil,
+      description:
+        "Optional regexp matched against the command line (e.g. \"beam|python\"). Omit for all processes."
+    )
+
+    field(:limit, :integer,
+      default: 20,
+      description: "Maximum number of processes to return (default 20). 0 returns all."
+    )
   end
 
   @impl true

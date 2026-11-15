@@ -22,13 +22,15 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
     IDs, commands, status, and metadata. Processes are automatically cleaned
     up after 1 hour of inactivity.
 
-    Parameters:
-      - filter: optional regexp to filter by command (e.g. "ruby|rails", "^python")
     """
   end
 
   schema do
-    field(:filter, :string, default: nil)
+    field(:filter, :string,
+      default: nil,
+      description:
+        "Optional regexp matched against the command line (e.g. \"ruby|rails\", \"^python\"). Omit for all managed processes."
+    )
   end
 
   @impl true

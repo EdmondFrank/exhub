@@ -23,11 +23,6 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
     commands). The process status and exit code are also returned.
 
     Processes are automatically cleaned up after 1 hour of inactivity.
-
-    Parameters:
-    - process_id: The process ID returned by start_process
-    - offset: Line offset to start reading from (0 = from beginning, default: 0)
-    - length: Maximum number of lines to return (default: 1000)
     """
   end
 

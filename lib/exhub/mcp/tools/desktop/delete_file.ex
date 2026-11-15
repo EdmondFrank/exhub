@@ -20,9 +20,6 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
     For directories, set recursive to true to delete the directory and all its
     contents. By default, only empty directories can be deleted.
 
-    Parameters:
-    - path: Absolute path or ~ shorthand to the file or directory to delete
-    - recursive: If true, delete directories and their contents recursively (default false)
     """
   end
 
@@ -39,7 +36,7 @@ defmodule Exhub.MCP.Tools.Desktop.DeleteFile do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       recursive = Map.get(params, :recursive, false)
 
       case delete_path(path, recursive) do

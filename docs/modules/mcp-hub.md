@@ -818,6 +818,7 @@ All MCP servers (including the Hub and individual upstream servers) support filt
 |-------------------|-----------------------------------------------------------------------------------|-------------------------------|
 | `x-include-tools` | Comma-separated list of tool names to include. Only these tools will be returned. | `read_file,write_file`        |
 | `x-exclude-tools` | Comma-separated list of tool names to exclude. Applied after the include filter.  | `delete_file,execute_command` |
+| `x-project-dir`   | Absolute path of the caller's repository. Relative paths and a missing `working_dir` are resolved against it. | `/Users/me/repo` |
 
 ### Behavior
 
@@ -857,6 +858,45 @@ x-exclude-tools: desktop-commander__delete_file
 ### Implementation
 
 Tool filtering is implemented in `Exhub.MCP.ServerHelpers` and applied automatically to all MCP servers via `handle_request_with_filtered_tools/3`. The filtering wraps the default Anubis `tools/list` handler, so no server-specific changes are required beyond including the helper.
+
+### Request context: `x-project-dir`
+
+One long-lived MCP server is shared by many clients — and by a single client
+across many repositories — so the server process's cwd is *not* the caller's.
+A client that knows the repository root sends `x-project-dir` on every request;
+`Exhub.MCP.ServerHelpers.request_cwd/1` validates it (absolute, existing
+directory, otherwise `:error` — never guessed) and the desktop tools use it:
+
+- `execute_command` / `start_process` take it as the default `working_dir` and
+  echo the effective directory back as `cwd`; the Smart Decide
+  `WorkingDir.needs_working_dir?/1` gate is only consulted when the header is
+  absent.
+- `read_file`, `write_file`, `edit_block`, `search_files`, `list_directory`,
+  `get_file_info`, `create_directory`, `delete_file`, `move_file` and
+  `read_multiple_files` resolve repository-relative paths
+  (`lib/foo.ex`) against it via `Helpers.resolve_path/2`. Without the header a
+  relative path is rejected exactly as before, so existing clients are
+  unaffected.
+
+The header is forwarded across in-process hops: `code_mode` captures it and
+re-attaches it when dispatching bridged calls (`ClientManager.call_tool/4` →
+`BuiltInRegistry.call_tool/4`, which rebuilds a frame with the caller's
+headers), and the hub meta server (`call_tools`, `server.ex`) forwards it too.
+Upstream *HTTP* servers are shared long-lived `Anubis.Client`s that cannot take
+per-call headers, so the context only reaches built-in servers — which is where
+filesystem and shell tools live.
+
+In AiderDesk this is wired with `${projectDir}` interpolation:
+
+```json
+"desktop": {
+  "url": "http://localhost:9069/desktop/mcp",
+  "headers": { "x-project-dir": "${projectDir}" }
+}
+```
+
+Because the placeholder makes `configHasInterpolation` true, the connector is
+scoped per project: each repository gets its own MCP session and process store.
 
 ---
 

@@ -26,10 +26,6 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
     Sends SIGTERM by default (graceful shutdown). Use force: true to send
     SIGKILL for immediate termination.
 
-    Parameters:
-    - pid: Optional integer, the OS process ID
-    - process_id: Optional string, the managed process ID from start_process
-    - force: If true, send SIGKILL instead of SIGTERM (default false)
 
     Exactly one of pid or process_id must be provided.
     """

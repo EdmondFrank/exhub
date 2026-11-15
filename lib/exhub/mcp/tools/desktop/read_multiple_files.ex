@@ -46,7 +46,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
     results =
       paths
       |> Task.async_stream(
-        fn path -> read_single_file(path, offset, length, extract) end,
+        fn path -> read_single_file(path, offset, length, extract, frame) end,
         max_concurrency: 10,
         ordered: true
       )
@@ -59,8 +59,8 @@ defmodule Exhub.MCP.Tools.Desktop.ReadMultipleFiles do
     {:reply, resp, frame}
   end
 
-  defp read_single_file(path, offset, length, extract) do
-    case Helpers.validate_absolute_path(path) do
+  defp read_single_file(path, offset, length, extract, frame) do
+    case Helpers.resolve_path(path, frame) do
       {:ok, expanded_path} ->
         cond do
           extract and Client.office_type?(expanded_path) ->

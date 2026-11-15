@@ -23,10 +23,6 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
 
     Creates the file and any missing parent directories if they do not exist.
 
-    Parameters:
-    - path: Absolute path or ~ shorthand to the file to write
-    - content: The text content to write
-    - mode: "overwrite" (default) or "append"
     """
   end
 
@@ -45,7 +41,7 @@ defmodule Exhub.MCP.Tools.Desktop.WriteFile do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       content = Map.get(params, :content)
       mode = Map.get(params, :mode, "overwrite")
 

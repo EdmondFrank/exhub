@@ -20,6 +20,8 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
 
   alias Anubis.Server.Response
   alias Exhub.Lua.Engine
+  alias Exhub.MCP.Hub.ClientManager
+  alias Exhub.MCP.ServerHelpers
   alias Exhub.MCP.Tools.Lua.VisibleTools
 
   use Anubis.Server.Component, type: :tool
@@ -45,54 +47,44 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
   # `retrieve_tools`, `describe_tool`) instead of an inlined catalog.
   defp on_demand_description do
     """
-    Execute a Lua 5.3 snippet in a sandbox with every visible MCP tool bridged
-    in as a function, and return the snippet's result in one round trip.
-
-    Instead of calling one tool at a time — discovering, waiting, then
-    discovering again — write one script that fetches, filters and returns the
-    distilled answer:
+    Execute a Lua 5.3 snippet in a sandbox with every visible MCP tool bridged in
+    as a function, returning its result in one round trip. Prefer one script that
+    fetches, filters and returns the distilled answer over a chain of single-tool
+    calls:
 
         local r = parallel({
-          {server = "desktop", tool = "read_file",       args = {path = "/etc/hosts"}},
+          {server = "desktop", tool = "read_file", args = {path = "/etc/hosts"}},
           {server = "desktop", tool = "execute_command", args = {command = "uname -a"}}
         })
         return {hosts = r[1].content[1].text:sub(1, 40), uname = r[2].content[1].text}
 
-    `parallel` fans the calls out concurrently and returns results index-aligned
-    with the input (a call may also be `{name = "server__tool", args = {...}}`).
-    `parallel_all` never raises, returning one `{ok = ..., result = ...}` /
-    `{ok = ..., error = ...}` per call.
+    `parallel` fans out concurrently, results index-aligned; a call may also be
+    `{name = "server__tool", args = {...}}`. `parallel_all` never raises — one
+    `{ok = true, result = ...}` / `{ok = false, error = ...}` per call.
 
-    **Calling tools** (both forms work):
-    - Nested by server: `desktop.read_file({path = "..."})`,
-      `web_tools.web_fetch({url = "..."})` — server and tool names have every
-      character outside `[A-Za-z0-9_]` replaced with `_`.
+    Calling tools:
+    - Nested by server: `desktop.read_file({path = "..."})` — chars outside
+      `[A-Za-z0-9_]` in server/tool names map to `_`.
     - Flat, verbatim: `tools["browser-use__browser_navigate"]({...})`.
-    - Arguments are a Lua table with **named keys**; a positional table is
-      rejected. A result is a Lua table — the text payload is usually
-      `r.content[1].text`.
-    - Table keys use `=`, never `:` — `{path = "/x"}`, not `{path: "/x"}`. Lua
-      reads `name: value` as a method call, so it is a syntax error.
-    - A failing call raises a Lua error (catch it with `pcall`, which yields the
-      message string). An uncaught failure is categorised as `SyntaxError`,
-      `UnknownTool`, `ToolFailure` or `TimeoutExceeded`.
-    - `print(...)` output is returned above the `return` value. Returning
-      nothing reports "Execution completed with no return value."; `return a, b`
-      returns both as a JSON array.
+    - Arguments are a table with named keys (positional is rejected); use `=`,
+      never `:` — `{path = "/x"}` is valid, `{path: "/x"}` is a syntax error.
+    - Text payloads are usually `r.content[1].text`.
+    - A failing call raises; catch it with `pcall` (yields the message string).
+      Uncaught failures are categorised `SyntaxError`, `UnknownTool`,
+      `ToolFailure` or `TimeoutExceeded`.
+    - `print(...)` output is returned above the `return` value; no `return`
+      reports "Execution completed with no return value."; `return a, b` yields a
+      JSON array.
 
-    **Finding tools — never guess a name**
+    Finding tools — never guess a name:
     - `retrieve_tools({query = "...", limit = 10})` — TF-IDF search over the
-      bridged tools (an empty query browses all). Returns `{tools = {...}, count = n}`;
-      each entry is `{name, server, description, params}`.
-    - `describe_tool("server__tool")` (or `"server.tool"`) — that tool's full
-      `description` and `input_schema`.
-    - `help()` / `help("server.tool")` — the tool index, or one tool's
-      description and parameters. The same docs are available as the MCP tool
-      `help`, without running code.
+      bridged tools (empty query browses all); returns `{tools, count}`.
+    - `describe_tool("server__tool")` — that tool's description and schema.
+    - `help()` / `help("server.tool")` — the index, or one tool's docs (also
+      available as the MCP tool `help`, without running code).
 
-    The sandbox blocks io/os/require/filesystem, so the only way out is the
-    bridged tools. Loops are bounded by an instruction budget, a wall-clock
-    timeout (default #{@default_timeout_s}s) and a memory budget.
+    The sandbox blocks io/os/require/filesystem; loops are bounded by an
+    instruction budget, a #{@default_timeout_s}s wall-clock timeout and memory.
     """
   end
 
@@ -223,11 +215,25 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
           server_timeout_ms = Engine.config()[:timeout_ms] || @server_timeout_ms
           timeout_ms = min(timeout_s * 1000, server_timeout_ms)
 
-          Engine.run(code, tools, timeout_ms: timeout_ms)
+          Engine.run(code, tools, timeout_ms: timeout_ms, call_fun: hub_caller(frame))
           |> to_response()
       end
 
     {:reply, response, frame}
+  end
+
+  # Bridged calls must carry the caller's `x-project-dir`: the hub builds a
+  # fresh frame for built-in servers, so without this a nested
+  # `desktop.execute_command` / `read_file` would lose the repository scope and
+  # a relative path would be rejected.
+  defp hub_caller(frame) do
+    headers =
+      case ServerHelpers.request_cwd(frame) do
+        {:ok, cwd} -> %{"x-project-dir" => cwd}
+        :error -> %{}
+      end
+
+    fn server, tool, args -> ClientManager.call_tool(server, tool, args, headers: headers) end
   end
 
   # --- Response helpers ---

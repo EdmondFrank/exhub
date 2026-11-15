@@ -130,4 +130,73 @@ defmodule Exhub.MCP.Tools.Desktop.HelpersTest do
       assert Helpers.expand_path("relative/path") == "relative/path"
     end
   end
+
+  describe "resolve_path/2" do
+    alias Anubis.Server.Context
+    alias Anubis.Server.Frame
+
+    defp frame(headers), do: %Frame{context: %Context{headers: headers}}
+
+    test "returns nil for a nil path" do
+      assert Helpers.resolve_path(nil, frame(%{})) == {:ok, nil}
+    end
+
+    test "passes absolute and tilde paths through unchanged" do
+      assert Helpers.resolve_path("/tmp/file", frame(%{})) == {:ok, "/tmp/file"}
+
+      assert Helpers.resolve_path("~/notes.md", frame(%{})) ==
+               {:ok, Path.join(System.user_home!(), "notes.md")}
+    end
+
+    test "rejects a relative path when the caller sent no x-project-dir" do
+      assert {:error, message} = Helpers.resolve_path("lib/exhub.ex", frame(%{}))
+      assert message =~ "Relative paths are not supported"
+    end
+
+    test "resolves a relative path against x-project-dir" do
+      dir = Path.expand(System.tmp_dir!())
+      headers = %{"x-project-dir" => dir}
+
+      assert Helpers.resolve_path("lib/exhub.ex", frame(headers)) ==
+               {:ok, Path.join(dir, "lib/exhub.ex")}
+    end
+
+    test "normalizes `..` inside a resolved relative path" do
+      dir = Path.expand(System.tmp_dir!())
+
+      assert Helpers.resolve_path("../other.ex", frame(%{"x-project-dir" => dir})) ==
+               {:ok, Path.join(Path.dirname(dir), "other.ex")}
+    end
+  end
+
+  describe "with_request_cwd/2" do
+    test "keeps an explicit working_dir" do
+      assert Helpers.with_request_cwd("/tmp", frame(%{"x-project-dir" => System.tmp_dir!()})) ==
+               "/tmp"
+    end
+
+    test "falls back to x-project-dir" do
+      dir = Path.expand(System.tmp_dir!())
+      assert Helpers.with_request_cwd(nil, frame(%{"x-project-dir" => dir})) == dir
+    end
+
+    test "returns nil when the header is absent, so the caller's gate still applies" do
+      assert Helpers.with_request_cwd(nil, frame(%{})) == nil
+      assert Helpers.with_request_cwd(nil, nil) == nil
+    end
+  end
+
+  describe "put_cwd/2" do
+    test "adds the effective directory" do
+      assert Helpers.put_cwd(%{"exit_code" => 0}, "/tmp") == %{"exit_code" => 0, "cwd" => "/tmp"}
+    end
+
+    test "leaves the payload alone when the directory is unknown" do
+      assert Helpers.put_cwd(%{"exit_code" => 0}, nil) == %{"exit_code" => 0}
+    end
+
+    test "does not overwrite an existing cwd" do
+      assert Helpers.put_cwd(%{"cwd" => "/a"}, "/b") == %{"cwd" => "/a"}
+    end
+  end
 end

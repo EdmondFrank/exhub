@@ -129,10 +129,19 @@ defmodule Exhub.MCP.Hub.ClientManager do
 
   @doc """
   Calls a tool on a specific upstream server.
+
+  ## Options
+
+    * `:headers` — the caller's request headers, forwarded to a built-in server
+      so a re-dispatched call resolves paths exactly like a direct HTTP call
+      (see `Exhub.MCP.ServerHelpers.request_cwd/1`). Upstream HTTP servers are
+      shared, long-lived clients and cannot take per-call headers, so the option
+      is ignored for them.
   """
-  @spec call_tool(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def call_tool(server_name, tool_name, arguments) do
-    GenServer.call(__MODULE__, {:call_tool, server_name, tool_name, arguments}, 600_000)
+  @spec call_tool(String.t(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def call_tool(server_name, tool_name, arguments, opts \\ []) do
+    GenServer.call(__MODULE__, {:call_tool, server_name, tool_name, arguments, opts}, 600_000)
   end
 
   @doc """
@@ -553,7 +562,7 @@ defmodule Exhub.MCP.Hub.ClientManager do
   end
 
   @impl true
-  def handle_call({:call_tool, server_name, tool_name, arguments}, from, state) do
+  def handle_call({:call_tool, server_name, tool_name, arguments, opts}, from, state) do
     tool_name = normalize_tool_name(server_name, tool_name)
 
     Logger.info("[MCP Hub] Calling tool on #{server_name}: #{tool_name}")
@@ -574,7 +583,9 @@ defmodule Exhub.MCP.Hub.ClientManager do
           fn ->
             result =
               try do
-                Exhub.MCP.Hub.BuiltInRegistry.call_tool(server_name, tool_name, arguments)
+                Exhub.MCP.Hub.BuiltInRegistry.call_tool(server_name, tool_name, arguments, %{
+                  headers: Keyword.get(opts, :headers, %{})
+                })
               rescue
                 e -> {:error, {:exception, inspect(e)}}
               catch

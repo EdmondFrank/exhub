@@ -198,12 +198,16 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     * `{:ok, result}` — the tool executed successfully
     * `{:error, reason}` — the tool failed or was not found
   """
-  @spec call_tool(String.t(), String.t(), map()) ::
+  ## The optional `ctx` map carries the caller's request context (`:headers`)
+  ## so a re-dispatched call sees the same `x-*` headers as the original HTTP
+  ## request — this is what lets a bridged call (Lua sandbox, hub meta server)
+  ## resolve relative paths against the caller's `x-project-dir`.
+  @spec call_tool(String.t(), String.t(), map(), map()) ::
           {:ok, term()} | {:error, term()}
-  def call_tool(server_name, tool_name, arguments) do
+  def call_tool(server_name, tool_name, arguments, ctx \\ %{}) do
     with {:ok, server_module} <- fetch_server_module(server_name),
          {:ok, tool} <- fetch_tool(server_module, tool_name) do
-      execute_tool(tool, arguments)
+      execute_tool(tool, arguments, ctx)
     end
   end
 
@@ -246,11 +250,11 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     end
   end
 
-  defp execute_tool(%{handler: handler, validate_input: validate}, arguments) do
+  defp execute_tool(%{handler: handler, validate_input: validate}, arguments, ctx) do
     # Validate and transform input using the tool's Peri schema
     with {:ok, validated} <- validate_tool_input(validate, arguments) do
-      # Create a minimal frame for the tool execution
-      frame = %Anubis.Server.Frame{}
+      # Minimal frame for the tool execution, carrying the caller's headers.
+      frame = build_frame(ctx)
 
       case handler.execute(validated, frame) do
         {:reply, %Anubis.Server.Response{} = response, _frame} ->
@@ -274,6 +278,20 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     error ->
       Logger.error("[BuiltInRegistry] Tool execution failed: #{inspect(error)}")
       {:error, inspect(error)}
+  end
+
+  # A re-dispatched call has no HTTP request behind it, so the frame is built by
+  # hand. Forwarding the caller's headers keeps `frame.context.headers` — and
+  # therefore `x-project-dir` resolution — working across the hop.
+  defp build_frame(ctx) do
+    headers =
+      case Map.get(ctx, :headers) do
+        headers when is_map(headers) -> headers
+        _ -> %{}
+      end
+
+    frame = %Anubis.Server.Frame{}
+    %{frame | context: %{frame.context | headers: headers}}
   end
 
   defp validate_tool_input(nil, arguments), do: {:ok, arguments}

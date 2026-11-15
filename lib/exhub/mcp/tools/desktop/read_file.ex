@@ -29,11 +29,6 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
     automatically extracts text content using OCR/document parsing. The extract
     parameter controls whether extraction is attempted (default: true).
 
-    Parameters:
-    - path: Absolute path or ~ shorthand to the file to read
-    - offset: Line number to start reading from (0-based, e.g. offset=100 skips the first 100 lines, default 0) - only for text files
-    - length: Maximum number of lines to read (default 1000) - only for text files
-    - extract: Whether to extract text from document files (default: true)
     """
   end
 
@@ -61,7 +56,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadFile do
 
   @impl true
   def execute(params, frame) do
-    with {:ok, path} <- Map.get(params, :path) |> Helpers.validate_absolute_path() do
+    with {:ok, path} <- Helpers.resolve_path(Map.get(params, :path), frame) do
       offset = Map.get(params, :offset, 0)
       length = Map.get(params, :length, 1000)
       extract = Map.get(params, :extract, true)

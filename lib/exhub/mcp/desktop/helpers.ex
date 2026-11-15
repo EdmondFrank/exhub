@@ -17,8 +17,10 @@ defmodule Exhub.MCP.Desktop.Helpers do
       {:reply, resp, frame}
   """
 
+  alias Anubis.Server.Frame
   alias Anubis.Server.Response
   alias Exhub.MCP.Encoding
+  alias Exhub.MCP.ServerHelpers
 
   @doc """
   Encode a map as TOON and add it as text content to a tool response.
@@ -97,6 +99,71 @@ defmodule Exhub.MCP.Desktop.Helpers do
     {:error,
      "Relative paths are not supported: '#{path}'. Use an absolute path (e.g. /path/to/file) or ~ shorthand (e.g. ~/path/to/file)."}
   end
+
+  @doc """
+  Resolves a caller-supplied path against the request's project directory.
+
+  Absolute and `~`-prefixed paths behave exactly like `validate_absolute_path/1`.
+  A relative path (`lib/foo.ex`) is resolved against the `x-project-dir` header
+  when the client sent one, so a remote MCP client sees repository-relative
+  paths even though the server process lives elsewhere. Without the header a
+  relative path is still rejected — the server never guesses a directory.
+
+  ## Examples
+
+      iex> resolve_path("/tmp/file", nil)
+      {:ok, "/tmp/file"}
+
+      iex> resolve_path("~/notes.md", nil)
+      {:ok, "/Users/me/notes.md"}
+
+      iex> resolve_path("lib/foo.ex", nil)
+      {:error, "Relative paths are not supported: ..."}
+  """
+  @spec resolve_path(String.t() | nil, Frame.t() | map() | nil) ::
+          {:ok, String.t() | nil} | {:error, String.t()}
+  def resolve_path(nil, _frame), do: {:ok, nil}
+
+  def resolve_path(path, frame) when is_binary(path) do
+    case validate_absolute_path(path) do
+      {:ok, expanded} ->
+        {:ok, expanded}
+
+      {:error, message} ->
+        case ServerHelpers.request_cwd(frame) do
+          {:ok, cwd} -> {:ok, Path.expand(path, cwd)}
+          :error -> {:error, message}
+        end
+    end
+  end
+
+  @doc """
+  Falls back to the request's project directory when `working_dir` is omitted.
+
+  Keeps `execute_command`/`start_process` usable from a client that sends
+  `x-project-dir`, without forcing a wasted round trip to learn the directory.
+  Returns `nil` when neither an explicit directory nor a header is available, so
+  the caller's existing "missing working_dir" gate still applies.
+  """
+  @spec with_request_cwd(String.t() | nil, Frame.t() | map() | nil) :: String.t() | nil
+  def with_request_cwd(nil, frame) do
+    case ServerHelpers.request_cwd(frame) do
+      {:ok, cwd} -> cwd
+      :error -> nil
+    end
+  end
+
+  def with_request_cwd(working_dir, _frame), do: working_dir
+
+  @doc """
+  Adds the effective working directory to a TOON payload, when one is known.
+
+  Lets the caller see where a command actually ran — it may have come from the
+  request's `x-project-dir` header rather than the call arguments.
+  """
+  @spec put_cwd(map(), String.t() | nil) :: map()
+  def put_cwd(payload, nil), do: payload
+  def put_cwd(payload, cwd), do: Map.put_new(payload, "cwd", cwd)
 
   @doc """
   Returns a clean environment variable list suitable for spawning child processes.

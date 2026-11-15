@@ -25,49 +25,17 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
   @impl true
   def description do
     """
-    Send input to an interactive process's stdin.
+    Send input to an interactive process's stdin. Use for processes started with
+    start_process(interactive: true): REPLs, ssh, TTY programs.
 
-    Use this to interact with processes started with start_process(interactive: true).
-    The input is sent directly to the process's stdin. Use this for interactive
-    commands, REPLs, or any process that accepts user input.
+    Modes: `raw` (default) sends input verbatim; `template` expands `${VAR_NAME}`
+    (unset → "") and `` `command` `` (stdout, trailing newlines trimmed) in one
+    left-to-right pass, without re-scanning the result. Substitutions pass the same
+    cost/secret gates as execute_command; when any expansion occurs the value is
+    treated as sensitive — it is not echoed in `input_sent` and is masked out of
+    `output`.
 
-    Input Modes:
-    - raw (default): Input is sent as-is, no expansion is performed.
-    - template: Input is processed for shell-style template expansion before sending:
-      - Environment variables: ${VAR_NAME} is replaced with the value of the
-        environment variable. If the variable is not set, it is replaced with
-        an empty string. Example: ${SSH_PASS}
-      - Command substitution: `command` is replaced with the stdout of the
-        executed command (trailing newlines are trimmed). Example: `cat pass.txt`
-        or `openssl rand -hex 16`
-
-    Templates are expanded left-to-right in a single pass. The output of command
-    substitution is not re-scanned for further expansion.
-
-    Security: a `command` substitution is an `execute_command` by another name, so
-    it passes through the same cost and secret gates — a substitution that would
-    scan the whole disk or expose a secret is refused and nothing is sent. When
-    any expansion occurs the expanded value is treated as sensitive: it is not
-    echoed back in `input_sent`, and it is masked out of the returned `output` so
-    a child that echoes its stdin (cat, a REPL, ssh) cannot leak it.
-
-    Parameters:
-    - process_id: The ID returned by start_process
-    - input: The text to send to the process's stdin
-    - mode: Input processing mode: 'raw' (default, send as-is) or 'template'
-      (expand ${VAR_NAME} and `command` before sending)
-    - wait_seconds: Number of seconds to wait after sending input before
-      returning (default: 2). Set to 0 to return immediately without waiting.
-    - return_output: Whether to include the process output in the response
-      (default: true). When true, the response includes output, status,
-      exit_code, and total_lines.
-    - auto_newline: Whether to append a newline (\n) to the input before
-      sending (default: false). Automatically defaults to true for PTY
-      processes (those started with pty: true), since PTY modes require
-      newlines for command execution. Set to false explicitly to send
-      input without a trailing newline.
-    - offset: Line offset to start reading output from (0 = from beginning, default 0)
-    - length: Maximum number of output lines to return (default 1000)
+    `auto_newline` defaults to true for PTY processes (PTY modes need a newline).
     """
   end
 

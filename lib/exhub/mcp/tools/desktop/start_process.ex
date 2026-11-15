@@ -31,19 +31,6 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
     The process output can be read incrementally using read_process_output.
     Processes are automatically cleaned up after 1 hour of inactivity.
 
-    Parameters:
-    - command: The shell command to execute
-    - working_dir: Working directory for the command. Required unless the command
-      specifies its own location (an absolute or ~ path, or a cd into one) or does
-      not depend on the working directory.
-      (Current server pwd: #{Helpers.current_pwd()})
-    - interactive: Enable interactive mode for sending input via interact_with_process
-    - pty: Enable pseudo-terminal (PTY) support via erlexec. When true, interactive
-      must also be true. Defaults to true when interactive is true (set pty: false
-      explicitly to use pipe-based I/O instead). Use this for SSH sessions, REPLs,
-      and other programs that require a TTY (e.g. start_process(command: "ssh user@host",
-      interactive: true)). PTY mode enables terminal features like password prompts,
-      line editing, and ANSI escape sequences that pipe-based I/O cannot support.
     """
   end
 
@@ -65,7 +52,9 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
   @impl true
   def execute(params, frame) do
     command = Map.get(params, :command)
-    working_dir = Map.get(params, :working_dir)
+    # Default to the caller's project directory when it sent `x-project-dir`
+    # (see `execute_command` for the rationale).
+    working_dir = Map.get(params, :working_dir) |> Helpers.with_request_cwd(frame)
     interactive = Map.get(params, :interactive, false)
     # When interactive is true, default pty to true unless explicitly set
     pty = if is_nil(Map.get(params, :pty)), do: interactive, else: Map.get(params, :pty)
@@ -101,13 +90,18 @@ defmodule Exhub.MCP.Tools.Desktop.StartProcess do
             {:ok, entry} ->
               resp =
                 Response.tool()
-                |> Helpers.toon_response(%{
-                  "process_id" => process_id,
-                  "pid" => entry.pid,
-                  "interactive" => entry.interactive,
-                  "pty" => entry.backend == :erlexec,
-                  "backend" => to_string(entry.backend)
-                })
+                |> Helpers.toon_response(
+                  Helpers.put_cwd(
+                    %{
+                      "process_id" => process_id,
+                      "pid" => entry.pid,
+                      "interactive" => entry.interactive,
+                      "pty" => entry.backend == :erlexec,
+                      "backend" => to_string(entry.backend)
+                    },
+                    working_dir
+                  )
+                )
 
               {:reply, resp, frame}
 
