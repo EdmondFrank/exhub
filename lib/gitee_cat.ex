@@ -4,13 +4,14 @@ defmodule GiteeCat do
   alias Jason
 
   @user_agent [{"User-agent", "gitee-cat"}, {"Content-Type", "application/json;charset=UTF-8"}]
+  @base_headers [{"Content-Type", "application/json;charset=UTF-8"}]
 
   @type response ::
           {:ok, term, HTTPoison.Response.t()}
           | {integer, any, HTTPoison.Response.t()}
           | pagination_response
 
-  @type pagination_response :: {response, binary | nil, Client.auth()}
+  @type pagination_response :: {response, binary | nil, Client.t()}
 
   defimpl Jason.Encoder, for: Tuple do
     def encode(tuple, opts) when is_tuple(tuple) do
@@ -93,11 +94,11 @@ defmodule GiteeCat do
       |> add_params_to_url(params)
 
     case pagination(options) do
-      nil -> request_stream(:get, url, client.auth)
-      :none -> request_stream(:get, url, client.auth, "", :one_page)
-      :auto -> request_stream(:get, url, client.auth)
-      :stream -> request_stream(:get, url, client.auth, "", :stream)
-      :manual -> request_with_pagination(:get, url, client.auth)
+      nil -> request_stream(:get, url, client)
+      :none -> request_stream(:get, url, client, "", :one_page)
+      :auto -> request_stream(:get, url, client)
+      :stream -> request_stream(:get, url, client, "", :stream)
+      :manual -> request_with_pagination(:get, url, client)
     end
   end
 
@@ -119,6 +120,18 @@ defmodule GiteeCat do
     Application.get_env(:gitee_cli, :extra_headers, [])
   end
 
+  # Headers a client sends on top of the globally configured `extra_headers`:
+  # its own `User-agent` (the Enterprise gateway inspects it) plus the JSON
+  # content type.
+  defp client_headers(%Client{user_agent: user_agent}) when is_binary(user_agent) do
+    [{"User-agent", user_agent} | @base_headers]
+  end
+
+  # A GET carries no body; `Jason.encode!("")` would otherwise send `""` (two
+  # bytes of JSON string) as a request body.
+  defp encode_body(body) when body in ["", nil], do: ""
+  defp encode_body(body), do: Jason.encode!(body)
+
   defp deserialization_options do
     Application.get_env(:gitee_cli, :deserialization_options, labels: :binary)
   end
@@ -134,15 +147,15 @@ defmodule GiteeCat do
     |> process_response
   end
 
-  @spec request_stream(atom, binary, Client.auth(), any, :one_page | nil | :stream) ::
+  @spec request_stream(atom, binary, Client.t(), any, :one_page | nil | :stream) ::
           Enumerable.t() | response
-  def request_stream(method, url, auth, body \\ "", override \\ nil) do
-    request_with_pagination(method, url, auth, Jason.encode!(body))
+  def request_stream(method, url, %Client{} = client, body \\ "", override \\ nil) do
+    request_with_pagination(method, url, client, encode_body(body))
     |> stream_if_needed(override)
   end
 
   @spec stream_if_needed(pagination_response, :one_page | nil) :: response
-  @spec stream_if_needed({response, binary | nil, Client.auth()}, :stream) :: Enumerable.t()
+  @spec stream_if_needed({response, binary | nil, Client.t()}, :stream) :: Enumerable.t()
   defp stream_if_needed({response, _, _}, :one_page), do: response
   defp stream_if_needed({response, nil, _}, _), do: response
 
@@ -158,49 +171,49 @@ defmodule GiteeCat do
 
   defp process_stream({[], nil, _}), do: {:halt, nil}
 
-  defp process_stream({[], next, auth}) do
-    request_with_pagination(:get, next, auth, "")
+  defp process_stream({[], next, %Client{} = client}) do
+    request_with_pagination(:get, next, client, "")
     |> process_stream
   end
 
-  defp process_stream({{_, items, _}, next, auth}) when is_list(items) do
-    {items, {[], next, auth}}
+  defp process_stream({{_, items, _}, next, %Client{} = client}) when is_list(items) do
+    {items, {[], next, client}}
   end
 
-  defp process_stream({item, next, auth}) do
-    {[item], {[], next, auth}}
+  defp process_stream({item, next, %Client{} = client}) do
+    {[item], {[], next, client}}
   end
 
-  @spec request_with_pagination(atom, binary, Client.auth(), any) :: pagination_response
-  def request_with_pagination(method, url, auth, body \\ "") do
+  @spec request_with_pagination(atom, binary, Client.t(), any) :: pagination_response
+  def request_with_pagination(method, url, %Client{} = client, body \\ "") do
     resp =
       request!(
         method,
         url,
-        Jason.encode!(body),
-        authorization_header(auth, extra_headers() ++ @user_agent),
-        extra_options()
+        encode_body(body),
+        authorization_header(client.auth, extra_headers() ++ client_headers(client)),
+        extra_options() ++ client.request_options
       )
 
     case process_response(resp) do
       {status, _, _} when status in [301, 302, 307] ->
-        request_with_pagination(method, location_header(resp), auth)
+        request_with_pagination(method, location_header(resp), client)
 
       _ ->
-        build_pagination_response(resp, auth)
+        build_pagination_response(resp, client)
     end
   end
 
   @spec build_pagination_response(
           HTTPoison.Response.t() | {integer, any, HTTPoison.Response.t()},
-          Client.auth()
+          Client.t()
         ) :: pagination_response
-  defp build_pagination_response(%HTTPoison.Response{:headers => headers} = resp, auth) do
-    {process_response(resp), next_link(headers), auth}
+  defp build_pagination_response(%HTTPoison.Response{:headers => headers} = resp, client) do
+    {process_response(resp), next_link(headers), client}
   end
 
-  defp build_pagination_response({_, _, %HTTPoison.Response{} = resp}, auth) do
-    build_pagination_response(resp, auth)
+  defp build_pagination_response({_, _, %HTTPoison.Response{} = resp}, client) do
+    build_pagination_response(resp, client)
   end
 
   defp location_header({_, _, resp}),

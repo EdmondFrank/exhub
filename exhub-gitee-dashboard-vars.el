@@ -38,19 +38,24 @@
   "Maximum number of timeline entries (comments and events) shown in a detail."
   :type 'integer)
 
-(defcustom exhub-gitee-dashboard-api-base "https://api.gitee.com"
-  "Base URL of the Gitee API."
-  :type 'string)
+(defcustom exhub-gitee-dashboard-backend-url nil
+  "Base URL of the ExHub backend serving the dashboard endpoints.
+When nil it is derived from `exhub-endpoint' (\"ws://localhost:9069/exhub\"
+becomes \"http://localhost:9069\"); the fallback is
+\"http://127.0.0.1:9069\"."
+  :type '(choice (const :tag "Derive from exhub-endpoint" nil) string))
 
-(defcustom exhub-gitee-dashboard-envless-root "~/GTD"
-  "Vault root passed to `envless' as ENVLESS_ROOT."
-  :type 'directory)
+(defcustom exhub-gitee-dashboard-request-timeout 20
+  "Seconds to wait for the ExHub backend before giving up.
+Only used by the synchronous fallback; the asynchronous path has no timer."
+  :type 'integer)
 
-(defcustom exhub-gitee-dashboard-token-env-var "GITEE_ENT_MCP_ACCESS_TOKEN"
-  "Name of the environment variable holding the enterprise MCP token.
-When the variable is already present in Emacs' environment the dashboard
-skips `envless exec' and runs the fetch script directly."
-  :type 'string)
+(defcustom exhub-gitee-dashboard-async t
+  "Whether to fetch and render asynchronously.
+When non-nil the dashboard never blocks Emacs while the backend fans out to
+the Gitee API; opening the buffer, `g' and the auto-refresh timer return at
+once.  When nil every fetch is a single synchronous local request."
+  :type 'boolean)
 
 (defcustom exhub-gitee-dashboard-auto-refresh-interval nil
   "Seconds between automatic refreshes, or nil to disable auto-refresh."
@@ -94,6 +99,11 @@ Wider images are scaled down; nil keeps their natural size."
 
 (defvar-local exhub-gitee-dashboard--timer nil
   "Auto-refresh timer of the current dashboard buffer.")
+
+(defvar-local exhub-gitee-dashboard--generation 0
+  "Identifier of the newest in-flight fetch of the current buffer.
+A response whose generation no longer matches is discarded, so a slow request
+can never overwrite the result of a newer one.")
 
 (provide 'exhub-gitee-dashboard-vars)
 

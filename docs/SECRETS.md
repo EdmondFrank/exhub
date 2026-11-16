@@ -146,6 +146,16 @@ mix scr.insert dev openai_api_key "your-openai-api-key"
 # Gitee Cookie (for GiteeCat API access)
 mix scr.insert dev gitee_cookie "your-gitee-cookie-string"
 
+# Gitee Enterprise MCP access token (Gitee 企业版 MCP token, see
+# https://gitee.com/profile/mcp_gitee_ent_access_tokens).  Consumed by
+# `Exhub.Gitee.Dashboard' — the enterprise dashboard endpoints
+# (`GET /gitee/dashboard`, `GET /gitee/detail`) that serve
+# exhub-gitee-dashboard.el.  Requests must carry the `mcp-gitee-ent` user
+# agent, which `GiteeCat.Client`'s `user_agent' option sets.  After rotating
+# it, run `M-x exhub-reload-keys` (or `exhub_reload_keys`) instead of
+# restarting.
+mix scr.insert dev gitee_ent_mcp_access_token "your-enterprise-mcp-access-token"
+
 # Optional: Provider-specific keys
 mix scr.insert dev siliconflow_api_key "your-siliconflow-key"
 mix scr.insert dev mistral_api_key "your-mistral-key"

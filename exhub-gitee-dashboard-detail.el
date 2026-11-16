@@ -322,18 +322,26 @@ the Markdown :body to render below the entry."
   (erase-buffer)
   (insert "#+TITLE: Gitee 详情\n\n* 无法加载详情\n\n")
   (insert (format "错误: %s\n\n" message))
-  (insert "- 确认 vault 已解锁: =ENVLESS_ROOT=~/GTD envless list=\n")
+  (insert (format "- 确认 ExHub 后端在运行: =curl %s/gitee/detail=\n"
+                  (exhub-gitee-dashboard--backend-url)))
+  (insert "- 确认 =gitee_ent_mcp_access_token= 已存入 ExHub SecretVault\n")
   (insert "- 按 =g= 重试\n")
   (goto-char (point-min))
   (setq header-line-format " Gitee 详情 | 加载失败 | g 重试  q 退出"))
 
-(defun exhub-gitee-dashboard--show-detail (request data)
-  "Display the detail buffer for REQUEST rendered from DATA."
+(defun exhub-gitee-dashboard--detail-buffer (request)
+  "Return the detail buffer of REQUEST, in detail mode, with REQUEST stored."
   (let ((buffer (get-buffer-create (exhub-gitee-dashboard--detail-buffer-name request))))
     (with-current-buffer buffer
       (unless (derived-mode-p 'exhub-gitee-dashboard-detail-mode)
         (exhub-gitee-dashboard-detail-mode))
-      (setq-local exhub-gitee-dashboard--detail-request request)
+      (setq-local exhub-gitee-dashboard--detail-request request))
+    buffer))
+
+(defun exhub-gitee-dashboard--show-detail (request data)
+  "Display the detail buffer for REQUEST rendered from DATA."
+  (let ((buffer (exhub-gitee-dashboard--detail-buffer request)))
+    (with-current-buffer buffer
       (exhub-gitee-dashboard--image-remove)
       (let ((inhibit-read-only t))
         (condition-case err
@@ -342,6 +350,64 @@ the Markdown :body to render below the entry."
            (exhub-gitee-dashboard--render-detail-error (error-message-string err))))))
     (pop-to-buffer buffer)))
 
+(defun exhub-gitee-dashboard--detail-loading (request)
+  "Show REQUEST's detail buffer with a placeholder while the payload loads."
+  (let ((buffer (exhub-gitee-dashboard--detail-buffer request)))
+    (with-current-buffer buffer
+      (exhub-gitee-dashboard--image-remove)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "#+TITLE: Gitee 详情\n\n")
+        (insert (format "* 加载中…\n\n%s\n"
+                        (or (plist-get request :title) "")))
+        (goto-char (point-min))
+        (setq header-line-format " Gitee 详情 | 加载中…")))
+    (pop-to-buffer buffer)
+    buffer))
+
+(defun exhub-gitee-dashboard--refresh-detail-async (request)
+  "Fetch REQUEST in the background and fill its detail buffer.
+A stale response (a newer refresh started meanwhile) is dropped."
+  (let* ((buffer (exhub-gitee-dashboard--detail-buffer request))
+         (kind (if (eq (plist-get request :kind) 'pull) "pull" "issue"))
+         (ref (format "%s" (or (plist-get request :ref) "")))
+         (generation (with-current-buffer buffer
+                       (setq exhub-gitee-dashboard--generation
+                             (1+ (or exhub-gitee-dashboard--generation 0))))))
+    (with-current-buffer buffer
+      (setq header-line-format " Gitee 详情 | 加载中…"))
+    (exhub-gitee-dashboard--fetch-detail-async
+     kind ref (plist-get request :subject)
+     (lambda (data error)
+       (when (and (buffer-live-p buffer)
+                  (with-current-buffer buffer
+                    (and (derived-mode-p 'exhub-gitee-dashboard-detail-mode)
+                         (eql generation exhub-gitee-dashboard--generation))))
+         (with-current-buffer buffer
+           (exhub-gitee-dashboard--image-remove)
+           (let ((inhibit-read-only t))
+             (condition-case err
+                 (if error
+                     (exhub-gitee-dashboard--render-detail-error error)
+                   (exhub-gitee-dashboard--render-detail request data))
+               (error
+                (exhub-gitee-dashboard--render-detail-error
+                 (error-message-string err)))))))))
+    buffer))
+
+(defun exhub-gitee-dashboard--open-detail (request)
+  "Display REQUEST's detail, fetching it synchronously or asynchronously."
+  (if exhub-gitee-dashboard-async
+      (progn
+        (exhub-gitee-dashboard--detail-loading request)
+        (exhub-gitee-dashboard--refresh-detail-async request))
+    (exhub-gitee-dashboard--show-detail
+     request
+     (exhub-gitee-dashboard--fetch-detail
+      (if (eq (plist-get request :kind) 'pull) "pull" "issue")
+      (plist-get request :ref)
+      (plist-get request :subject)))))
+
 ;;;###autoload
 (defun exhub-gitee-dashboard-detail-refresh ()
   "Refetch and redraw the current Gitee detail buffer."
@@ -349,12 +415,7 @@ the Markdown :body to render below the entry."
   (let ((request exhub-gitee-dashboard--detail-request))
     (unless (and (derived-mode-p 'exhub-gitee-dashboard-detail-mode) request)
       (user-error "Not in a Gitee detail buffer"))
-    (exhub-gitee-dashboard--show-detail
-     request
-     (exhub-gitee-dashboard--fetch-detail
-      (if (eq (plist-get request :kind) 'pull) "pull" "issue")
-      (plist-get request :ref)
-      (plist-get request :subject)))
+    (exhub-gitee-dashboard--open-detail request)
     (message "Gitee detail refreshed")))
 
 ;;;###autoload

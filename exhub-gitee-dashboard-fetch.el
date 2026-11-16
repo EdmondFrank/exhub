@@ -7,194 +7,81 @@
 
 ;;; Commentary:
 
-;; Fetch the Gitee Enterprise dashboard payload, and the detail of a single
-;; pull request or issue, with `envless exec' + curl + jq.  The token is handed
-;; to curl on stdin (`curl -K -'), so it never appears in a process argument,
-;; a file, a buffer or a log.
+;; Retrieval goes through the running ExHub backend: one local request to
+;; `GET /gitee/dashboard' or `GET /gitee/detail', which fans the nine Gitee
+;; Enterprise calls out concurrently (Exhub.Gitee.Dashboard) and returns the
+;; merged payload.  The Enterprise MCP token lives in ExHub's SecretVault, so
+;; nothing here touches the envless vault, curl or jq.
+;;
+;; That replaced a POSIX script that ran nine sequential curl calls with an
+;; `envless exec' wrapper and a jq merge per response — about six seconds of
+;; Emacs-blocking latency per refresh.  The backend answers in roughly the
+;; time of its slowest section (the pull request list), and the asynchronous
+;; path keeps even that off the UI thread.
 
 ;;; Code:
 
 (require 'json)
 (require 'subr-x)
+(require 'url-http)
+(require 'url-util)
 
 (require 'exhub-gitee-dashboard-vars)
 
-(defconst exhub-gitee-dashboard--script
-  (mapconcat
-   #'identity
-   '("#!/bin/sh"
-     "set -u"
-     "if [ -z \"${GITEE_ENT_MCP_ACCESS_TOKEN:-}\" ]; then"
-     "  echo \"GITEE_ENT_MCP_ACCESS_TOKEN is not set (envless unlock failed?)\" >&2"
-     "  exit 66"
-     "fi"
-     "if ! command -v jq >/dev/null 2>&1; then"
-     "  echo \"jq is required\" >&2"
-     "  exit 69"
-     "fi"
-     "BASE=\"${GITEE_DASH_BASE:-https://api.gitee.com}/enterprises/${GITEE_DASH_ENTERPRISE_ID:-1}\""
-     "TOP=\"${GITEE_DASH_TOP:-10}\""
-     "LIMIT=\"${GITEE_DASH_LIMIT:-10}\""
-     ""
-     "# The token goes to curl on stdin so it never shows up in argv."
-     "api() {"
-     "  printf 'header = \"User-Agent: mcp-gitee-ent\"\\nheader = \"Authorization: token %s\"\\n' \\"
-     "    \"$GITEE_ENT_MCP_ACCESS_TOKEN\" \\"
-     "    | curl -sS --max-time 30 -K - \"${BASE}$1\""
-     "}"
-     ""
-     "json() { api \"$1\" | jq -c '.' 2>/dev/null || echo null; }"
-     ""
-     "jq -n \\"
-     "  --argjson enterprise \"$(json '')\" \\"
-     "  --argjson overview \"$(json '/dashboard_statistics/overview')\" \\"
-     "  --argjson mine \"$(json '/dashboard_statistics/user_dashboard')\" \\"
-     "  --argjson committers \"$(json \"/statistics/top_committer?rank=$TOP\")\" \\"
-     "  --argjson projects \"$(json '/projects?per_page=1')\" \\"
-     "  --argjson programs \"$(json '/programs?per_page=1')\" \\"
-     "  --argjson members \"$(json '/members?per_page=1')\" \\"
-     "  --argjson pulls \"$(json \"/pull_requests?scope=related_to_me&per_page=$LIMIT\")\" \\"
-     "  --argjson issues \"$(json \"/issues?only_related_me=1&state=open&per_page=$LIMIT\")\" \\"
-     "  --arg enterprise_id \"${GITEE_DASH_ENTERPRISE_ID:-1}\" \\"
-     "  --arg generated_at \"$(date '+%Y-%m-%d %H:%M:%S')\" \\"
-     "  '{ enterprise_id: $enterprise_id, generated_at: $generated_at,"
-     "     enterprise: ($enterprise | objects),"
-     "     overview: ($overview | objects),"
-     "     mine: ($mine | objects),"
-     "     committers: (if ($committers | type) == \"array\" then $committers else [] end),"
-     "     projects: ($projects | objects | .total_count),"
-     "     programs: ($programs | objects | .total_count),"
-     "     members: ($members | objects | .total_count),"
-     "     pulls: (($pulls | objects | .data) // []),"
-     "     pulls_total: ($pulls | objects | .total_count),"
-     "     issues: (($issues | objects | .data) // []),"
-     "     issues_total: ($issues | objects | .total_count) }'")
-   "\n")
-  "POSIX-sh script that fetches the dashboard payload and prints it as JSON.")
+(defun exhub-gitee-dashboard--backend-url ()
+  "Return the HTTP base URL of the ExHub backend."
+  (or exhub-gitee-dashboard-backend-url
+      (let ((endpoint (and (boundp 'exhub-endpoint) (symbol-value 'exhub-endpoint))))
+        (if (and (stringp endpoint)
+                 (string-match "\\`\\(ws\\)\\(s?\\)://\\([^/]+\\)" endpoint))
+            (concat "http" (match-string 2 endpoint) "://" (match-string 3 endpoint))
+          "http://127.0.0.1:9069"))))
 
-(defconst exhub-gitee-dashboard--detail-script
-  (mapconcat
-   #'identity
-   '("#!/bin/sh"
-     "set -u"
-     "if [ -z \"${GITEE_ENT_MCP_ACCESS_TOKEN:-}\" ]; then"
-     "  echo \"GITEE_ENT_MCP_ACCESS_TOKEN is not set (envless unlock failed?)\" >&2"
-     "  exit 66"
-     "fi"
-     "if ! command -v jq >/dev/null 2>&1; then"
-     "  echo \"jq is required\" >&2"
-     "  exit 69"
-     "fi"
-     "BASE=\"${GITEE_DASH_BASE:-https://api.gitee.com}/enterprises/${GITEE_DASH_ENTERPRISE_ID:-1}\""
-     "KIND=\"${GITEE_DASH_KIND:-}\""
-     "SUBJECT=\"${GITEE_DASH_SUBJECT:-}\""
-     "REF=\"${GITEE_DASH_REF:-}\""
-     "NOTES=\"${GITEE_DASH_NOTES:-20}\""
-     ""
-     "# The token goes to curl on stdin so it never shows up in argv."
-     "api() {"
-     "  printf 'header = \"User-Agent: mcp-gitee-ent\"\\nheader = \"Authorization: token %s\"\\n' \\"
-     "    \"$GITEE_ENT_MCP_ACCESS_TOKEN\" \\"
-     "    | curl -sS --max-time 30 -K - \"${BASE}$1\""
-     "}"
-     ""
-     "json() { api \"$1\" | jq -c '.' 2>/dev/null || echo null; }"
-     ""
-     "case \"$KIND\" in"
-     "  pull)"
-     "    DETAIL_PATH=\"/projects/$SUBJECT/pull_requests/$REF?pr_qt=iid\""
-     "    NOTES_PATH=\"/projects/$SUBJECT/pull_requests/$REF/notes/trees?pr_qt=iid&direction=asc\""
-     "    LOGS_PATH=\"\""
-     "    ;;"
-     "  issue)"
-     "    DETAIL_PATH=\"/issues/$REF?qt=ident\""
-     "    NOTES_PATH=\"/issues/$REF/notes?qt=ident&per_page=$NOTES\""
-     "    LOGS_PATH=\"/issues/$REF/operate_logs?qt=ident&limit=$NOTES\""
-     "    ;;"
-     "  *)"
-     "    echo \"unknown GITEE_DASH_KIND: $KIND\" >&2"
-     "    exit 64"
-     "    ;;"
-     "esac"
-     ""
-     "if [ -n \"$LOGS_PATH\" ]; then"
-     "  LOGS_JSON=$(json \"$LOGS_PATH\")"
-     "else"
-     "  LOGS_JSON='{\"data\":[],\"total_count\":0}'"
-     "fi"
-     ""
-     "jq -n \\"
-     "  --argjson detail \"$(json \"$DETAIL_PATH\")\" \\"
-     "  --argjson notes \"$(json \"$NOTES_PATH\")\" \\"
-     "  --argjson logs \"$LOGS_JSON\" \\"
-     "  --arg kind \"$KIND\" \\"
-     "  --arg ref \"$REF\" \\"
-     "  --arg generated_at \"$(date '+%Y-%m-%d %H:%M:%S')\" \\"
-     "  '{ kind: $kind, ref: $ref, generated_at: $generated_at,"
-     "     detail: ($detail | objects),"
-     "     timeline: (if $kind == \"pull\""
-     "                then (($notes | objects | .list) // [])"
-     "                else ((($notes | objects | .data) // []) + (($logs | objects | .data) // []))"
-     "                end),"
-     "     timeline_total: (if $kind == \"pull\""
-     "                      then ((($notes | objects | .count) // 0)"
-     "                            + (((($notes | objects | .list) // [])"
-     "                                | map(select(.type == \"operate_log\")) | length)))"
-     "                      else ((($notes | objects | .total_count) // 0) + (($logs | objects | .total_count) // 0))"
-     "                      end) }'")
-   "\n")
-  "POSIX-sh script that fetches one pull request / issue and its timeline.")
+(defun exhub-gitee-dashboard--url (path params)
+  "Return the backend URL for PATH, with PARAMS as its query.
+PARAMS is a list of (KEY VALUE) lists, the shape `url-build-query-string'
+expects."
+  (let ((query (and params (url-build-query-string params))))
+    (concat (exhub-gitee-dashboard--backend-url)
+            path
+            (if (and query (not (string-empty-p query)))
+                (concat "?" query)
+              ""))))
 
-(defun exhub-gitee-dashboard--write-script (script)
-  "Write the POSIX-sh SCRIPT body to a temporary file and return its name."
-  (let ((file (make-temp-file "exhub-gitee-dashboard-" nil ".sh")))
-    (with-temp-file file
-      (insert script "\n"))
-    file))
+(defun exhub-gitee-dashboard--json-get (text key)
+  "Return KEY from the JSON object TEXT, or nil."
+  (condition-case nil
+      (let ((data (json-parse-string text
+                                     :object-type 'alist
+                                     :array-type 'list
+                                     :null-object nil
+                                     :false-object nil)))
+        (when (listp data)
+          (cdr (or (assq (intern-soft key) data) (assoc key data)))))
+    (error nil)))
 
-(defun exhub-gitee-dashboard--run-script (script &optional extra-env)
-  "Run SCRIPT with EXTRA-ENV and return its output as a string.
-EXTRA-ENV is a list of \"NAME=value\" strings added to the process
-environment.  Signals `user-error' with a hint when the script fails."
-  (let* ((script-file (exhub-gitee-dashboard--write-script script))
-         (envless (executable-find "envless"))
-         (token-present (getenv exhub-gitee-dashboard-token-env-var))
-         (environment (append
-                       (list (format "ENVLESS_ROOT=%s"
-                                     (expand-file-name exhub-gitee-dashboard-envless-root))
-                             (format "GITEE_DASH_BASE=%s" exhub-gitee-dashboard-api-base)
-                             (format "GITEE_DASH_ENTERPRISE_ID=%d"
-                                     exhub-gitee-dashboard-enterprise-id)
-                             (format "GITEE_DASH_TOP=%d" exhub-gitee-dashboard-top-n)
-                             (format "GITEE_DASH_LIMIT=%d" exhub-gitee-dashboard-item-limit))
-                       extra-env
-                       process-environment))
-         (command (cond
-                   (token-present (list "/bin/sh" script-file))
-                   (envless (list envless "exec" "--" "/bin/sh" script-file))
-                   (t (user-error
-                       "Cannot fetch: `envless' not found and %s is unset"
-                       exhub-gitee-dashboard-token-env-var)))))
-    (let ((stderr-file (make-temp-file "exhub-gitee-dashboard-stderr-")))
-      (unwind-protect
-          (with-temp-buffer
-            (let* ((default-directory (expand-file-name "~"))
-                   (process-environment environment)
-                   (code (apply #'call-process (car command) nil
-                                (list (current-buffer) stderr-file) nil
-                                (cdr command)))
-                   (err (with-temp-buffer
-                          (insert-file-contents stderr-file)
-                          (buffer-string))))
-              (unless (and (integerp code) (zerop code))
-                (user-error
-                 "Gitee dashboard fetch failed (exit %s)%s"
-                 code
-                 (let ((trimmed (string-trim err)))
-                   (if (string-empty-p trimmed) "" (format ": %s" trimmed)))))
-              (string-trim (buffer-string))))
-        (delete-file script-file)
-        (delete-file stderr-file))))) 
+(defun exhub-gitee-dashboard--error-text (status body)
+  "Return a readable message for HTTP STATUS and BODY from the backend."
+  (format "ExHub backend error (HTTP %s)%s"
+          (or status "?")
+          (let ((message (and (stringp body)
+                              (exhub-gitee-dashboard--json-get body "error"))))
+            (if (and (stringp message) (not (string-empty-p message)))
+                (concat ": " message)
+              (let ((text (string-trim (or body ""))))
+                (if (string-empty-p text)
+                    ""
+                  (concat ": " (truncate-string-to-width text 200))))))))
+
+(defun exhub-gitee-dashboard--response-body ()
+  "Return the body of the current `url-http' response buffer."
+  (save-restriction
+    (widen)
+    (let ((start (if (and (boundp 'url-http-end-of-headers)
+                          url-http-end-of-headers)
+                     (min url-http-end-of-headers (point-max))
+                   (point-min))))
+      (buffer-substring-no-properties start (point-max)))))
 
 (defun exhub-gitee-dashboard--parse (body)
   "Parse BODY (the JSON payload) into alists."
@@ -212,24 +99,116 @@ environment.  Signals `user-error' with a hint when the script fails."
      (user-error "Unexpected Gitee response: %s"
                  (if (> (length body) 200) (concat (substring body 0 200) "…") body)))))
 
+(defun exhub-gitee-dashboard--notify (callback data error)
+  "Call CALLBACK with (DATA ERROR), never letting it signal.
+A rendering error inside CALLBACK would otherwise escape into the
+`url-retrieve' process filter, where it only reaches the echo area as a
+cryptic backtrace."
+  (condition-case err
+      (funcall callback data error)
+    (error (message "Gitee dashboard: %s" (error-message-string err)))))
+
+(defun exhub-gitee-dashboard--deliver (callback status body)
+  "Hand the parsed BODY of HTTP STATUS to CALLBACK as (DATA ERROR)."
+  (if (and (integerp status) (<= 200 status 299))
+      (condition-case err
+          (exhub-gitee-dashboard--notify callback
+                                         (exhub-gitee-dashboard--parse body) nil)
+        (error (exhub-gitee-dashboard--notify callback nil (error-message-string err))))
+    (exhub-gitee-dashboard--notify callback nil (exhub-gitee-dashboard--error-text status body))))
+
+(defun exhub-gitee-dashboard--request (path params)
+  "Fetch PATH with PARAMS from the backend and return the parsed payload.
+Signals `user-error' when the backend is unreachable or reports an error."
+  (let ((url-request-method "GET")
+        (url-request-extra-headers '(("Accept" . "application/json")))
+        (url-proxy-services nil)
+        (buffer nil))
+    (setq buffer (url-retrieve-synchronously
+                  (exhub-gitee-dashboard--url path params)
+                  t t exhub-gitee-dashboard-request-timeout))
+    (unless (buffer-live-p buffer)
+      (user-error "ExHub backend unreachable at %s"
+                  (exhub-gitee-dashboard--backend-url)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((status (if (bound-and-true-p url-http-response-status)
+                            url-http-response-status
+                          0))
+                (body (exhub-gitee-dashboard--response-body)))
+            (if (and (integerp status) (<= 200 status 299))
+                (exhub-gitee-dashboard--parse body)
+              (user-error "%s" (exhub-gitee-dashboard--error-text status body)))))
+      (kill-buffer buffer))))
+
+(defun exhub-gitee-dashboard--request-async (path params callback)
+  "Fetch PATH with PARAMS and call CALLBACK with (DATA ERROR).
+CALLBACK runs in whatever buffer `url-retrieve' completes in; the temporary
+response buffer is killed before it is called."
+  (let ((url-request-method "GET")
+        (url-request-extra-headers '(("Accept" . "application/json")))
+        (url-proxy-services nil))
+    (condition-case err
+        (url-retrieve
+         (exhub-gitee-dashboard--url path params)
+         (lambda (status-plist)
+           (let ((failure (plist-get status-plist :error))
+                 (status (if (bound-and-true-p url-http-response-status)
+                             url-http-response-status
+                           0))
+                 (body (condition-case nil
+                           (exhub-gitee-dashboard--response-body)
+                         (error ""))))
+             (when (buffer-live-p (current-buffer))
+               (let ((kill-buffer-query-functions nil))
+                 (kill-buffer (current-buffer))))
+             ;; `url-http' also reports a 4xx/5xx as a `:error' entry; the
+             ;; status and body are still there, so let `--deliver' turn the
+             ;; backend's JSON error message into the user-visible one.
+             (if (and failure (not (and (integerp status) (> status 0))))
+                 (exhub-gitee-dashboard--notify callback nil (error-message-string failure))
+               (exhub-gitee-dashboard--deliver callback status body))))
+         nil t)
+      (error (exhub-gitee-dashboard--notify callback nil (error-message-string err))))))
+
+(defun exhub-gitee-dashboard--dashboard-params ()
+  "Return the query parameters of the dashboard request."
+  (list (list "enterprise_id" (number-to-string exhub-gitee-dashboard-enterprise-id))
+        (list "top" (number-to-string exhub-gitee-dashboard-top-n))
+        (list "limit" (number-to-string exhub-gitee-dashboard-item-limit))))
+
+(defun exhub-gitee-dashboard--detail-params (kind ref subject)
+  "Return the query parameters of a KIND/REF detail request.
+SUBJECT is the numeric project id of a pull request and is omitted when nil."
+  (append
+   (list (list "kind" kind)
+         (list "ref" (or ref ""))
+         (list "enterprise_id" (number-to-string exhub-gitee-dashboard-enterprise-id))
+         (list "notes" (number-to-string exhub-gitee-dashboard-notes-limit)))
+   (when (and subject (not (string-empty-p (format "%s" subject))))
+     (list (list "subject" (format "%s" subject))))))
+
 (defun exhub-gitee-dashboard--fetch ()
-  "Fetch and parse the dashboard payload."
-  (exhub-gitee-dashboard--parse
-   (exhub-gitee-dashboard--run-script exhub-gitee-dashboard--script)))
+  "Fetch and parse the dashboard payload from the ExHub backend."
+  (exhub-gitee-dashboard--request
+   "/gitee/dashboard" (exhub-gitee-dashboard--dashboard-params)))
+
+(defun exhub-gitee-dashboard--fetch-async (callback)
+  "Fetch the dashboard payload; call CALLBACK with (DATA ERROR)."
+  (exhub-gitee-dashboard--request-async
+   "/gitee/dashboard" (exhub-gitee-dashboard--dashboard-params) callback))
 
 (defun exhub-gitee-dashboard--fetch-detail (kind ref &optional subject)
-  "Fetch the detail payload of KIND (`pull' or `issue') REF.
-SUBJECT is the numeric project id for a pull request and is ignored for
-an issue.  Returns an alist with `detail', `timeline' and `timeline_total'.
-`timeline' merges the comments with the operation log (event) entries, both
-of which are left in their raw API shape."
-  (exhub-gitee-dashboard--parse
-   (exhub-gitee-dashboard--run-script
-    exhub-gitee-dashboard--detail-script
-    (list (format "GITEE_DASH_KIND=%s" kind)
-          (format "GITEE_DASH_REF=%s" (or ref ""))
-          (format "GITEE_DASH_SUBJECT=%s" (or subject ""))
-          (format "GITEE_DASH_NOTES=%d" exhub-gitee-dashboard-notes-limit)))))
+  "Fetch the detail payload of KIND (\"pull\" or \"issue\") REF.
+SUBJECT is the numeric project id of a pull request and is ignored for an
+issue.  Returns an alist with `detail', `timeline' and `timeline_total'."
+  (exhub-gitee-dashboard--request
+   "/gitee/detail" (exhub-gitee-dashboard--detail-params kind ref subject)))
+
+(defun exhub-gitee-dashboard--fetch-detail-async (kind ref subject callback)
+  "Fetch the detail of KIND/REF; call CALLBACK with (DATA ERROR)."
+  (exhub-gitee-dashboard--request-async
+   "/gitee/detail" (exhub-gitee-dashboard--detail-params kind ref subject) callback))
 
 (provide 'exhub-gitee-dashboard-fetch)
 

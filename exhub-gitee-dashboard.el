@@ -16,9 +16,11 @@
 ;; authorised when the request carries a `User-Agent' that contains
 ;; "mcp-gitee-ent".
 ;;
-;; The token is read from the envless vault (key `GITEE_ENT_MCP_ACCESS_TOKEN')
-;; by `envless exec' and handed to curl on stdin (`curl -K -'), so it never
-;; appears in a process argument, a file, a buffer or a log.
+;; Retrieval runs in the ExHub backend (`Exhub.Gitee.Dashboard'): the buffer
+;; asks `GET /gitee/dashboard' (or `GET /gitee/detail') for one merged payload,
+;; and the backend fans the individual enterprise calls out concurrently.  The
+;; Enterprise MCP token is read there from ExHub's SecretVault, so Emacs never
+;; sees it and the fetch does not shell out to envless/curl/jq.
 ;;
 ;; Endpoints used (see ~/Code/gitee/app/api/enterprise_v1/):
 ;;   GET /enterprises/<id>                                 enterprise info
@@ -43,7 +45,7 @@
 ;;
 ;; The implementation is split across sibling files of the same prefix:
 ;;   exhub-gitee-dashboard-vars.el    user options and buffer-local state
-;;   exhub-gitee-dashboard-fetch.el   envless/curl/jq payload retrieval
+;;   exhub-gitee-dashboard-fetch.el   backend HTTP retrieval (sync + async)
 ;;   exhub-gitee-dashboard-format.el  JSON accessors and Org table helpers
 ;;   exhub-gitee-dashboard-render.el  dashboard rendering
 ;;   exhub-gitee-dashboard-markdown.el  Markdown to Org conversion
@@ -128,12 +130,7 @@ the web page instead."
           (browse-url url)
         (exhub-gitee-dashboard--open-link)))
      (t
-      (exhub-gitee-dashboard--show-detail
-       meta
-       (exhub-gitee-dashboard--fetch-detail
-        (if (eq kind 'pull) "pull" "issue")
-        ref
-        (plist-get meta :subject)))))))
+      (exhub-gitee-dashboard--open-detail meta)))))
 
 ;;;###autoload
 (defun exhub-gitee-dashboard-browse ()
@@ -159,7 +156,9 @@ the web page instead."
     (user-error "Not in a Gitee dashboard buffer"))
   (exhub-gitee-dashboard--refresh)
   (exhub-gitee-dashboard--schedule-refresh)
-  (message "Gitee dashboard refreshed"))
+  (message (if exhub-gitee-dashboard-async
+               "Gitee dashboard refreshing…"
+             "Gitee dashboard refreshed")))
 
 ;;;###autoload
 (defun exhub-gitee-dashboard-set-enterprise (id)

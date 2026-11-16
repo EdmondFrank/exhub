@@ -24,6 +24,8 @@ defmodule Exhub.Router do
 
   ### API Endpoints
   - `GET /llms` - Curated LLM model catalog (default model + model names)
+  - `GET /gitee/dashboard` - Gitee Enterprise dashboard payload (concurrent fetch)
+  - `GET /gitee/detail` - One Gitee pull request / issue plus its timeline
   - `POST /v1/messages` - Anthropic-compatible messages endpoint
   - `POST /v1/messages/count_tokens` - Token counting endpoint
 
@@ -119,6 +121,42 @@ defmodule Exhub.Router do
         models: LLMModels.all_models()
       })
     )
+  end
+
+  # ============================================================================
+  # Gitee Enterprise Dashboard (exhub-gitee-dashboard.el)
+  # ============================================================================
+
+  get "/gitee/dashboard" do
+    opts = [
+      enterprise_id: Helpers.parse_int(conn.params["enterprise_id"], 1),
+      top: Helpers.parse_int(conn.params["top"], 10),
+      limit: Helpers.parse_int(conn.params["limit"], 10)
+    ]
+
+    case Exhub.Gitee.Dashboard.dashboard(opts) do
+      {:ok, payload} -> gitee_json(conn, 200, payload)
+      {:error, reason} -> gitee_error(conn, reason)
+    end
+  end
+
+  get "/gitee/detail" do
+    kind = conn.params["kind"]
+    ref = conn.params["ref"]
+
+    if kind in ["pull", "issue"] and is_binary(ref) and ref != "" do
+      opts = [
+        enterprise_id: Helpers.parse_int(conn.params["enterprise_id"], 1),
+        notes: Helpers.parse_int(conn.params["notes"], 20)
+      ]
+
+      case Exhub.Gitee.Dashboard.detail(kind, ref, conn.params["subject"], opts) do
+        {:ok, payload} -> gitee_json(conn, 200, payload)
+        {:error, reason} -> gitee_error(conn, reason)
+      end
+    else
+      gitee_json(conn, 400, %{error: "kind must be pull or issue, and ref must be non-empty"})
+    end
   end
 
   # ============================================================================
@@ -1462,6 +1500,17 @@ defmodule Exhub.Router do
   # ============================================================================
   # Private Functions - Toonflow UI helpers
   # ============================================================================
+
+  defp gitee_json(conn, status, payload) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(status, Jason.encode!(payload))
+  end
+
+  defp gitee_error(conn, reason) do
+    status = if reason == :missing_token, do: 503, else: 502
+    gitee_json(conn, status, %{error: Exhub.Gitee.Dashboard.error_message(reason)})
+  end
 
   defp toonflow_json(conn, status, payload) do
     conn

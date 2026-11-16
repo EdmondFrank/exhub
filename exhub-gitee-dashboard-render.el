@@ -94,21 +94,50 @@
   (insert "* 无法加载仪表盘\n\n")
   (insert (format "错误: %s\n\n" message))
   (insert "* 排查提示\n\n")
-  (insert "- 确认 vault 已解锁: =ENVLESS_ROOT=~/GTD envless list=\n")
-  (insert (format "- 确认密钥 =%s= 存在（envless 退出码 64/66/255）\n"
-                  exhub-gitee-dashboard-token-env-var))
+  (insert (format "- 确认 ExHub 后端在运行: =curl %s/gitee/dashboard=\n"
+                  (exhub-gitee-dashboard--backend-url)))
+  (insert "- 确认 =gitee_ent_mcp_access_token= 已存入 ExHub SecretVault，并执行 =M-x exhub-reload-keys=\n")
   (insert "- 确认企业 MCP 令牌仍有访问权限（Gitee 个人设置 → MCP 企业令牌）\n")
   (insert "- 按 =g= 重试\n")
   (goto-char (point-min))
   (setq header-line-format " Gitee 企业仪表盘 | 加载失败 | g 重试  q 退出"))
 
 (defun exhub-gitee-dashboard--refresh ()
-  "Fetch and render the dashboard in the current buffer."
-  (let ((inhibit-read-only t))
-    (condition-case err
-        (exhub-gitee-dashboard--render (exhub-gitee-dashboard--fetch))
-      (user-error
-       (exhub-gitee-dashboard--render-error (error-message-string err))))))
+  "Fetch and render the dashboard in the current buffer.
+Asynchronous when `exhub-gitee-dashboard-async' is non-nil, so the caller
+returns at once and the buffer is filled when the payload arrives; otherwise
+it blocks for one local backend round trip."
+  (if exhub-gitee-dashboard-async
+      (exhub-gitee-dashboard--refresh-async)
+    (let ((inhibit-read-only t))
+      (condition-case err
+          (exhub-gitee-dashboard--render (exhub-gitee-dashboard--fetch))
+        (user-error
+         (exhub-gitee-dashboard--render-error (error-message-string err)))))))
+
+(defun exhub-gitee-dashboard--refresh-async ()
+  "Fetch the payload in the background and render it when it arrives.
+A response whose generation is stale (a newer fetch started meanwhile) is
+dropped, so `g' pressed twice can never end with the older answer on screen."
+  (let* ((buffer (current-buffer))
+         (generation (setq exhub-gitee-dashboard--generation
+                           (1+ (or exhub-gitee-dashboard--generation 0)))))
+    (setq header-line-format " Gitee 企业仪表盘 | 加载中…")
+    (exhub-gitee-dashboard--fetch-async
+     (lambda (data error)
+       (when (and (buffer-live-p buffer)
+                  (with-current-buffer buffer
+                    (and (derived-mode-p 'exhub-gitee-dashboard-mode)
+                         (eql generation exhub-gitee-dashboard--generation))))
+         (with-current-buffer buffer
+           (let ((inhibit-read-only t))
+             (condition-case err
+                 (if error
+                     (exhub-gitee-dashboard--render-error error)
+                   (exhub-gitee-dashboard--render data))
+               (error
+                (exhub-gitee-dashboard--render-error
+                 (error-message-string err))))))))))) 
 
 (provide 'exhub-gitee-dashboard-render)
 
