@@ -3,7 +3,6 @@ defmodule Exhub.DefaultResponseHandler do
   alias Exhub.ResponseHandlers.ExhubChat
   alias Exhub.ResponseHandlers.ExhubTool
   alias Exhub.ResponseHandlers.ExhubFile
-  alias Exhub.ResponseHandlers.ExhubGitee
   alias Exhub.ResponseHandlers.ExhubAgent
   alias Exhub.ResponseHandlers.ExhubConfig
   alias Exhub.ResponseHandlers.ExhubVault
@@ -22,7 +21,6 @@ defmodule Exhub.DefaultResponseHandler do
             case List.first(args) do
               "exhub-translate" -> ExhubTranslate.call(args)
               "exhub-chat" -> ExhubChat.call(args)
-              "exhub-gitee" -> ExhubGitee.call(args)
               "exhub-tool" -> ExhubTool.call(args)
               "exhub-file" -> ExhubFile.call(args)
               "exhub-config" -> ExhubConfig.call(args)
