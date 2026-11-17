@@ -87,6 +87,11 @@ KEY names the field to read, \"name\" by default."
       (substring stamp 0 10)
     "-"))
 
+(defun exhub-gitee-dashboard--insert-field (label value)
+  "Insert a \"- LABEL: VALUE\" line when VALUE is non-empty."
+  (when (and value (not (string-empty-p (format "%s" value))))
+    (insert (format "- %s: %s\n" label value))))
+
 (defun exhub-gitee-dashboard--put-row-meta (meta)
   "Attach the row plist META to the current line as an overlay."
   (when meta

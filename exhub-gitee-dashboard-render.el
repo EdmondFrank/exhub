@@ -17,6 +17,7 @@
 (require 'exhub-gitee-dashboard-vars)
 (require 'exhub-gitee-dashboard-fetch)
 (require 'exhub-gitee-dashboard-format)
+(require 'exhub-gitee-dashboard-programs)
 
 (defun exhub-gitee-dashboard--render (data)
   "Render the dashboard payload DATA in the current buffer."
@@ -60,6 +61,8 @@
      (list (list (exhub-gitee-dashboard--num (exhub-gitee-dashboard--get data "projects"))
                  (exhub-gitee-dashboard--num (exhub-gitee-dashboard--get data "programs"))
                  (exhub-gitee-dashboard--num (exhub-gitee-dashboard--get data "members")))))
+    (exhub-gitee-dashboard--insert-program-section data)
+    (exhub-gitee-dashboard--insert-project-section data)
     (let ((rows (exhub-gitee-dashboard--pull-rows pulls)))
       (insert (format "\n* 我参与的 Pull Requests（显示 %d 条，其中进行中 %d）\n\n"
                       (length (car rows)) pulls-open))

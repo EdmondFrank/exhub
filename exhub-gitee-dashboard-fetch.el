@@ -8,8 +8,8 @@
 ;;; Commentary:
 
 ;; Retrieval goes through the running ExHub backend: one local request to
-;; `GET /gitee/dashboard' or `GET /gitee/detail', which fans the nine Gitee
-;; Enterprise calls out concurrently (Exhub.Gitee.Dashboard) and returns the
+;; `GET /gitee/dashboard' or `GET /gitee/detail', which fans the dashboard's
+;; Gitee Enterprise calls out concurrently (Exhub.Gitee.Dashboard) and returns the
 ;; merged payload.  The Enterprise MCP token lives in ExHub's SecretVault, so
 ;; nothing here touches the envless vault, curl or jq.
 ;;
@@ -175,7 +175,9 @@ response buffer is killed before it is called."
   "Return the query parameters of the dashboard request."
   (list (list "enterprise_id" (number-to-string exhub-gitee-dashboard-enterprise-id))
         (list "top" (number-to-string exhub-gitee-dashboard-top-n))
-        (list "limit" (number-to-string exhub-gitee-dashboard-item-limit))))
+        (list "limit" (number-to-string exhub-gitee-dashboard-item-limit))
+        (list "program_limit" (number-to-string exhub-gitee-dashboard-program-limit))
+        (list "project_limit" (number-to-string exhub-gitee-dashboard-project-limit))))
 
 (defun exhub-gitee-dashboard--detail-params (kind ref subject)
   "Return the query parameters of a KIND/REF detail request.
@@ -204,6 +206,25 @@ SUBJECT is the numeric project id of a pull request and is ignored for an
 issue.  Returns an alist with `detail', `timeline' and `timeline_total'."
   (exhub-gitee-dashboard--request
    "/gitee/detail" (exhub-gitee-dashboard--detail-params kind ref subject)))
+
+(defun exhub-gitee-dashboard--program-params (program-id)
+  "Return the query parameters of a program (项目集) request.
+PROGRAM-ID is the numeric program id."
+  (list (list "program_id" (format "%s" program-id))
+        (list "enterprise_id" (number-to-string exhub-gitee-dashboard-enterprise-id))
+        (list "limit" (number-to-string exhub-gitee-dashboard-project-limit))
+        (list "issue_limit"
+              (number-to-string exhub-gitee-dashboard-program-issue-limit))))
+
+(defun exhub-gitee-dashboard--fetch-program (program-id)
+  "Fetch the PROGRAM-ID payload: the program and its repositories."
+  (exhub-gitee-dashboard--request
+   "/gitee/program" (exhub-gitee-dashboard--program-params program-id)))
+
+(defun exhub-gitee-dashboard--fetch-program-async (program-id callback)
+  "Fetch PROGRAM-ID; call CALLBACK with (DATA ERROR)."
+  (exhub-gitee-dashboard--request-async
+   "/gitee/program" (exhub-gitee-dashboard--program-params program-id) callback))
 
 (defun exhub-gitee-dashboard--fetch-detail-async (kind ref subject callback)
   "Fetch the detail of KIND/REF; call CALLBACK with (DATA ERROR)."

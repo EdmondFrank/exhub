@@ -26,6 +26,7 @@ defmodule Exhub.Router do
   - `GET /llms` - Curated LLM model catalog (default model + model names)
   - `GET /gitee/dashboard` - Gitee Enterprise dashboard payload (concurrent fetch)
   - `GET /gitee/detail` - One Gitee pull request / issue plus its timeline
+  - `GET /gitee/program` - One Gitee program plus its repositories
   - `POST /v1/messages` - Anthropic-compatible messages endpoint
   - `POST /v1/messages/count_tokens` - Token counting endpoint
 
@@ -131,7 +132,9 @@ defmodule Exhub.Router do
     opts = [
       enterprise_id: Helpers.parse_int(conn.params["enterprise_id"], 1),
       top: Helpers.parse_int(conn.params["top"], 10),
-      limit: Helpers.parse_int(conn.params["limit"], 10)
+      limit: Helpers.parse_int(conn.params["limit"], 10),
+      program_limit: Helpers.parse_int(conn.params["program_limit"], 15),
+      project_limit: Helpers.parse_int(conn.params["project_limit"], 15)
     ]
 
     case Exhub.Gitee.Dashboard.dashboard(opts) do
@@ -156,6 +159,26 @@ defmodule Exhub.Router do
       end
     else
       gitee_json(conn, 400, %{error: "kind must be pull or issue, and ref must be non-empty"})
+    end
+  end
+
+  get "/gitee/program" do
+    program_id = conn.params["program_id"]
+
+    # The id is interpolated into the Gitee URL path, so only digits.
+    if is_binary(program_id) and program_id =~ ~r/\A\d+\z/ do
+      opts = [
+        enterprise_id: Helpers.parse_int(conn.params["enterprise_id"], 1),
+        limit: Helpers.parse_int(conn.params["limit"], 15),
+        issue_limit: Helpers.parse_int(conn.params["issue_limit"], 15)
+      ]
+
+      case Exhub.Gitee.Dashboard.program(program_id, opts) do
+        {:ok, payload} -> gitee_json(conn, 200, payload)
+        {:error, reason} -> gitee_error(conn, reason)
+      end
+    else
+      gitee_json(conn, 400, %{error: "program_id must be a numeric id"})
     end
   end
 

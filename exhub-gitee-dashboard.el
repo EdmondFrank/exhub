@@ -28,8 +28,14 @@
 ;;   GET /enterprises/<id>/dashboard_statistics/user_dashboard  my overview
 ;;   GET /enterprises/<id>/statistics/top_committer        month commit ranking
 ;;   GET /enterprises/<id>/projects|programs|members       org scale
+;;   GET /enterprises/<id>/programs?sort=updated_at        programs section
+;;   GET /enterprises/<id>/projects?sort=last_push_at      repository section
 ;;   GET /enterprises/<id>/pull_requests?scope=related_to_me
 ;;   GET /enterprises/<id>/issues?only_related_me=1&state=open
+;;
+;; Program detail view (RET on a program row):
+;;   GET /enterprises/<id>/programs/<program_id>
+;;   GET /enterprises/<id>/programs/<program_id>/projects?per_page=<n>
 ;;
 ;; Detail view (RET on a pull request or issue row):
 ;;   GET /enterprises/<id>/projects/<project_id>/pull_requests/<iid>?pr_qt=iid
@@ -49,6 +55,7 @@
 ;;   exhub-gitee-dashboard-format.el  JSON accessors and Org table helpers
 ;;   exhub-gitee-dashboard-render.el  dashboard rendering
 ;;   exhub-gitee-dashboard-markdown.el  Markdown to Org conversion
+;;   exhub-gitee-dashboard-programs.el  programs (项目集) and repositories
 ;;   exhub-gitee-dashboard-detail.el  pull request / issue detail buffer
 ;;   exhub-gitee-dashboard-image.el   inline images of a detail
 ;; This file requires them and defines the dashboard mode and commands.
@@ -62,6 +69,7 @@
 (require 'exhub-gitee-dashboard-fetch)
 (require 'exhub-gitee-dashboard-format)
 (require 'exhub-gitee-dashboard-render)
+(require 'exhub-gitee-dashboard-programs)
 (require 'exhub-gitee-dashboard-detail)
 
 ;;; Commands and mode
@@ -115,9 +123,10 @@
 
 ;;;###autoload
 (defun exhub-gitee-dashboard-open-detail ()
-  "Open the pull request or issue on the current dashboard line.
-The detail is rendered in its own read-only buffer; use `o' there to open
-the web page instead."
+  "Open the pull request, issue or program on the current dashboard line.
+A pull request / issue detail is rendered in its own read-only buffer; a
+program opens its own buffer listing its repositories; a repository row
+opens the web page.  Use `o' to open the web page instead."
   (interactive)
   (let* ((meta (exhub-gitee-dashboard--row-meta))
          (kind (plist-get meta :kind))
@@ -125,6 +134,12 @@ the web page instead."
     (cond
      ((null meta)
       (exhub-gitee-dashboard--open-link))
+     ((eq kind 'program)
+      (exhub-gitee-dashboard--open-program meta))
+     ((eq kind 'project)
+      (if-let ((url (plist-get meta :url)))
+          (browse-url url)
+        (exhub-gitee-dashboard--open-link)))
      ((or (null ref) (eq kind 'member))
       (if-let ((url (plist-get meta :url)))
           (browse-url url)

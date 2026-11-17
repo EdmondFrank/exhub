@@ -14,6 +14,14 @@ defmodule Exhub.Gitee.DashboardTest do
           projects: %{"total_count" => 48, "data" => []},
           programs: %{"total_count" => 7},
           members: %{"total_count" => 412},
+          program_list: %{
+            "total_count" => 7,
+            "data" => [%{"id" => 5_080_111, "ident" => "P1093", "name" => "Gitee SaaS"}]
+          },
+          project_list: %{
+            "total_count" => 4657,
+            "data" => [%{"id" => 2, "path_with_namespace" => "oschina/gitee"}]
+          },
           pulls: %{"total_count" => 3, "data" => [%{"iid" => 1}]},
           issues: %{"total_count" => 1224, "data" => [%{"ident" => "AI-01"}]}
         })
@@ -26,6 +34,15 @@ defmodule Exhub.Gitee.DashboardTest do
       assert payload["projects"] == 48
       assert payload["programs"] == 7
       assert payload["members"] == 412
+
+      assert payload["program_items"] == [
+               %{"id" => 5_080_111, "ident" => "P1093", "name" => "Gitee SaaS"}
+             ]
+
+      assert payload["project_items"] == [
+               %{"id" => 2, "path_with_namespace" => "oschina/gitee"}
+             ]
+
       assert payload["pulls"] == [%{"iid" => 1}]
       assert payload["pulls_total"] == 3
       assert payload["issues"] == [%{"ident" => "AI-01"}]
@@ -41,6 +58,8 @@ defmodule Exhub.Gitee.DashboardTest do
           overview: {:error, {:http, 500, "boom"}},
           committers: {:error, {:transport, "timeout"}},
           projects: {:error, {:http, 500, "boom"}},
+          program_list: {:error, {:http, 500, "boom"}},
+          project_list: {:error, {:transport, "timeout"}},
           pulls: {:error, {:http, 429, "slow down"}},
           issues: %{"total_count" => 0, "data" => []}
         })
@@ -48,17 +67,68 @@ defmodule Exhub.Gitee.DashboardTest do
       assert payload["overview"] == %{}
       assert payload["committers"] == []
       assert payload["projects"] == nil
+      assert payload["program_items"] == []
+      assert payload["project_items"] == []
       assert payload["pulls"] == []
       assert payload["pulls_total"] == nil
       assert payload["issues"] == []
 
-      assert Map.keys(payload["errors"]) |> Enum.sort() ==
-               ~w(committers overview projects pulls)
+      assert payload["errors"] |> Map.keys() |> Enum.sort() ==
+               ~w(committers overview program_list project_list projects pulls) |> Enum.sort()
     end
 
     test "ignores a non-list committer ranking" do
       payload = Dashboard.shape_dashboard(1, %{committers: %{"message" => "nope"}})
       assert payload["committers"] == []
+    end
+  end
+
+  describe "shape_program/1" do
+    test "keeps the program, its repositories and its unfinished issues" do
+      payload =
+        Dashboard.shape_program(%{
+          program: %{"id" => 5_080_111, "ident" => "P1093", "name" => "Gitee SaaS"},
+          projects: %{
+            "total_count" => 7,
+            "data" => [%{"id" => 10_190_713, "path_with_namespace" => "oschina/gitee-ent-web"}]
+          },
+          issues: %{
+            "total_count" => 42,
+            "data" => [%{"ident" => "AI-01", "title" => "Crash"}]
+          }
+        })
+
+      assert payload["program"]["name"] == "Gitee SaaS"
+
+      assert payload["projects"] == [
+               %{"id" => 10_190_713, "path_with_namespace" => "oschina/gitee-ent-web"}
+             ]
+
+      assert payload["projects_total"] == 7
+      assert payload["issues"] == [%{"ident" => "AI-01", "title" => "Crash"}]
+      assert payload["issues_total"] == 42
+      assert payload["errors"] == %{}
+      assert is_binary(payload["generated_at"])
+    end
+
+    test "degrades failed sections but keeps the program" do
+      payload =
+        Dashboard.shape_program(%{
+          program: %{"id" => 1, "name" => "One"},
+          projects: {:error, {:http, 500, "boom"}},
+          issues: {:error, {:transport, "timeout"}}
+        })
+
+      assert payload["program"]["name"] == "One"
+      assert payload["projects"] == []
+      assert payload["projects_total"] == nil
+      assert payload["issues"] == []
+      assert payload["issues_total"] == nil
+
+      assert payload["errors"] == %{
+               "projects" => "Gitee API returned HTTP 500: boom",
+               "issues" => "cannot reach the Gitee API: timeout"
+             }
     end
   end
 

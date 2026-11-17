@@ -15,9 +15,12 @@ defmodule Exhub.Gitee.Dashboard do
 
     * dashboard — `enterprise_id`, `generated_at`, `enterprise`, `overview`,
       `mine`, `committers`, `projects`, `programs`, `members`, `pulls`,
-      `pulls_total`, `issues`, `issues_total`
+      `pulls_total`, `issues`, `issues_total`, plus the `program_items` and
+      `project_items` lists of the programs / repositories sections
     * detail — `kind`, `ref`, `generated_at`, `detail`, `timeline`,
       `timeline_total`
+    * program — `program`, `projects`, `projects_total`, `issues`,
+      `issues_total`, `generated_at`, `errors`
 
   A section that fails degrades to an empty value and is reported in the
   payload's `errors` map; only a failure of the enterprise profile (dashboard)
@@ -33,12 +36,15 @@ defmodule Exhub.Gitee.Dashboard do
   @connect_timeout 5_000
   @receive_timeout 15_000
   @request_timeout 20_000
-  @max_concurrency 9
+  @max_concurrency 11
 
   @type opts :: [
           enterprise_id: pos_integer(),
           top: pos_integer(),
           limit: pos_integer(),
+          program_limit: pos_integer(),
+          project_limit: pos_integer(),
+          issue_limit: pos_integer(),
           notes: pos_integer()
         ]
 
@@ -46,13 +52,17 @@ defmodule Exhub.Gitee.Dashboard do
   Fetches every dashboard section concurrently.
 
   Options: `:enterprise_id` (default 1), `:top` (commit ranking size, default
-  10) and `:limit` (pull request / issue page size, default 10).
+  10), `:limit` (pull request / issue page size, default 10), `:program_limit`
+  (programs section size, default 15) and `:project_limit` (repositories
+  section size, default 15).
   """
   @spec dashboard(opts()) :: {:ok, map()} | {:error, term()}
   def dashboard(opts \\ []) do
     ent_id = Keyword.get(opts, :enterprise_id, 1)
     top = Keyword.get(opts, :top, 10)
     limit = Keyword.get(opts, :limit, 10)
+    program_limit = Keyword.get(opts, :program_limit, 15)
+    project_limit = Keyword.get(opts, :project_limit, 15)
 
     with {:ok, client} <- client() do
       results =
@@ -64,6 +74,20 @@ defmodule Exhub.Gitee.Dashboard do
           projects: fn -> GiteeCat.Dashboard.count(client, ent_id, :projects) end,
           programs: fn -> GiteeCat.Dashboard.count(client, ent_id, :programs) end,
           members: fn -> GiteeCat.Dashboard.count(client, ent_id, :members) end,
+          program_list: fn ->
+            GiteeCat.Dashboard.programs(client, ent_id,
+              per_page: program_limit,
+              sort: "updated_at",
+              direction: "desc"
+            )
+          end,
+          project_list: fn ->
+            GiteeCat.Dashboard.projects(client, ent_id,
+              per_page: project_limit,
+              sort: "last_push_at",
+              direction: "desc"
+            )
+          end,
           pulls: fn ->
             GiteeCat.Dashboard.pulls(client, ent_id, scope: "related_to_me", per_page: limit)
           end,
@@ -125,6 +149,63 @@ defmodule Exhub.Gitee.Dashboard do
   end
 
   @doc """
+  Fetches one program (项目集) together with its repositories and its
+  unfinished issues.
+
+  Options: `:enterprise_id` (default 1), `:limit` (repository page size,
+  default 15) and `:issue_limit` (unfinished issue page size, default 15).
+  """
+  @spec program(pos_integer() | String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  def program(program_id, opts \\ []) when is_binary(program_id) or is_integer(program_id) do
+    ent_id = Keyword.get(opts, :enterprise_id, 1)
+    limit = Keyword.get(opts, :limit, 15)
+    issue_limit = Keyword.get(opts, :issue_limit, 15)
+
+    with {:ok, client} <- client() do
+      results =
+        run_all(
+          program: fn -> GiteeCat.Dashboard.program(client, ent_id, program_id) end,
+          projects: fn ->
+            GiteeCat.Dashboard.program_projects(client, ent_id, program_id, per_page: limit)
+          end,
+          issues: fn ->
+            GiteeCat.Dashboard.program_issues(client, ent_id, program_id,
+              state: "open,progressing",
+              sort: "updated_at",
+              direction: "desc",
+              per_page: issue_limit
+            )
+          end
+        )
+
+      case fatal(results, [:program]) do
+        nil -> {:ok, shape_program(results)}
+        failure -> {:error, failure}
+      end
+    end
+  end
+
+  @doc """
+  Builds a program payload from already-fetched results (`:program`,
+  `:projects` and `:issues`); exposed for tests.
+  """
+  @spec shape_program(map()) :: map()
+  def shape_program(results) do
+    projects = objects(results[:projects])
+    issues = objects(results[:issues])
+
+    %{
+      "program" => objects(results[:program]),
+      "projects" => list_of(Map.get(projects, "data")),
+      "projects_total" => Map.get(projects, "total_count"),
+      "issues" => list_of(Map.get(issues, "data")),
+      "issues_total" => Map.get(issues, "total_count"),
+      "generated_at" => timestamp(),
+      "errors" => errors(results)
+    }
+  end
+
+  @doc """
   Builds the dashboard payload from already-fetched section results.
 
   `results` maps section keys to decoded bodies (or `{:error, reason}`);
@@ -145,6 +226,8 @@ defmodule Exhub.Gitee.Dashboard do
       "projects" => total_count(results[:projects]),
       "programs" => total_count(results[:programs]),
       "members" => total_count(results[:members]),
+      "program_items" => list_of(Map.get(objects(results[:program_list]), "data")),
+      "project_items" => list_of(Map.get(objects(results[:project_list]), "data")),
       "pulls" => list_of(Map.get(pulls, "data")),
       "pulls_total" => Map.get(pulls, "total_count"),
       "issues" => list_of(Map.get(issues, "data")),

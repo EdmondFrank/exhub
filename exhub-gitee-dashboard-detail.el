@@ -61,11 +61,6 @@ Holds :kind, :ref, :subject, :repo, :title and :url.")
               (or (plist-get request :ref) "-"))
     (format "*Gitee Issue: %s*" (or (plist-get request :ref) "-"))))
 
-(defun exhub-gitee-dashboard--insert-field (label value)
-  "Insert a \"- LABEL: VALUE\" line when VALUE is non-empty."
-  (when (and value (not (string-empty-p (format "%s" value))))
-    (insert (format "- %s: %s\n" label value))))
-
 (defun exhub-gitee-dashboard--timeline-author (item data)
   "Return the author name of the timeline ITEM, whose note object is DATA."
   (or (exhub-gitee-dashboard--path item "author" "name")

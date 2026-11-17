@@ -50,6 +50,38 @@ defmodule GiteeCat.Dashboard do
     get("enterprises/#{ent_id}/#{collection}", client, [per_page: 1], @one_page)
   end
 
+  @doc "Programs (项目集) of the enterprise: `GET .../programs`."
+  @spec programs(Client.t(), pos_integer(), keyword()) :: GiteeCat.response()
+  def programs(client, ent_id, params \\ []) do
+    get("enterprises/#{ent_id}/programs", client, params, @one_page)
+  end
+
+  @doc "One program: `GET .../programs/<program_id>`."
+  @spec program(Client.t(), pos_integer(), pos_integer() | binary()) :: GiteeCat.response()
+  def program(client, ent_id, program_id) do
+    get("enterprises/#{ent_id}/programs/#{program_id}", client, [], @one_page)
+  end
+
+  @doc "Repositories of a program: `GET .../programs/<program_id>/projects`."
+  @spec program_projects(Client.t(), pos_integer(), pos_integer() | binary(), keyword()) ::
+          GiteeCat.response()
+  def program_projects(client, ent_id, program_id, params \\ []) do
+    get("enterprises/#{ent_id}/programs/#{program_id}/projects", client, params, @one_page)
+  end
+
+  @doc "Unfinished issues of a program: `GET .../programs/<program_id>/issues`."
+  @spec program_issues(Client.t(), pos_integer(), pos_integer() | binary(), keyword()) ::
+          GiteeCat.response()
+  def program_issues(client, ent_id, program_id, params \\ []) do
+    get("enterprises/#{ent_id}/programs/#{program_id}/issues", client, params, @one_page)
+  end
+
+  @doc "Enterprise repositories: `GET .../projects`."
+  @spec projects(Client.t(), pos_integer(), keyword()) :: GiteeCat.response()
+  def projects(client, ent_id, params \\ []) do
+    get("enterprises/#{ent_id}/projects", client, params, @one_page)
+  end
+
   @doc "Pull requests related to the current user: `GET .../pull_requests`."
   @spec pulls(Client.t(), pos_integer(), keyword()) :: GiteeCat.response()
   def pulls(client, ent_id, params \\ []) do

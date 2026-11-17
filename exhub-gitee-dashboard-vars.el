@@ -11,7 +11,8 @@
 ;; dashboard.  `exhub-gitee-dashboard.el' is the entry point; fetching lives in
 ;; `exhub-gitee-dashboard-fetch.el', formatting in
 ;; `exhub-gitee-dashboard-format.el', rendering in
-;; `exhub-gitee-dashboard-render.el', the detail buffer in
+;; `exhub-gitee-dashboard-render.el', the programs / repositories module in
+;; `exhub-gitee-dashboard-programs.el', the detail buffer in
 ;; `exhub-gitee-dashboard-detail.el' and its inline images in
 ;; `exhub-gitee-dashboard-image.el'.
 
@@ -32,6 +33,18 @@
 
 (defcustom exhub-gitee-dashboard-item-limit 10
   "Maximum number of pull requests and issues listed."
+  :type 'integer)
+
+(defcustom exhub-gitee-dashboard-program-limit 15
+  "Number of programs (项目集) listed in the dashboard."
+  :type 'integer)
+
+(defcustom exhub-gitee-dashboard-project-limit 15
+  "Number of repositories listed in the dashboard and in a program buffer."
+  :type 'integer)
+
+(defcustom exhub-gitee-dashboard-program-issue-limit 15
+  "Number of unfinished tasks (任务) listed in a program buffer."
   :type 'integer)
 
 (defcustom exhub-gitee-dashboard-notes-limit 20
@@ -96,6 +109,9 @@ Wider images are scaled down; nil keeps their natural size."
 
 (defconst exhub-gitee-dashboard-buffer-name "*Gitee Enterprise Dashboard*"
   "Buffer name of the dashboard.")
+
+(defconst exhub-gitee-dashboard-program-buffer-format "*Gitee Program: %s*"
+  "Buffer name of a program (项目集) buffer, %s being its identifier.")
 
 (defvar-local exhub-gitee-dashboard--timer nil
   "Auto-refresh timer of the current dashboard buffer.")
