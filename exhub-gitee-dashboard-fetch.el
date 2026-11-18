@@ -8,10 +8,11 @@
 ;;; Commentary:
 
 ;; Retrieval goes through the running ExHub backend: one local request to
-;; `GET /gitee/dashboard' or `GET /gitee/detail', which fans the dashboard's
-;; Gitee Enterprise calls out concurrently (Exhub.Gitee.Dashboard) and returns the
-;; merged payload.  The Enterprise MCP token lives in ExHub's SecretVault, so
-;; nothing here touches the envless vault, curl or jq.
+;; `GET /gitee/dashboard', `GET /gitee/detail' or `GET /gitee/diff', which fans
+;; the dashboard's Gitee Enterprise calls out concurrently
+;; (Exhub.Gitee.Dashboard) and returns the merged payload.  The Enterprise MCP
+;; token lives in ExHub's SecretVault, so nothing here touches the envless
+;; vault, curl or jq.
 ;;
 ;; That replaced a POSIX script that ran nine sequential curl calls with an
 ;; `envless exec' wrapper and a jq merge per response — about six seconds of
@@ -207,6 +208,14 @@ issue.  Returns an alist with `detail', `timeline' and `timeline_total'."
   (exhub-gitee-dashboard--request
    "/gitee/detail" (exhub-gitee-dashboard--detail-params kind ref subject)))
 
+(defun exhub-gitee-dashboard--diff-params (ref subject)
+  "Return the query parameters of the diff request of REF in SUBJECT.
+REF is the pull request iid and SUBJECT its numeric project id; the Gitee diff
+endpoint is keyed by both."
+  (list (list "ref" (or ref ""))
+        (list "subject" (or subject ""))
+        (list "enterprise_id" (number-to-string exhub-gitee-dashboard-enterprise-id))))
+
 (defun exhub-gitee-dashboard--program-params (program-id)
   "Return the query parameters of a program (项目集) request.
 PROGRAM-ID is the numeric program id."
@@ -230,6 +239,18 @@ PROGRAM-ID is the numeric program id."
   "Fetch the detail of KIND/REF; call CALLBACK with (DATA ERROR)."
   (exhub-gitee-dashboard--request-async
    "/gitee/detail" (exhub-gitee-dashboard--detail-params kind ref subject) callback))
+
+(defun exhub-gitee-dashboard--fetch-diff (ref subject)
+  "Fetch the unified diff of pull request REF in project SUBJECT.
+Returns an alist with `ref', `diff' and `generated_at'; `diff' is the raw
+unified diff text."
+  (exhub-gitee-dashboard--request
+   "/gitee/diff" (exhub-gitee-dashboard--diff-params ref subject)))
+
+(defun exhub-gitee-dashboard--fetch-diff-async (ref subject callback)
+  "Fetch the diff of REF/SUBJECT; call CALLBACK with (DATA ERROR)."
+  (exhub-gitee-dashboard--request-async
+   "/gitee/diff" (exhub-gitee-dashboard--diff-params ref subject) callback))
 
 (provide 'exhub-gitee-dashboard-fetch)
 

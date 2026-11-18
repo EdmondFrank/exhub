@@ -15,6 +15,9 @@
 ;; images they contain are downloaded and displayed inline by
 ;; `exhub-gitee-dashboard-image.el'.  The row metadata that decides which
 ;; detail to open is produced in `exhub-gitee-dashboard-format.el'.
+;;
+;; A pull request also has a unified diff, which lives in its own buffer
+;; (`exhub-gitee-dashboard-diff.el'); `d' opens it.
 
 ;;; Code:
 
@@ -26,6 +29,7 @@
 (require 'exhub-gitee-dashboard-format)
 (require 'exhub-gitee-dashboard-markdown)
 (require 'exhub-gitee-dashboard-image)
+(require 'exhub-gitee-dashboard-diff)
 
 (defvar exhub-gitee-dashboard-detail-mode-map
   (let ((map (make-sparse-keymap)))
@@ -49,6 +53,8 @@ Holds :kind, :ref, :subject, :repo, :title and :url.")
   #'exhub-gitee-dashboard-detail-browse)
 (define-key exhub-gitee-dashboard-detail-mode-map (kbd "i")
   #'exhub-gitee-dashboard-detail-toggle-images)
+(define-key exhub-gitee-dashboard-detail-mode-map (kbd "d")
+  #'exhub-gitee-dashboard-detail-diff)
 (define-key exhub-gitee-dashboard-detail-mode-map (kbd "RET")
   #'exhub-gitee-dashboard-detail-browse)
 (define-key exhub-gitee-dashboard-detail-mode-map (kbd "q") #'quit-window)
@@ -70,6 +76,13 @@ Holds :kind, :ref, :subject, :repo, :title and :url.")
       (exhub-gitee-dashboard--path item "user" "username")
       (exhub-gitee-dashboard--path item "user" "login")
       (exhub-gitee-dashboard--path data "author" "name")))
+
+(defun exhub-gitee-dashboard--text (value)
+  "Return VALUE when it is a string, else nil.
+Gitee reports an inline code review thread with its `content' set to the array
+of diff lines the thread hangs off, not to text; treating that as Markdown
+makes the whole detail render fail."
+  (when (stringp value) value))
 
 (defun exhub-gitee-dashboard--event-p (item)
   "Return non-nil when the timeline ITEM is an operation log (event) entry."
@@ -122,11 +135,15 @@ the Markdown :body to render below the entry."
           :author (exhub-gitee-dashboard--timeline-author item data)
           :created (exhub-gitee-dashboard--timeline-iso created)
           :stamp (exhub-gitee-dashboard--timeline-seconds created)
-          :content (when event (exhub-gitee-dashboard--get item "content"))
+          :content (when event
+                     (exhub-gitee-dashboard--text
+                      (exhub-gitee-dashboard--get item "content")))
           :body (if event
                     (exhub-gitee-dashboard--event-body item)
-                  (or (exhub-gitee-dashboard--get data "note")
-                      (exhub-gitee-dashboard--get item "content"))))))
+                  (or (exhub-gitee-dashboard--text
+                       (exhub-gitee-dashboard--get data "note"))
+                      (exhub-gitee-dashboard--text
+                       (exhub-gitee-dashboard--get item "content")))))))
 
 (defun exhub-gitee-dashboard--timeline (raw)
   "Return the raw timeline RAW as normalized, ordered and capped entries."
@@ -247,7 +264,7 @@ the Markdown :body to render below the entry."
     (exhub-gitee-dashboard--image-inline)
     (goto-char (point-min))
     (setq header-line-format
-          (format " %s!%s · Pull Request · %s | 更新 %s | g 刷新  i 图片  o 浏览器  q 退出"
+          (format " %s!%s · Pull Request · %s | 更新 %s | g 刷新  d diff  i 图片  o 浏览器  q 退出"
                   (or repo "-") (or iid "-") state (or generated "-")))))
 
 (defun exhub-gitee-dashboard--render-issue-detail (request data)
@@ -420,6 +437,21 @@ A stale response (a newer refresh started meanwhile) is dropped."
   (if-let ((url (plist-get exhub-gitee-dashboard--detail-request :url)))
       (browse-url url)
     (user-error "No web URL for this item")))
+
+;;;###autoload
+(defun exhub-gitee-dashboard-detail-diff ()
+  "Open the diff of the pull request of the current detail buffer.
+The diff goes to its own buffer, where Magit's sections render it: `TAB'
+collapses and expands a file or a hunk."
+  (interactive)
+  (let ((request exhub-gitee-dashboard--detail-request))
+    (unless (and (derived-mode-p 'exhub-gitee-dashboard-detail-mode) request)
+      (user-error "Not in a Gitee detail buffer"))
+    (unless (eq (plist-get request :kind) 'pull)
+      (user-error "Only a pull request has a diff"))
+    (unless (plist-get request :subject)
+      (user-error "No project id for this pull request; its diff is unreachable"))
+    (exhub-gitee-dashboard--open-diff request)))
 
 ;;;###autoload
 (defun exhub-gitee-dashboard-detail-toggle-images ()

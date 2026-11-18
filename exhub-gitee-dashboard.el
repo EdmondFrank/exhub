@@ -57,6 +57,7 @@
 ;;   exhub-gitee-dashboard-markdown.el  Markdown to Org conversion
 ;;   exhub-gitee-dashboard-programs.el  programs (项目集) and repositories
 ;;   exhub-gitee-dashboard-detail.el  pull request / issue detail buffer
+;;   exhub-gitee-dashboard-diff.el    pull request diff buffer (Magit sections)
 ;;   exhub-gitee-dashboard-image.el   inline images of a detail
 ;; This file requires them and defines the dashboard mode and commands.
 

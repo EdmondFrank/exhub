@@ -113,6 +113,9 @@ Wider images are scaled down; nil keeps their natural size."
 (defconst exhub-gitee-dashboard-program-buffer-format "*Gitee Program: %s*"
   "Buffer name of a program (项目集) buffer, %s being its identifier.")
 
+(defconst exhub-gitee-dashboard-diff-buffer-format "*Gitee Diff: %s!%s*"
+  "Buffer name of a pull request diff buffer, %s being its repo and its iid.")
+
 (defvar-local exhub-gitee-dashboard--timer nil
   "Auto-refresh timer of the current dashboard buffer.")
 

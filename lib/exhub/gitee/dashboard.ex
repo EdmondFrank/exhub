@@ -19,6 +19,7 @@ defmodule Exhub.Gitee.Dashboard do
       `project_items` lists of the programs / repositories sections
     * detail — `kind`, `ref`, `generated_at`, `detail`, `timeline`,
       `timeline_total`
+    * diff — `ref`, `diff`, `generated_at`
     * program — `program`, `projects`, `projects_total`, `issues`,
       `issues_total`, `generated_at`, `errors`
 
@@ -113,6 +114,8 @@ defmodule Exhub.Gitee.Dashboard do
   `ref` is the pull request iid or the issue ident; `subject` is the numeric
   project id of a pull request and is ignored for an issue.  Options:
   `:enterprise_id` (default 1) and `:notes` (timeline page size, default 20).
+  The unified diff of a pull request is not part of this payload; `diff/3`
+  fetches it on its own, for the dedicated diff buffer.
   """
   @spec detail(String.t(), String.t(), String.t() | nil, opts()) ::
           {:ok, map()} | {:error, term()}
@@ -143,6 +146,31 @@ defmodule Exhub.Gitee.Dashboard do
 
       case fatal(results, [:detail]) do
         nil -> {:ok, shape_detail(kind, ref, results)}
+        failure -> {:error, failure}
+      end
+    end
+  end
+
+  @doc """
+  Fetches the unified diff of one pull request.
+
+  `ref` is the pull request iid and `subject` its numeric project id: the diff
+  endpoint is keyed by both, and Gitee only matches an iid when `pr_qt=iid` is
+  passed — without it the pull request is reported as not found.  Options:
+  `:enterprise_id` (default 1).
+  """
+  @spec diff(String.t(), String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  def diff(ref, subject, opts \\ []) when is_binary(ref) and is_binary(subject) do
+    ent_id = Keyword.get(opts, :enterprise_id, 1)
+
+    with {:ok, client} <- client() do
+      results =
+        run_all(
+          diff: fn -> GiteeCat.Pulls.raw_diff(client, ent_id, subject, ref, pr_qt: "iid") end
+        )
+
+      case fatal(results, [:diff]) do
+        nil -> {:ok, shape_diff(ref, results[:diff])}
         failure -> {:error, failure}
       end
     end
@@ -274,7 +302,36 @@ defmodule Exhub.Gitee.Dashboard do
     }
   end
 
-  @doc "Human-readable description of a `dashboard/1` or `detail/4` error."
+  @doc """
+  Returns the unified diff carried by a diff response body.
+
+  Gitee answers the pull request diff endpoint with `text/plain`, which
+  `GiteeCat` hands back as the raw binary.  A JSON body (an error payload, or
+  a deployment that wraps the text) yields the wrapped `diff` when there is
+  one, and `""` otherwise, so the renderer never prints JSON inside the diff
+  block.  Exposed for tests.
+  """
+  @spec diff_text(term()) :: String.t()
+  def diff_text(text) when is_binary(text), do: text
+  def diff_text(%{"diff" => text}) when is_binary(text), do: text
+  def diff_text(_body), do: ""
+
+  @doc """
+  Builds the diff payload from the fetched BODY of pull request REF.
+
+  The text may span tens of thousands of lines; the elisp truncates it for
+  display, the payload stays faithful.  Exposed for tests.
+  """
+  @spec shape_diff(String.t(), term()) :: map()
+  def shape_diff(ref, body) do
+    %{
+      "ref" => to_string(ref),
+      "diff" => diff_text(body),
+      "generated_at" => timestamp()
+    }
+  end
+
+  @doc "Human-readable description of a `dashboard/1`, `detail/4` or `diff/3` error."
   @spec error_message(term()) :: String.t()
   def error_message(:missing_token) do
     "GITEE_ENT_MCP_ACCESS_TOKEN is not configured: store `#{@token_key}` in " <>

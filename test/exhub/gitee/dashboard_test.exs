@@ -174,6 +174,51 @@ defmodule Exhub.Gitee.DashboardTest do
       assert payload["timeline_total"] == 0
       assert payload["errors"] == %{"notes" => ":boom"}
     end
+
+    test "a pull request no longer carries the diff inline" do
+      payload =
+        Dashboard.shape_detail("pull", "42", %{
+          detail: %{"title" => "Fix it"},
+          notes: %{"count" => 0, "list" => []},
+          diff: "diff --git a/a b/a\n"
+        })
+
+      refute Map.has_key?(payload, "diff")
+    end
+  end
+
+  describe "shape_diff/2" do
+    test "keeps the raw unified diff and the request reference" do
+      diff = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n"
+
+      payload = Dashboard.shape_diff("42", diff)
+
+      assert payload["ref"] == "42"
+      assert payload["diff"] == diff
+      assert is_binary(payload["generated_at"])
+    end
+
+    test "normalizes a body that is not a diff to an empty string" do
+      assert Dashboard.shape_diff("42", %{"message" => "未找到Pull Request"})["diff"] == ""
+    end
+  end
+
+  describe "diff_text/1" do
+    test "passes a text/plain diff through untouched" do
+      diff = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n"
+
+      assert Dashboard.diff_text(diff) == diff
+    end
+
+    test "unwraps a JSON body that carries the diff" do
+      assert Dashboard.diff_text(%{"diff" => "+hello"}) == "+hello"
+    end
+
+    test "ignores a body that is neither text nor a wrapped diff" do
+      assert Dashboard.diff_text(%{"message" => "nope"}) == ""
+      assert Dashboard.diff_text(nil) == ""
+      assert Dashboard.diff_text({:error, :boom}) == ""
+    end
   end
 
   describe "error_message/1" do

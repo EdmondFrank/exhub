@@ -26,6 +26,7 @@ defmodule Exhub.Router do
   - `GET /llms` - Curated LLM model catalog (default model + model names)
   - `GET /gitee/dashboard` - Gitee Enterprise dashboard payload (concurrent fetch)
   - `GET /gitee/detail` - One Gitee pull request / issue plus its timeline
+  - `GET /gitee/diff` - The unified diff of one Gitee pull request
   - `GET /gitee/program` - One Gitee program plus its repositories
   - `POST /v1/messages` - Anthropic-compatible messages endpoint
   - `POST /v1/messages/count_tokens` - Token counting endpoint
@@ -159,6 +160,23 @@ defmodule Exhub.Router do
       end
     else
       gitee_json(conn, 400, %{error: "kind must be pull or issue, and ref must be non-empty"})
+    end
+  end
+
+  get "/gitee/diff" do
+    ref = conn.params["ref"]
+    subject = conn.params["subject"]
+
+    # Both are interpolated into the Gitee URL path, so only digits.
+    if is_binary(ref) and ref =~ ~r/\A\d+\z/ and is_binary(subject) and subject =~ ~r/\A\d+\z/ do
+      opts = [enterprise_id: Helpers.parse_int(conn.params["enterprise_id"], 1)]
+
+      case Exhub.Gitee.Dashboard.diff(ref, subject, opts) do
+        {:ok, payload} -> gitee_json(conn, 200, payload)
+        {:error, reason} -> gitee_error(conn, reason)
+      end
+    else
+      gitee_json(conn, 400, %{error: "ref and subject must be numeric ids"})
     end
   end
 

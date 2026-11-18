@@ -79,13 +79,19 @@ remaining HTML tags are dropped."
   (let ((s (or text ""))
         (codes nil)
         (bolds nil))
+    ;; Every call below that replaces with a function passes LITERAL (the 5th
+    ;; argument): `replace-regexp-in-string' runs the function's return value
+    ;; through `replace-match' as NEWTEXT, so a backslash in the rendered text
+    ;; (a code snippet, a Windows path, `<a>' link text) would otherwise be read
+    ;; as a group reference and signalled as "Invalid use of `\' in
+    ;; replacement text".
     ;; Protect inline code first so emphasis/link rules cannot touch it.
     (setq s (replace-regexp-in-string
              "`\\([^`\n]+\\)`"
              (lambda (m)
                (push (match-string 1 m) codes)
                (format "\x00%d\x00" (1- (length codes))))
-             s t))
+             s t t))
     (setq codes (nreverse codes))
     ;; Markdown images, then links.
     (setq s (replace-regexp-in-string
@@ -94,12 +100,12 @@ remaining HTML tags are dropped."
                (let ((alt (string-trim (match-string 1 m))))
                  (exhub-gitee-dashboard--md-link
                   (match-string 2 m) (if (string-empty-p alt) "图片" alt))))
-             s t))
+             s t t))
     (setq s (replace-regexp-in-string
              "\\[\\([^]]+\\)\\](\\([^)[:space:]]+\\)[^)]*)"
              (lambda (m)
                (exhub-gitee-dashboard--md-link (match-string 2 m) (match-string 1 m)))
-             s t))
+             s t t))
     ;; HTML links, images, breaks and autolinks.
     (setq s (replace-regexp-in-string
              "<a[^>]*href=\"\\([^\"]+\\)\"[^>]*>\\(\\(?:.\\|\n\\)*?\\)</a>"
@@ -107,15 +113,15 @@ remaining HTML tags are dropped."
                (exhub-gitee-dashboard--md-link
                 (match-string 1 m)
                 (exhub-gitee-dashboard--md-strip-tags (match-string 2 m))))
-             s t))
+             s t t))
     (setq s (replace-regexp-in-string
              "<img[^>]*src=\"\\([^\"]+\\)\"[^>]*>"
              (lambda (m) (exhub-gitee-dashboard--md-link (match-string 1 m) "图片"))
-             s t))
+             s t t))
     (setq s (replace-regexp-in-string "<br[ \t]*/?>[ \t]*" "\n" s t))
     (setq s (replace-regexp-in-string
              "<\\(https?://[^>[:space:]]+\\)>"
-             (lambda (m) (format "[[%s]]" (match-string 1 m))) s t))
+             (lambda (m) (format "[[%s]]" (match-string 1 m))) s t t))
     (setq s (exhub-gitee-dashboard--md-strip-tags s))
     (setq s (exhub-gitee-dashboard--md-decode-entities s))
     ;; Emphasis: protect strong first so the emphasis rules cannot eat it,
@@ -125,7 +131,7 @@ remaining HTML tags are dropped."
              (lambda (m)
                (push (match-string 2 m) bolds)
                (format "\x01%d\x01" (1- (length bolds))))
-             s t))
+             s t t))
     (setq bolds (nreverse bolds))
     (setq s (replace-regexp-in-string "~~\\([^~\n]+\\)~~" "+\\1+" s t))
     (setq s (replace-regexp-in-string "\\*\\([^*\n]+\\)\\*" "/\\1/" s t))
@@ -134,7 +140,7 @@ remaining HTML tags are dropped."
              "\x01\\([0-9]+\\)\x01"
              (lambda (m)
                (format "*%s*" (or (nth (string-to-number (match-string 1 m)) bolds) "")))
-             s t))
+             s t t))
     ;; Restore the protected inline code.
     (setq s (replace-regexp-in-string
              "\x00\\([0-9]+\\)\x00"
@@ -145,7 +151,7 @@ remaining HTML tags are dropped."
                  (cond ((and equals tilde) code)
                        (equals (format "~%s~" code))
                        (t (format "=%s=" code)))))
-             s t))
+             s t t))
     ;; `<br>' may have split the text into several lines; drop trailing blanks.
     (if (string-match-p "\n" s)
         (string-join (mapcar #'string-trim-right (split-string s "\n")) "\n")
