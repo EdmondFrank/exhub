@@ -225,7 +225,36 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    (require 'exhub)
    (exhub-start-elixir)
    (exhub-start)
+   (require 'exhub-keys)
+   (exhub-keys-mode 1)   ; C-c e = the ExHub command tree
    ```
+
+## Keybindings
+
+`exhub-keys.el` groups every ExHub command that has no short key of its own
+under one prefix.  `which-key` describes each level, and `C-c e ?` lists the
+whole tree.  Existing chords are untouched (`C-x b` blink-search, `C-|`
+translate insert, `C-c s *` probe, `C-c g d` Gitee dashboard, `M-q`
+agent-shell menu, and the local `C-b …` / `C-c v …` mode maps).
+
+| Key | Group | Highlights |
+|-----|-------|------------|
+| `C-c e c` | chat | `c` chat, `m` multiline, `t` with MCP tools, `a` code actions, `r` git/review |
+| `C-c e t` | translate | `i` insert, `r` replace, `p` posframe, `f` fix grammar, `v` style variants |
+| `C-c e f` | inline completion | `c` complete, `TAB` accept, `n`/`p` cycle, `t` toggle automatic suggestions |
+| `C-c e l` | LSP | `d` definition, `D` references, `h` hover, `r` rename, `f` format, `T` toggles |
+| `C-c e a` | agent | `c` chat, `t` tool call, `i` init tools, `k` kill |
+| `C-c e s` | search | `b` blink-search, `s`/`.`/`g`/`f` probe search/at-point/glob/content |
+| `C-c e g` | Gitee | `d` dashboard, `e` enterprise, `o` open detail, `r` refresh |
+| `C-c e v` | vault | `i` insert secret, `c` decrypt and copy, `s` decrypt and show |
+| `C-c e d` | documents | `p` Markdown preview, `w` preview in EWW |
+| `C-c e m` | model | `m` switch model, `c` current model, `r` refresh catalog |
+| `C-c e M` | MCP servers | `s` start, `x` stop, `X` stop all |
+| `C-c e o` | operations | `l` log buffer, `h` hot reload, `k` reload keys, `v` version; `b`/`r`/`s`/`S` restart or release after confirmation |
+
+Change `exhub-keys-prefix` to move the tree (e.g. `"C-c E"`, since `envrc-mode`
+owns `C-c e` in buffers under an `.envrc`).  Edit `exhub-keys-tree` and run
+`M-x exhub-keys-rebuild` to reshape the bindings.
 
 ## Basic
 
