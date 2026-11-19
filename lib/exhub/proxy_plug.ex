@@ -53,6 +53,7 @@ defmodule Exhub.ProxyPlug do
       ReverseProxyPlug.init(
         upstream: upstream,
         response_mode: Keyword.get(opts, :response_mode, :stream),
+        client: Exhub.ProxyClient,
         client_options: client_options,
         preserve_host_header: Keyword.get(opts, :preserve_host_header, false)
       )
@@ -105,7 +106,13 @@ defmodule Exhub.ProxyPlug do
     acc_ref = :erlang.unique_integer([:positive, :monotonic])
     acc_ref_bin = Integer.to_string(acc_ref)
 
-    acc_pid = spawn(fn -> stream_accumulator(acc_ref_bin, [], request_body) end)
+    # The accumulator is a plain `spawn` (not linked) so a tracker crash can
+    # never take the response down, but it must not outlive the request that
+    # created it: without this monitor an aborted stream leaves it holding
+    # every accumulated chunk (megabytes, for a large completion) until its
+    # 5-minute timeout. Monitor the caller and exit as soon as it goes away.
+    caller = self()
+    acc_pid = spawn(fn -> stream_accumulator(caller, acc_ref_bin, [], request_body) end)
 
     wrapped_stream =
       stream
@@ -130,12 +137,18 @@ defmodule Exhub.ProxyPlug do
     wrapped_stream
   end
 
-  defp stream_accumulator(ref, chunks, request_body) do
+  defp stream_accumulator(caller, ref, chunks, request_body) do
+    monitor = Process.monitor(caller)
+    accumulate(monitor, ref, chunks, request_body)
+  end
+
+  defp accumulate(monitor, ref, chunks, request_body) do
     receive do
       {:accumulate, ^ref, chunk} ->
-        stream_accumulator(ref, [chunk | chunks], request_body)
+        accumulate(monitor, ref, [chunk | chunks], request_body)
 
       {:process, ^ref, model_name, provider} ->
+        Process.demonitor(monitor, [:flush])
         response_body = chunks |> Enum.reverse() |> Enum.join()
 
         if response_body != "" or request_body != "" do
@@ -169,8 +182,13 @@ defmodule Exhub.ProxyPlug do
 
         :ok
 
+      {:DOWN, ^monitor, :process, _pid, _reason} ->
+        # The request process is gone (client disconnected / stream halted):
+        # drop the accumulated chunks instead of retaining them for 5 minutes.
+        :ok
+
       _ ->
-        stream_accumulator(ref, chunks, request_body)
+        accumulate(monitor, ref, chunks, request_body)
     after
       300_000 ->
         :ok

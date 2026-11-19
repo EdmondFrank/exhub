@@ -8,6 +8,7 @@ defmodule Exhub.Application do
   @impl true
   def start(_type, _args) do
     load_secrets()
+    Exhub.HTTP.Pools.setup()
 
     children = [
       {Registry, keys: :unique, name: Exhub.Registry},
@@ -19,7 +20,13 @@ defmodule Exhub.Application do
       # removed upstream), so the host application must start the named Finch
       # instance it hard-codes (`Anubis.Finch`) — otherwise every upstream
       # HTTP request fails with "unknown registry: Anubis.Finch".
-      {Finch, name: Anubis.Finch, pools: %{default: [size: 15]}},
+      #
+      # Size matters: this pool carries every upstream MCP request, and the hub
+      # fans `tools/list` out to ~40 servers at once on each connector init.
+      # At the old `size: 15` the surplus queued, connector init blew the
+      # client's deadline, and AiderDesk retried — the register/close flap
+      # visible in the transport log.
+      {Finch, name: Anubis.Finch, pools: %{default: [size: 100]}},
       # Sagents — agent orchestration framework (must start after Registry)
       Sagents.Supervisor,
       # Agent Hub storage — SQLite conversations, transcripts, agent state
@@ -245,7 +252,21 @@ defmodule Exhub.Application do
   end
 
   defp cowboy_spec do
-    base_opts = [port: port(), dispatch: dispatch(), protocol_options: [idle_timeout: 1_800_000]]
+    # `idle_timeout` counts *client* silence, and an MCP SSE GET stream is silent
+    # by design: the client sends one request and then only reads. At the
+    # previous 1_800_000 ms (30 min) Cowboy severed every open stream four times
+    # an hour; AiderDesk's MCP SDK reconnected all 18 connectors at once, which
+    # is the register/close storm in the transport log (458 handlers / 40
+    # sessions for a day's work) — and an in-flight tool call can be answered on
+    # an already-closed stream. `reset_idle_timeout_on_send` counts the server's
+    # own writes (Anubis keepalive pings every 5 s) as liveness, so a live
+    # stream is never reaped, while the 24 h cap still bounds a half-open
+    # connection whose peer vanished without a FIN.
+    base_opts = [
+      port: port(),
+      dispatch: dispatch(),
+      protocol_options: [idle_timeout: 86_400_000, reset_idle_timeout_on_send: true]
+    ]
     options = Keyword.merge(base_opts, Exhub.GracefulRestart.socket_options())
 
     Plug.Cowboy.child_spec(
