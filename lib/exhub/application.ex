@@ -36,7 +36,6 @@ defmodule Exhub.Application do
       # Hercules — AI-powered E2E test runner
       {Exhub.Hercules.Runner, []},
       {Exhub.Router.ReasoningCache, []},
-      {Exhub.Llm.World, name: Exhub.Llm.World},
       {Exhub.Llm.LlmConfigServer, name: Exhub.Llm.LlmConfigServer},
       {Exhub.Llm.Mcp.ServerManager, name: Exhub.Llm.Mcp.ServerManager},
       {Exhub.Llm.Mcp.ClientManager, name: Exhub.Llm.Mcp.ClientManager},

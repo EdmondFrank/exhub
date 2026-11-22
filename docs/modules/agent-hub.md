@@ -139,6 +139,9 @@ the same `Exhub.Sagents.Hub` API and can be re-enabled by uncommenting them.
 - **`Exhub.Sagents.McpAdapter`** — bridges Exhub MCP tools to
   `LangChain.Function`, passing JSON Schema through as `parameters_schema`
 - **`Exhub.Sagents.AgentHubServer`** — MCP server for the hub
+- **`Exhub.ResponseHandlers.ExhubAgent`** — WebSocket bridge that lets the
+  Emacs client (`exhub-agent.el`) list profiles, chat, start, and stop agents;
+  see [agent.md](agent.md)
 
 ## Adding a custom agent
 

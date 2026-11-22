@@ -56,8 +56,7 @@ file>` rather than reasoning from a plain `mix test` error.
 - `config/test.exs` sets `config :exhub, :port, 0` (random port) to avoid
   conflicts with a running dev instance.
 - Expect output noise: `[TokenUsage] TokenUsageStore not available, skipping
-  tracking` warnings, `The function passed as a handler with ID
-  {:swarm_ex, ...}` info lines, and the skillport MCP banner. All normal.
+  tracking` warnings and the skillport MCP banner. All normal.
 
 ## Compile & style checks
 

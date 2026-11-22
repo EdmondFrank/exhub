@@ -155,9 +155,8 @@ A `kbd'-style key sequence.  Set this before enabling
     ("agent" "a"
      (("chat with an agent" "c" exhub-agent-chat)
       ("reply to an agent" "r" exhub-agent-tool-reply)
-      ("call a tool" "t" exhub-agent-tool-call)
-      ("initialize tools" "i" exhub-agent-init-tools)
-      ("kill agent" "k" exhub-agent-kill)))
+      ("start agent" "s" exhub-agent-start)
+      ("stop agent" "k" exhub-agent-kill)))
     ("search" "s"
      (("blink-search" "b" blink-search-exhub)
       ("probe search" "s" exhub-probe-search)

@@ -38,10 +38,6 @@ defmodule Exhub.MixProject do
       {:floki, "~> 0.37.0"},
       {:reverse_proxy_plug, "~> 3.0"},
       {:anubis_mcp, "~> 1.14.0"},
-      {:swarm_ex, git: "https://github.com/edmondfrank/swarm_ex", branch: "master"},
-      {:instructor,
-       git: "https://github.com/thmsmlr/instructor_ex",
-       ref: "2c89b1cd52e0125562c8c5cb2eb99d2324261cfa"},
       {:langchain, ">= 0.8.11"},
       {:tzdata, "~> 1.1"},
       {:req, "~> 0.5.8", override: true},
@@ -56,7 +52,10 @@ defmodule Exhub.MixProject do
       {:sagents, "~> 0.9.0"},
       {:yamerl, "~> 0.10.0"},
       {:exqlite, "~> 0.39.0"},
-      {:sqlite_vec, "~> 0.1.0"}
+      {:sqlite_vec, "~> 0.1.0"},
+      # Undeclared transitive dep until `mix deps.unlock --unused` pruned it:
+      # `UUID.uuid4/0` is used by the router, so declare it outright.
+      {:uuid, "~> 1.1"}
     ]
   end
 end

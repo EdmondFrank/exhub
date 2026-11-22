@@ -1,30 +1,29 @@
-;;; exhub-agent.el --- Agents integration for Exhub  -*- lexical-binding: t; -*-
+;;; exhub-agent.el --- Agent Hub integration for Exhub  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024  EdmondFrank
 
 ;; Author: EdmondFrank <edmondfrank@hotmail.com>
 ;; Keywords: Extensions
-;; Version: 0.1.0
+;; Version: 0.2.0
 
 ;; This file is not part of GNU Emacs.
 
 ;;; Commentary:
 
-;; This package provides integration for interacting with agents in the Exhub
-;; environment. It allows users to chat with existing or new agents, reply to
-;; agents using the output of shell commands, initialize tools with agents, and
-;; kill agents.
+;; Emacs client for the ExHub Agent Hub.  Every registered Sagents agent
+;; profile ("assistant", "coder", "researcher", ...) owns one conversation
+;; persisted in SQLite, so a thread survives Emacs restarts and is shared with
+;; the browser UI at `http://localhost:9069/agent-hub'.
+;;
+;; The server side is `Exhub.ResponseHandlers.ExhubAgent'.
 
 ;;; Code:
 
 (require 'exhub)
 (require 'exhub-chat)
 
-(defvar exhub-agent-version "0.1.0"
+(defvar exhub-agent-version "0.2.0"
   "Current version of exhub-agent.")
-
-(defvar exhub-agent-system-message "You are a helpful assistant"
-  "The default system message for Exhub agents.")
 
 (defvar exhub-agent-json-object-type 'hash-table
   "The JSON object type for Exhub agents.")
@@ -37,145 +36,112 @@
 
 (defvar exhub-agent-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; Add keybindings for exhub-agent-mode
     (define-key map (kbd "C-c c") 'exhub-agent-chat)
     (define-key map (kbd "C-c r") 'exhub-agent-tool-reply)
-    (define-key map (kbd "C-c i") 'exhub-agent-init-tools)
+    (define-key map (kbd "C-c s") 'exhub-agent-start)
     (define-key map (kbd "C-c k") 'exhub-agent-kill)
-    (define-key map (kbd "C-c t") 'exhub-agent-tool-call)
     map))
 
 (define-derived-mode exhub-agent-mode markdown-mode "exhub-agent"
-  "The major mode for Exhub Agent."
-  (setq-local mode-map exhub-agent-mode-map))
+  "The major mode for Exhub Agent.")
 
 (add-to-list 'auto-mode-alist '("\\.chat$" . exhub-agent-mode))
 
-(defun exhub-agent-chat ()
-  "Chat with existing or new agents in the Exhub world."
-  (interactive)
-  (exhub-agent-call "list-agents" "exhub--chat-select-or-create-agent"))
-
-(defun exhub-agent-tool-reply ()
-  "Reply to an existing agent using the output of a shell command as the prompt."
-  (interactive)
-  (exhub-agent-call "list-agents" "exhub--tool-reply-an-agent"))
-
-(defun exhub-agent-init-tools ()
-  "Initialize tools with existing or new agents in the Exhub world."
-  (interactive)
-  (exhub-agent-call "list-agents" "exhub--init-tools-select-or-create-agent"))
-
-(defun exhub-agent-kill ()
-  "Kill an existing agent in the Exhub world."
-  (interactive)
-  (exhub-agent-call "list-agents" "exhub--chat-kill-agent"))
-
-(defun exhub-agent-tool-call ()
-  "Interact with tools using existing or new agents in the Exhub world."
-  (interactive)
-  (let ((command (read-string "Enter shell command: ")))
-    (if (string-empty-p (string-trim command))
-        (message "Please enter a valid shell command.")
-      (let ((output (shell-command-to-string command)))
-        (if (string-empty-p (string-trim output))
-            (message "Shell command output is empty.")
-          (message "Shell command executed successfully: %s" output))))))
-
-(defun exhub--init-tools-select-or-create-agent (response)
-  "Initialize tools with Exhub by using an existing agent or creating a new one.
-RESPONSE is the response from the server, containing the list of agents."
-  (let* ((agent-names (json-read-from-string response))
-         (choices (mapcar (lambda (name) (cons name name)) agent-names))
-         (agent-name (completing-read "Select an agent to initialize tools with: " choices nil t))
-         (buffer-file (buffer-file-name))
-         (prompt (shell-command-to-string "mcpm-aider toolprompt")))
-    (if (string-empty-p (string-trim prompt))
-        (message "No tools are available.")
-      (let ((buffer (exhub-chat--get-chat-buffer)))
-        (with-current-buffer buffer
-          (exhub-agent-call
-           "chat-with-agent"
-           buffer-file
-           agent-name
-           exhub-agent-system-message
-           prompt
-           (or exhub-chat-buffer-name
-               (buffer-name))))))))
-
-(defun exhub--chat-select-or-create-agent (response)
-  "Chat with Exhub by using an existing agent or creating a new one.
-RESPONSE is the response from the server, containing the list of agents."
-  (let* ((agent-names (json-read-from-string response))
-         (choices (mapcar (lambda (name) (cons name name)) agent-names))
-         (agent-name (completing-read "Select an agent to chat to: " choices nil t))
-         (buffer-file (buffer-file-name))
-         (prompt (read-string "Chat with Exhub Agent: ")))
-    (if (string-empty-p (string-trim prompt))
-        (message "Please do not enter an empty prompt.")
-      (let ((buffer (exhub-chat--get-chat-buffer)))
-        (with-current-buffer buffer
-          (save-excursion
-            (goto-char (point-max))
-            (insert "## User:\n")
-            (insert (format "%s\n" prompt)))
-          (message "[Exhub-Chat] Please wait for Exhub ...")
-          (exhub-agent-call
-           "chat-with-agent"
-           buffer-file
-           agent-name
-           exhub-agent-system-message
-           prompt
-           (or exhub-chat-buffer-name
-               (buffer-name))))))))
-
-(defun exhub--tool-reply-an-agent (response)
-  "Reply to an existing agent using the output of a shell command as the prompt.
-RESPONSE is the response from the server, containing the list of agents."
-  (let* ((agent-names (json-read-from-string response))
-         (choices (mapcar (lambda (name) (cons name name)) agent-names))
-         (agent-name (completing-read "Select an agent to reply to: " choices nil t))
-         (shell-command (read-string "Enter shell command: "))
-         (prompt (shell-command-to-string shell-command)))
-    (if (string-empty-p (string-trim prompt))
-        (message "Shell command output is empty.")
-      (let ((buffer (exhub-chat--get-chat-buffer)))
-        (with-current-buffer buffer
-          (save-excursion
-            (goto-char (point-max))
-            (insert "## User:\n")
-            (insert (format "%s\n" prompt)))
-          (message "[Exhub-Chat] Please wait for Exhub ...")
-          (exhub-agent-call
-           "chat-with-agent"
-           (buffer-file-name)
-           agent-name
-           exhub-agent-system-message
-           prompt
-           (or exhub-chat-buffer-name
-               (buffer-name))))))))
-
-(defun exhub--chat-kill-agent (response)
-  "Kill an agent in the Exhub world.
-RESPONSE is the response from the server, containing the list of agents."
-  (let* ((agent-names (json-read-from-string response))
-         (choices (mapcar (lambda (name) (cons name name)) agent-names))
-         (agent-name (completing-read "Select an agent to kill: " choices nil t)))
-    (if (string-empty-p (string-trim agent-name))
-        (message "Please select a valid agent to kill.")
-      (exhub-agent-call "kill-agent" "exhub--chat-kill-agent-callback" agent-name))))
+;;; Agent Hub protocol helpers
 
 (defun exhub-agent-call (action callback &rest args)
-  "Call an Agent Server or Client API function using Exhub.
-ACTION is the action name.
-CALLBACK is the function to call with the response.
-ARGS are the arguments to pass to the action."
+  "Call the Exhub Agent Hub ACTION, then CALLBACK with ARGS appended."
   (exhub-call "exhub-agent" action callback args))
 
-(defun exhub--chat-kill-agent-callback (response)
-  "Callback function to handle the response after killing an agent.
-RESPONSE is the response from the server."
-  (message "Agent killed successfully: %s" response))
+(defun exhub--agent-names (response)
+  "Return the list of registered agent names parsed from RESPONSE."
+  (let ((json-object-type exhub-agent-json-object-type)
+        (json-array-type exhub-agent-json-array-type)
+        (json-key-type exhub-agent-json-key-type))
+    (json-read-from-string response)))
+
+(defun exhub--select-agent (prompt response)
+  "Prompt for an agent with PROMPT, choosing from RESPONSE's names."
+  (let* ((names (exhub--agent-names response))
+         (choices (mapcar (lambda (name) (cons name name)) names)))
+    (if (null choices)
+        (progn
+          (message "[Exhub-Agent] No registered agents.")
+          nil)
+      (completing-read prompt choices nil t))))
+
+(defun exhub--agent-send (agent-name prompt)
+  "Send PROMPT to the Agent Hub agent AGENT-NAME and render its reply."
+  (let ((buffer (exhub-chat--get-chat-buffer)))
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-max))
+        (insert "## User:\n")
+        (insert (format "%s\n" prompt)))
+      (message "[Exhub-Chat] Waiting for agent '%s' ..." agent-name)
+      (exhub-agent-call
+       "chat-with-agent"
+       (buffer-file-name)
+       agent-name
+       prompt
+       (or exhub-chat-buffer-name
+           (buffer-name))))))
+
+(defun exhub--agent-notice (response)
+  "Display the server RESPONSE in the minibuffer."
+  (message "%s" response))
+
+;;; Commands
+
+;;;###autoload
+(defun exhub-agent-chat ()
+  "Chat with one of the registered Agent Hub agents."
+  (interactive)
+  (exhub-agent-call "list-agents" 'exhub--agent-chat-select))
+
+(defun exhub--agent-chat-select (response)
+  "Prompt for an agent from RESPONSE, then chat with it."
+  (when-let ((agent-name (exhub--select-agent "Chat with an agent: " response)))
+    (let ((prompt (read-string "Chat with Exhub Agent: ")))
+      (if (string-empty-p (string-trim prompt))
+          (message "Please do not enter an empty prompt.")
+        (exhub--agent-send agent-name prompt)))))
+
+;;;###autoload
+(defun exhub-agent-tool-reply ()
+  "Reply to an agent with the output of a shell command as the prompt."
+  (interactive)
+  (exhub-agent-call "list-agents" 'exhub--agent-tool-reply-select))
+
+(defun exhub--agent-tool-reply-select (response)
+  "Prompt for an agent from RESPONSE and send it a shell command's output."
+  (when-let ((agent-name (exhub--select-agent "Reply to an agent: " response)))
+    (let ((prompt (shell-command-to-string (read-string "Enter shell command: "))))
+      (if (string-empty-p (string-trim prompt))
+          (message "Shell command output is empty.")
+        (exhub--agent-send agent-name prompt)))))
+
+;;;###autoload
+(defun exhub-agent-start ()
+  "Start the agent of one of the registered profiles."
+  (interactive)
+  (exhub-agent-call "list-agents" 'exhub--agent-start-select))
+
+(defun exhub--agent-start-select (response)
+  "Prompt for an agent from RESPONSE and start it."
+  (when-let ((agent-name (exhub--select-agent "Start an agent: " response)))
+    (exhub-agent-call "start-agent" 'exhub--agent-notice agent-name)))
+
+;;;###autoload
+(defun exhub-agent-kill ()
+  "Stop every running conversation of a registered agent."
+  (interactive)
+  (exhub-agent-call "list-agents" 'exhub--agent-kill-select))
+
+(defun exhub--agent-kill-select (response)
+  "Prompt for an agent from RESPONSE and stop it."
+  (when-let ((agent-name (exhub--select-agent "Stop an agent: " response)))
+    (exhub-agent-call "kill-agent" 'exhub--agent-notice agent-name)))
 
 (provide 'exhub-agent)
 
