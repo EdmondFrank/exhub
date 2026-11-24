@@ -58,6 +58,11 @@ config :exhub, :lua,
   spill_dir: nil,
   max_concurrency: 8,
   raise_on_tool_error: true,
+  # A snippet that fails to compile only because of a JSON-style table key
+  # (`{key: value}`) or a backtick string is rewritten and retried once; the
+  # result is prefixed with `note: auto-repaired …`. Set false to see the raw
+  # SyntaxError instead.
+  auto_repair: true,
   # How much of the tool catalog the MCP `code_mode` description inlines:
   # `:on_demand` (default) keeps the description short and routes discovery
   # through the `help` / `retrieve_tools` / `describe_tool` helpers, so the

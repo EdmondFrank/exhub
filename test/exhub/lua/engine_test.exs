@@ -626,11 +626,51 @@ defmodule Exhub.Lua.EngineTest do
       assert message =~ "SyntaxError"
     end
 
-    test "SyntaxError names a JSON-style table key and how to fix it" do
-      assert {:error, message} = CodeMode.run("return demo.echo({msg: 'hi'})", @tools)
-      assert message =~ "SyntaxError"
-      assert message =~ "{path = \"/x\"}"
-      assert message =~ "method call"
+    test "SyntaxError locates a JSON-style table key" do
+      assert {:error, message} =
+               CodeMode.run("return demo.echo({msg: 'hi'})", @tools, auto_repair: false)
+
+      assert message =~ "SyntaxError: line 1: table keys use '=', not ':'"
+      assert message =~ "write `msg = 'hi'`"
+      assert message =~ "parser:"
+    end
+
+    test "a JSON-style key is repaired, retried and reported" do
+      call =
+        runner(fn _s, _t, args ->
+          {:ok, %{"content" => [%{"type" => "text", "text" => args["msg"] || ""}]}}
+        end)
+
+      assert {:ok, message} =
+               CodeMode.run("return demo.echo({msg: 'hi'})", @tools, call_fun: call)
+
+      assert message =~ "note: auto-repaired"
+      assert message =~ "`key:` → `key =`"
+      assert message =~ "hi"
+    end
+
+    test "a repaired snippet that then fails at runtime reports both facts" do
+      call = runner(fn _s, _t, _a -> {:error, :boom} end)
+
+      assert {:error, message} =
+               CodeMode.run("return demo.echo({msg: 'hi'})", @tools, call_fun: call)
+
+      assert message =~ "note: auto-repaired"
+      assert message =~ "ToolFailure: demo.echo failed: :boom"
+    end
+
+    test "a backtick string is repaired, retried and reported" do
+      assert {:ok, text} = CodeMode.run("local s = `hi`\nreturn s", [])
+      assert text =~ "note: auto-repaired"
+      assert text =~ "backtick"
+      assert text =~ "hi"
+    end
+
+    test "a [[ literal that closes early names its closing line" do
+      code = "local s = [[\nassert p[\"x\"] == []]]\nreturn s"
+
+      assert {:error, message} = CodeMode.run(code, [], auto_repair: false)
+      assert message =~ "`[[` at line 1 closes at line 2"
     end
 
     test "TimeoutExceeded for a blocking call" do

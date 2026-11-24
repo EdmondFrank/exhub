@@ -28,6 +28,8 @@ defmodule Exhub.Lua.Diagnostics do
   which is what makes `{key: value}` actionable.
   """
 
+  alias Exhub.Lua.Lint
+
   # The parser reports some failures with no position, no source context and no
   # suggestion — `{key: value}` (JSON-style table key) is the common one, and the
   # bare message ("Expected '(', string, or table after method name") does not
@@ -35,12 +37,27 @@ defmodule Exhub.Lua.Diagnostics do
   @json_key_hint "Lua table keys use '=', not ':' — write `{path = \"/x\"}`, not `{path: \"/x\"}`. " <>
                    "A ':' after a name starts a method call (`s:sub(1, 2)`), so the JSON-style form never compiles."
 
+  @long_string_hint "A `[[` literal ends at the first `]]` in its body. For text that may " <>
+                      "contain `]]` (JSON, Elixir, Elisp, shell), delimit with `[==[ … ]==]`."
+
+  @multiline_hint "Lua quoted strings cannot span lines — use `[==[ … ]==]` for multi-line text."
+
+  @backtick_hint "Backticks are not string delimiters in Lua — use `\"…\"` or `[==[ … ]==]`."
+
+  @pasted_hint "This reads like pasted text or another language rather than a Lua statement — " <>
+                 "put it in a string, or comment it out."
+
   # Which message the parser produces depends only on what follows the colon: an
   # identifier (`{key: value}`) trips the method-name branch, anything else
   # (`{key: \"value\"}`) trips the identifier expectation.
   @hints [
     {"after method name", @json_key_hint},
-    {"Expected :identifier, got", @json_key_hint}
+    {"Expected :identifier, got", @json_key_hint},
+    {"Unclosed long string", @long_string_hint},
+    {"Unclosed string literal", @multiline_hint},
+    {"Unexpected character: `", @backtick_hint},
+    {"bare variable reference", @pasted_hint},
+    {"bare arithmetic or logical expression", @pasted_hint}
   ]
 
   @max_errors 3
@@ -51,16 +68,25 @@ defmodule Exhub.Lua.Diagnostics do
   `Lua.CompilerException` → `SyntaxError` (with line, source excerpt, suggestion
   and/or hint); any other (runtime) error → `UnknownTool` when it is a call on a
   nil value, else the raw message.
+
+  Passing the failing `code` lets the message be *located*: a JSON-style table
+  key or a backtick string is reported by `Exhub.Lua.Lint` at the real line,
+  ahead of the parser's own (often misplaced) report. Without `code` only the
+  parser report is available.
   """
-  @spec classify(Exception.t()) :: String.t()
-  def classify(%Lua.CompilerException{} = error) do
-    case syntax_report(error) do
-      "" -> "SyntaxError: code could not be parsed"
-      body -> "SyntaxError: " <> body
+  @spec classify(Exception.t(), String.t() | nil) :: String.t()
+  def classify(error, code \\ nil)
+
+  def classify(%Lua.CompilerException{} = error, code) do
+    body = syntax_report(error)
+
+    case lint_findings(code) do
+      [] -> "SyntaxError: " <> annotate(body, code)
+      findings -> "SyntaxError: " <> Lint.render(findings) <> parser_note(body)
     end
   end
 
-  def classify(error) do
+  def classify(error, _code) do
     error
     |> Exception.message()
     |> String.replace_prefix("Lua runtime error: ", "")
@@ -119,7 +145,7 @@ defmodule Exhub.Lua.Diagnostics do
     excerpt = excerpt_target(error[:source_context])
     head = message <> location(excerpt)
 
-    [head, render_excerpt(excerpt), suggestion(error[:suggestion]), hint(message)]
+    [head, render_excerpt(excerpt), suggestion(error[:suggestion])]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
@@ -169,12 +195,51 @@ defmodule Exhub.Lua.Diagnostics do
 
   defp suggestion(_), do: nil
 
+  # --- Located diagnostics ---
+
+  defp lint_findings(code) when is_binary(code), do: Lint.findings(code)
+  defp lint_findings(_code), do: []
+
+  # The parser's account of a located failure is still useful context — it is
+  # just not the line to start from.
+  defp parser_note(""), do: ""
+
+  defp parser_note(body) do
+    "\n  parser: " <> (body |> String.split("\n", parts: 2) |> hd())
+  end
+
+  defp annotate("", _code), do: "code could not be parsed"
+
+  defp annotate(body, code) do
+    [body, hint(body), long_string_hint(body, code)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n  ")
+  end
+
   defp hint(message) do
     case Enum.find(@hints, fn {needle, _hint} -> String.contains?(message, needle) end) do
       nil -> nil
-      {_needle, hint} -> "  hint: " <> hint
+      {_needle, hint} -> "hint: " <> hint
     end
   end
+
+  # `[[ … ]]` is the usual reason a long-string error points somewhere
+  # unhelpful, so name the literal's real closing point when it applies.
+  defp long_string_hint(body, code) when is_binary(code) do
+    if String.contains?(body, [
+         "long string",
+         "bare",
+         "Expected ',' or '}'",
+         "Expected expression"
+       ]) do
+      case Lint.long_string_note(code) do
+        nil -> nil
+        note -> "note: " <> note
+      end
+    end
+  end
+
+  defp long_string_hint(_body, _code), do: nil
 
   # The parser surfaces positionless failures as `Parse error: "…"` — an
   # inspected message, quotes and escapes included. Strip that wrapper so the

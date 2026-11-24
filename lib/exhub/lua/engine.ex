@@ -139,6 +139,10 @@ defmodule Exhub.Lua.Engine do
     spill_dir: nil,
     max_concurrency: 8,
     raise_on_tool_error: true,
+    # Retry a snippet once after `Exhub.Lua.Lint` rewrites the two mistakes that
+    # cannot be legal Lua (JSON-style table keys, backtick strings). The result
+    # carries a `note:` naming the repair, so the caller still learns the form.
+    auto_repair: true,
     # `:on_demand` keeps the MCP `code_mode` description short and routes the
     # catalog through the `help` / `retrieve_tools` / `describe_tool` helpers;
     # `:inline` embeds the namespace catalog in the description.
@@ -223,7 +227,8 @@ defmodule Exhub.Lua.Engine do
           :raise_on_tool_error,
           :max_concurrency,
           :spill_truncated,
-          :spill_dir
+          :spill_dir,
+          :auto_repair
         ])
       )
 
@@ -245,6 +250,11 @@ defmodule Exhub.Lua.Engine do
   end
 
   defp handle_run_result({:ok, {:ok, results, logs}}), do: {:ok, format_result(results, logs)}
+
+  # The snippet only ran after `Exhub.Lua.Lint` repaired it — keep the repair
+  # visible so the caller writes the correct form next time.
+  defp handle_run_result({:ok, {:ok, results, logs, note}}),
+    do: {:ok, note <> "\n\n" <> format_result(results, logs)}
 
   # A strict `parallel` abort that kept some successes arrives as an
   # already-formatted report *string*, not a list of Lua return values, so it

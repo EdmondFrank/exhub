@@ -10,7 +10,9 @@ defmodule Exhub.Lua.Sandbox do
     * `check/2` — validate the request (`code`, `tools`) before any process is
       spawned; returns `:ok` or `{:error, message}`.
     * `execute/4` — run one evaluation (inside the bounded process) and return
-      `{:ok, results, logs}` | `{:partial, report, logs}` | `{:lua_error, message}`.
+      `{:ok, results, logs}` | `{:ok, results, logs, repair_note}` |
+      `{:partial, report, logs}` | `{:lua_error, message}`. The four-element
+      form reports a snippet that only ran after `Exhub.Lua.Lint` repaired it.
     * `binding_names/0` — the globals the sandbox owns (reserved names).
     * `prompt_info/0` — language facts for prompt / tool-description rendering.
   """
@@ -28,6 +30,7 @@ defmodule Exhub.Lua.Sandbox do
               config :: config()
             ) ::
               {:ok, term(), [String.t()]}
+              | {:ok, term(), [String.t()], String.t()}
               | {:partial, String.t(), [String.t()]}
               | {:lua_error, String.t()}
 

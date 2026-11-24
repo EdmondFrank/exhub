@@ -62,6 +62,24 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
     `{name = "server__tool", args = {...}}`. `parallel_all` never raises — one
     `{ok = true, result = ...}` / `{ok = false, error = ...}` per call.
 
+    Syntax — nearly every broken snippet is one of these three:
+    - Table keys use `=`: `{path = "/x"}`, never `{path: "/x"}`.
+    - Any multi-line or embedded text (file contents, JSON, Elixir, Elisp, shell)
+      goes in `[==[ … ]==]`, not `[[ … ]]`: a `[[` literal ends at the first
+      `]]` in its body, and embedded JSON/Elixir hits that immediately.
+    - A quoted string cannot span lines, and a backtick is not a delimiter:
+      `"…"` for one line, `[==[ … ]==]` otherwise.
+
+        local body = [==[
+        assert payload["pulls"] == []
+        ]==]
+        desktop.write_file({path = "/tmp/x.exs", content = body})
+        return "written"
+
+    A snippet whose only mistakes are `{key: value}` or backtick strings is
+    repaired and retried once; the result then begins with `note: auto-repaired …`
+    so the round trip is not lost.
+
     Calling tools:
     - Nested by server: `desktop.read_file({path = "..."})` — chars outside
       `[A-Za-z0-9_]` in server/tool names map to `_`.
@@ -156,6 +174,10 @@ defmodule Exhub.MCP.Tools.Lua.CodeMode do
       `r.content[1].text`.
     - Table keys use `=`, never `:` — `{path = "/x"}`, not `{path: "/x"}`. Lua
       reads `name: value` as a method call, so it is a syntax error.
+    - Multi-line or embedded text (file contents, JSON, Elixir, Elisp, shell)
+      goes in `[==[ … ]==]`, not `[[ … ]]`: a `[[` literal ends at the first
+      `]]` in its body.
+    - Quoted strings cannot span lines, and a backtick is not a delimiter.
     - A failing call raises a Lua error — both transport errors and MCP results
       carrying `isError = true`. Catch it with
       `local ok, r = pcall(desktop.read_file, {path = "/nope"})`; note `pcall`

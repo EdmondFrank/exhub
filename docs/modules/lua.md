@@ -25,6 +25,7 @@ no longer exposes it.
 | `Exhub.MCP.Tools.Lua.VisibleTools` | The tool set `code_mode` and `help` both expose (exclusions + header filter) |
 | `Exhub.Lua.Value` | Lua ↔ Elixir conversion and JSON rendering |
 | `Exhub.Lua.Diagnostics` | `SyntaxError` / `UnknownTool` / `ToolFailure` / `TimeoutExceeded` |
+| `Exhub.Lua.Lint` | Lexical location of the mistakes the parser misreports, plus the two mechanical repairs |
 
 The design borrows from [Legion](https://legion.hexdocs.pm/Legion.html) (an Elixir
 runtime for code-writing agents) without depending on it: execution goes through
@@ -92,6 +93,13 @@ A call may also be given as `{name = "server__tool", args = {…}}`.
 - Table keys use `=`, never `:` — `{path = "/x"}`, not `{path: "/x"}`. Lua reads
   `name: value` as a method call, so the JSON-style form is a **syntax error**,
   not just a type error.
+- Multi-line or embedded text — file contents, JSON, Elixir, Elisp, a shell
+  script — goes in a long bracket with enough `=` that the body cannot close it:
+  `[==[ … ]==]`. A plain `[[ … ]]` ends at the **first** `]]` in its body, so
+  text like `payload["pulls"] == []` closes it early and the rest of the file is
+  parsed as Lua (the parser then blames a later line).
+- A quoted string cannot span lines, and a backtick is not a string delimiter:
+  use `"…"` for a single line and `[==[ … ]==]` otherwise.
 - Results are Lua tables — most tools expose their text payload at
   `r.content[1].text`.
 - Returned values are UTF-8-repaired before they are formatted. A byte-offset
@@ -143,9 +151,25 @@ a **server-wide** allow/deny list applied to `tools/call` as well, so an
 with `Tool not found`.
 
 **Failure messages** — a snippet that does not compile comes back as
-`SyntaxError: <parser message> (line N)` with the offending source line, a caret
-pointer, the parser's suggestion and — for mistakes the parser cannot name, such
-as `{key: value}` — an explicit `hint:`. See `Exhub.Lua.Diagnostics`.
+`SyntaxError: …` with the offending source line, a caret pointer and the parser's
+suggestion where it can place them.
+
+Failures the parser *cannot* place are located first by `Exhub.Lua.Lint`, which
+re-reads the snippet with the tokenizer:
+
+- a JSON-style table key is reported at its real line
+  (`line 2: table keys use '=', not ':' …`) instead of the later line the parser
+  blames (a multi-line snippet typically fails on a `])` two lines below the
+  colon);
+- a backtick string is named as such;
+- a `[[` literal that closed early reports where it closed, so the fix
+  (`[==[ … ]==]`) is obvious.
+
+The parser's own account is kept as a `parser:` line. With `auto_repair` on
+(default), a snippet whose only mistakes are the two mechanical ones
+(`{key: value}`, backtick strings) is rewritten and retried once; the result is
+prefixed with `note: auto-repaired …` so the correct form is still learned. See
+`Exhub.Lua.Diagnostics` and `Exhub.Lua.Lint`.
 
 ## `help`
 
@@ -192,6 +216,7 @@ in `config/config.exs`:
 | `spill_dir` | `nil` | Directory for spilled results (`nil` → `System.tmp_dir!()`) |
 | `max_concurrency` | `8` | Max concurrent calls in a `parallel`/`parallel_all` fan-out |
 | `raise_on_tool_error` | `true` | Raise on MCP results with `isError = true` (instead of returning them as data) |
+| `auto_repair` | `true` | Rewrite `{key: value}` / backtick-string mistakes and retry once, reporting the repair as a `note:` |
 | `tool_docs` | `:on_demand` | `code_mode` description detail: `:on_demand` points at the discovery helpers, `:inline` embeds the namespace catalog |
 | `exclude_servers` | `["mcp-hub", "lua"]` | Servers not bridged into the sandbox (meta hub + self) |
 
