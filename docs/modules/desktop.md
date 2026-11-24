@@ -501,7 +501,7 @@ This one tool replaces the former `execute_command` / `start_process` split.
 | `working_dir` | string  | see below  | —           | Working directory; falls back to the request's `x-project-dir` header       |
 | `async`       | boolean | no         | `true`      | Return once `wait_ms` elapses instead of blocking                           |
 | `wait_ms`     | integer | no         | `5000`      | How long to wait for completion in async mode                               |
-| `timeout_ms`  | integer | no         | `30000`     | Blocking-mode timeout; the command is killed at it. Passing it without `async` implies `async: false` |
+| `timeout_ms`  | integer | no         | `30000`     | Blocking-mode timeout; the command is killed at it. Only honoured when `async: false` — it does not switch modes |
 | `interactive` | boolean | no         | `false`     | Keep stdin open for `interact_with_process`                                 |
 | `pty`         | boolean | no         | `interactive` | Allocate a PTY (requires `interactive: true`)                             |
 

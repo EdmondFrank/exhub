@@ -865,7 +865,10 @@ defmodule Exhub.MCP.Tools.Desktop.ProxyEnvTest do
 
     defp run_tool(command) do
       {:reply, resp, %{}} =
-        ExecuteCommand.execute(%{command: command, timeout_ms: 5_000, working_dir: @tmp_dir}, %{})
+        ExecuteCommand.execute(
+          %{command: command, async: false, timeout_ms: 5_000, working_dir: @tmp_dir},
+          %{}
+        )
 
       resp
     end

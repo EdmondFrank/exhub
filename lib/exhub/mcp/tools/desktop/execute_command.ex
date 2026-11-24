@@ -6,7 +6,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   always a tracked process (`Exhub.MCP.Desktop.ProcessStore`), so a command that
   outlives the call can still be read, fed input, and killed.
 
-  Three modes, chosen from the parameters:
+  Three modes, chosen by `interactive` and `async`:
 
     * `async: true` (default) — wait up to `wait_ms` (default 5000 ms). A command
       that finishes in that window returns its `stdout`, `stderr` and
@@ -15,8 +15,14 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
       `read_process_output`.
     * `async: false` — block up to `timeout_ms` (default 30000 ms) and kill the
       command at the timeout, returning the output captured before termination.
+      `timeout_ms` is only consulted in this mode.
     * `interactive: true` — keep stdin open for `interact_with_process` and
       answer immediately with the `process_id` (a PTY is the default backend).
+
+  Mode selection ignores `timeout_ms`: honouring it only in blocking mode keeps
+  the async default (and its `wait_ms` wait) in force for callers that merely
+  pass a timeout — notably Lua `code_mode`, whose own wall clock is the outer
+  bound.
   """
 
   alias Anubis.Server.Response
@@ -44,7 +50,8 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
     Set `async: false` to block up to `timeout_ms` instead; the command is killed
     at the timeout and the output captured before termination is returned.
-    An explicit `timeout_ms` without `async` keeps that blocking behaviour.
+    `timeout_ms` is only honoured in that mode: passing it without `async` keeps
+    the non-blocking default, so use `wait_ms` to widen the async wait.
 
     Set `interactive: true` (optionally `pty: true`, the default) to keep stdin
     open for `interact_with_process`; the call returns immediately with the
@@ -72,7 +79,7 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
     field(:timeout_ms, :integer,
       description:
-        "Maximum time to wait when async: false (default 30000); the command is killed at the timeout. Passing it without `async` implies blocking mode."
+        "Maximum time to wait when `async: false` (default 30000); the command is killed at the timeout. Ignored when `async` is not false — use `wait_ms` to widen the async wait."
     )
 
     field(:interactive, :boolean,
@@ -127,18 +134,15 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
     end
   end
 
-  # `interactive: true` always answers immediately, and an explicit `async: false`
-  # blocks. Otherwise a caller that passes `timeout_ms` is asking for the
-  # historical blocking behaviour, so keep honouring that; everyone else gets the
-  # non-blocking default.
+  # `interactive: true` always answers immediately; only an explicit
+  # `async: false` blocks. `timeout_ms` deliberately does NOT select blocking
+  # mode — it is merely the blocking-mode budget — so the async default (and its
+  # `wait_ms` window) survives callers that pass a timeout, e.g. Lua code_mode
+  # scripts whose own wall clock is the outer bound.
   defp mode(_params, true), do: :interactive
 
   defp mode(params, _interactive) do
-    case Map.get(params, :async) do
-      false -> :blocking
-      true -> :async
-      nil -> if Map.get(params, :timeout_ms), do: :blocking, else: :async
-    end
+    if Map.get(params, :async) == false, do: :blocking, else: :async
   end
 
   defp run(:interactive, command, working_dir, _interactive, pty, _params, frame) do

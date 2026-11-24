@@ -140,13 +140,24 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommandTest do
       assert text =~ "line2"
     end
 
-    test "an explicit timeout_ms without async keeps the blocking behaviour" do
-      params = %{command: "sleep 5", timeout_ms: 300, working_dir: @tmp_dir}
+    test "an explicit timeout_ms without async keeps the non-blocking default" do
+      # `timeout_ms` is a blocking-mode budget, not a mode switch: on its own it
+      # must leave the async default (and its wait_ms window) in force — a Lua
+      # code_mode script that passes one keeps control of the call.
+      params = %{
+        command: "sleep 5",
+        timeout_ms: 300,
+        wait_ms: 200,
+        working_dir: @tmp_dir
+      }
 
       {:reply, resp, %{}} = ExecuteCommand.execute(params, %{})
 
-      assert resp.isError
-      assert text(resp) =~ "timed out after 300ms"
+      refute resp.isError
+      assert text(resp) =~ "still running"
+      process_id = field(resp, "process_id")
+      on_exit(fn -> safe_kill(process_id) end)
+      assert await_status(process_id, :running, 2_000)
     end
   end
 
