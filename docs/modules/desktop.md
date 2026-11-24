@@ -531,7 +531,10 @@ does not linger in `list_managed_processes`.
 
 Non-interactive output is buffered in the process store (stdout and stderr
 merged), so `read_process_output` returns its continuation plus the transcript
-captured up to that point.
+captured up to that point. Each process buffers at most 1 MB
+(`ProcessStore.max_output_bytes/0`): past that the oldest complete lines are
+dropped, and readers report `truncated`, `dropped_bytes` and `dropped_lines`, so
+`offset: 0` no longer means the very first line once truncation has happened.
 
 **Return Value — `interactive: true`**
 
@@ -688,6 +691,13 @@ waited on; the interactive backends answer immediately):
 - A finished entry (`completed`/`terminated`/`error`) is pruned after 10 minutes;
   any entry is dropped after 1 hour of inactivity. `read_process_output` and
   `interact_with_process` reset that idle timer.
+- Output per process is capped at 1 MB. Older complete lines are dropped and
+  reported as truncation, so a runaway command (`find /`, `yes`) cannot grow the
+  store without bound — before the cap, each append copied the whole buffer and
+  the store fell behind for seconds, queueing every other desktop tool call.
+- A `:running` entry that never got a consumer, port or pid attached within 5
+  minutes is dropped as an orphan, and `register` refuses a caller whose call
+  already timed out, so a request that dies mid-start leaves nothing behind.
 
 ## Response Format
 

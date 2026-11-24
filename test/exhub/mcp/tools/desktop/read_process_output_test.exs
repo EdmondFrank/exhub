@@ -113,4 +113,27 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutputTest do
       assert field(read, "has_more") == true
     end
   end
+
+  describe "truncation" do
+    test "reports dropped output once the buffer cap is exceeded" do
+      # ~2.6 MB of output: past the store's 1 MB cap. The trailing sleep keeps
+      # the command alive past `wait_ms`, so the entry stays readable.
+      {:reply, resp, _} =
+        ExecuteCommand.execute(
+          %{command: "seq 1 400000; sleep 2", wait_ms: 100, working_dir: System.tmp_dir!()},
+          %{}
+        )
+
+      process_id = field(resp, "process_id")
+      assert process_id
+      on_exit(fn -> safe_kill(process_id) end)
+      assert await_status(process_id, :completed, 15_000)
+
+      {:reply, read, _} = ReadProcessOutput.execute(%{process_id: process_id}, %{})
+
+      assert field(read, "truncated") == true
+      assert field(read, "dropped_lines") > 0
+      assert field(read, "dropped_bytes") > 0
+    end
+  end
 end

@@ -277,10 +277,14 @@ defmodule Exhub.MCP.Desktop.ProcessLauncher do
     notify = Keyword.get(opts, :notify)
     ref = Keyword.get(opts, :ref, process_id)
 
-    {:ok, _task_pid} =
+    {:ok, task_pid} =
       Task.start(fn ->
         consume_process_stream(process_id, command, ex_opts, starter, {notify, ref})
       end)
+
+    # Marks the entry as attached, so the store's orphan sweep does not drop a
+    # healthy streaming process whose OS pid is not observable.
+    ProcessStore.set_consumer(process_id, task_pid)
 
     # Brief handshake — Exile reports the OS pid within milliseconds. On timeout
     # the entry is still returned (`pid: nil`) and the consumer fills it in.

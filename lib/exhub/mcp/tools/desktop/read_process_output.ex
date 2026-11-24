@@ -22,6 +22,12 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
     Use the offset parameter to read incrementally (for polling long-running
     commands). The process status and exit code are also returned.
 
+    Each process buffers at most `Exhub.MCP.Desktop.ProcessStore.max_output_bytes/0`
+    (1 MB); beyond that the oldest lines are dropped and the reply reports
+    `truncated`, `dropped_bytes` and `dropped_lines`. `offset` indexes the
+    retained transcript, so offset 0 is not the first line of output once
+    truncation has happened.
+
     Processes are automatically cleaned up after 1 hour of inactivity.
     """
   end
@@ -76,7 +82,10 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
             "total_lines" => result.total_lines,
             "status" => to_string(result.status),
             "exit_code" => result.exit_code,
-            "has_more" => has_more
+            "has_more" => has_more,
+            "truncated" => result.truncated,
+            "dropped_bytes" => result.dropped_bytes,
+            "dropped_lines" => result.dropped_lines
           })
 
         {:reply, resp, frame}

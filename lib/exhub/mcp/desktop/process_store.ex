@@ -7,6 +7,16 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   This enables long-running commands to be started, monitored, and have their
   output read incrementally across multiple tool calls.
+
+  ## Bounded output buffer
+
+  The per-process buffer is capped at `max_output_bytes/0` (1 MB). A runaway
+  command (`find /`, `yes`) would otherwise grow it without bound, and every
+  `append_output` cast copies the whole binary — so the GenServer falls behind
+  for seconds and *every other* desktop tool call queues behind it. When the cap
+  is exceeded the oldest complete lines are dropped; `get_output/2` reports how
+  much was dropped (`truncated`, `dropped_bytes`, `dropped_lines`) so a reader
+  knows the transcript does not start at the beginning.
   """
 
   use GenServer
@@ -21,6 +31,12 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   # sooner: its output is still readable for a grace period, but it must not
   # accumulate in `list_managed_processes` for an hour.
   @finished_ttl_ms 600_000
+  # A `:running` entry that never got a child attached this long after being
+  # registered is an orphan (its owning request died before the consumer
+  # started) and is dropped.
+  @orphan_running_ms 300_000
+  # Hard cap on a single process's output buffer; see `max_output_bytes/0`.
+  @max_output_bytes 1_000_000
 
   defstruct [
     :id,
@@ -35,7 +51,10 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     :port,
     :interactive,
     :backend,
-    :ospid
+    :ospid,
+    :consumer,
+    :dropped_bytes,
+    :dropped_lines
   ]
 
   # ============================================================================
@@ -46,6 +65,15 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, :ok, name: name)
   end
+
+  @doc """
+  Hard cap on a single process's output buffer, in bytes.
+
+  Once exceeded, the oldest complete lines are dropped and the amount is
+  reported by `get_output/2` (`truncated`, `dropped_bytes`, `dropped_lines`).
+  """
+  @spec max_output_bytes() :: pos_integer()
+  def max_output_bytes, do: @max_output_bytes
 
   @doc "Register a new process in the store"
   def register(id, attrs) do
@@ -107,6 +135,16 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
     GenServer.cast(__MODULE__, {:set_port, id, port})
   end
 
+  @doc """
+  Record the pid of the process that streams this entry's output.
+
+  Marks the entry as attached, so the cleanup pass does not mistake a healthy
+  streaming process whose OS pid is not observable for an orphan.
+  """
+  def set_consumer(id, pid) do
+    GenServer.cast(__MODULE__, {:set_consumer, id, pid})
+  end
+
   @doc "Set the erlexec OsPid for an interactive PTY process"
   def set_ospid(id, ospid) do
     GenServer.cast(__MODULE__, {:set_ospid, id, ospid})
@@ -128,24 +166,34 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   end
 
   @impl true
-  def handle_call({:register, id, attrs}, _from, state) do
-    entry = %__MODULE__{
-      id: id,
-      pid: attrs[:pid],
-      command: attrs[:command],
-      output: "",
-      exit_code: nil,
-      started_at: DateTime.utc_now(),
-      last_read_at: now(),
-      working_dir: attrs[:working_dir],
-      status: :running,
-      port: attrs[:port],
-      interactive: attrs[:interactive] || false,
-      backend: attrs[:backend] || :port,
-      ospid: attrs[:ospid]
-    }
+  def handle_call({:register, id, attrs}, {caller, _ref}, state) do
+    # A caller whose `register` call already timed out is dead; registering for
+    # it would leave an entry nothing ever drives (it sits in
+    # `list_managed_processes` as `running` with no pid). Refuse instead.
+    if Process.alive?(caller) do
+      entry = %__MODULE__{
+        id: id,
+        pid: attrs[:pid],
+        command: attrs[:command],
+        output: "",
+        exit_code: nil,
+        started_at: DateTime.utc_now(),
+        last_read_at: now(),
+        working_dir: attrs[:working_dir],
+        status: :running,
+        port: attrs[:port],
+        interactive: attrs[:interactive] || false,
+        backend: attrs[:backend] || :port,
+        ospid: attrs[:ospid],
+        consumer: nil,
+        dropped_bytes: 0,
+        dropped_lines: 0
+      }
 
-    {:reply, {:ok, entry}, Map.put(state, id, entry)}
+      {:reply, {:ok, entry}, Map.put(state, id, entry)}
+    else
+      {:reply, {:error, :caller_gone}, state}
+    end
   end
 
   @impl true
@@ -187,7 +235,10 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
             output: sliced,
             total_lines: total_lines,
             exit_code: entry.exit_code,
-            status: entry.status
+            status: entry.status,
+            truncated: entry.dropped_bytes > 0,
+            dropped_bytes: entry.dropped_bytes,
+            dropped_lines: entry.dropped_lines
           }}, new_state}
     end
   end
@@ -271,7 +322,7 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   def handle_cast({:append_output, id, data}, state) do
     state =
       update_entry(state, id, fn entry ->
-        %{entry | output: entry.output <> data, last_read_at: now()}
+        entry |> append_capped(data) |> Map.put(:last_read_at, now())
       end)
 
     {:noreply, state}
@@ -347,14 +398,27 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
   end
 
   @impl true
+  def handle_cast({:set_consumer, id, pid}, state) do
+    state =
+      update_entry(state, id, fn entry ->
+        %{entry | consumer: pid}
+      end)
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(:cleanup, state) do
     cutoff = now() - @max_age_ms
     finished_cutoff = now() - @finished_ttl_ms
 
+    now_dt = DateTime.utc_now()
+
     {to_remove, to_keep} =
       Enum.split_with(state, fn {_id, entry} ->
         is_nil(entry) or entry.last_read_at < cutoff or
-          (finished?(entry) and entry.last_read_at < finished_cutoff)
+          (finished?(entry) and entry.last_read_at < finished_cutoff) or
+          orphaned?(entry, now_dt)
       end)
 
     if length(to_remove) > 0 do
@@ -410,6 +474,54 @@ defmodule Exhub.MCP.Desktop.ProcessStore do
 
   defp finished?(%{status: status}), do: status in [:completed, :terminated, :error]
   defp finished?(_entry), do: false
+
+  # A `:running` entry with no attached consumer, port, ospid or pid this long
+  # after registration never got a child (its owning request died between
+  # `register` and the launcher's handshake).
+  defp orphaned?(%{status: :running} = entry, now_dt) do
+    entry.consumer == nil and entry.port == nil and entry.ospid == nil and
+      entry.pid == nil and is_struct(entry.started_at, DateTime) and
+      DateTime.diff(now_dt, entry.started_at, :millisecond) > @orphan_running_ms
+  end
+
+  defp orphaned?(_entry, _now_dt), do: false
+
+  # Bounded append: see the moduledoc. Dropping whole lines keeps offsets in
+  # `get_output/2` meaningful (they index the retained transcript).
+  defp append_capped(entry, data) do
+    output = entry.output <> data
+    size = byte_size(output)
+
+    if size > @max_output_bytes do
+      {dropped, kept} = drop_head(output, size - @max_output_bytes)
+
+      %{
+        entry
+        | output: kept,
+          dropped_bytes: entry.dropped_bytes + byte_size(dropped),
+          dropped_lines: entry.dropped_lines + count_newlines(dropped)
+      }
+    else
+      %{entry | output: output}
+    end
+  end
+
+  # Drops at least `excess` bytes from the front, cutting at a newline so the
+  # retained buffer still starts on a whole line. One line longer than the cap
+  # has no boundary to cut at, so it is trimmed byte-wise.
+  defp drop_head(output, excess) do
+    size = byte_size(output)
+
+    case :binary.match(output, "\n", scope: {excess, size - excess}) do
+      {pos, 1} ->
+        {binary_part(output, 0, pos + 1), binary_part(output, pos + 1, size - pos - 1)}
+
+      :nomatch ->
+        {binary_part(output, 0, excess), binary_part(output, excess, size - excess)}
+    end
+  end
+
+  defp count_newlines(binary), do: length(:binary.matches(binary, "\n"))
 
   defp update_entry(state, id, fun) do
     case Map.get(state, id) do

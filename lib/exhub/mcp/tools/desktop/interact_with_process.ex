@@ -166,7 +166,10 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
                       "total_lines" => result.total_lines,
                       "status" => to_string(result.status),
                       "exit_code" => result.exit_code,
-                      "has_more" => has_more
+                      "has_more" => has_more,
+                      "truncated" => result.truncated,
+                      "dropped_bytes" => result.dropped_bytes,
+                      "dropped_lines" => result.dropped_lines
                     })
 
                   {:error, :not_found} ->
