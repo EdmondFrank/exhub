@@ -15,7 +15,7 @@ defmodule Exhub.MCP.Tools.Desktop.SshPtyE2ETest do
 
   use ExUnit.Case, async: false
 
-  alias Exhub.MCP.Tools.Desktop.StartProcess
+  alias Exhub.MCP.Tools.Desktop.ExecuteCommand
   alias Exhub.MCP.Tools.Desktop.InteractWithProcess
   alias Exhub.MCP.Tools.Desktop.ReadProcessOutput
   alias Exhub.MCP.Tools.Desktop.KillProcess
@@ -39,13 +39,21 @@ defmodule Exhub.MCP.Tools.Desktop.SshPtyE2ETest do
     start_process_store()
 
     # Create a temp directory for the SSH key pair (avoids polluting ~/.ssh)
-    tmp_dir = Path.join(System.tmp_dir!(), "exhub_ssh_test_#{System.unique_integer([:positive, :monotonic])}")
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "exhub_ssh_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
     File.mkdir_p!(tmp_dir)
 
     try do
       # Generate a dedicated key pair in the temp directory
       key_path = Path.join(tmp_dir, "id_ed25519")
-      {_output, 0} = System.cmd("ssh-keygen", ["-t", "ed25519", "-f", key_path, "-N", "", "-q", "-C", @marker])
+
+      {_output, 0} =
+        System.cmd("ssh-keygen", ["-t", "ed25519", "-f", key_path, "-N", "", "-q", "-C", @marker])
+
       pub_key = String.trim(File.read!(key_path <> ".pub"))
 
       # Add the public key to authorized_keys with a unique marker comment
@@ -93,12 +101,12 @@ defmodule Exhub.MCP.Tools.Desktop.SshPtyE2ETest do
     frame = %{}
 
     {:reply, resp, ^frame} =
-      StartProcess.execute(
+      ExecuteCommand.execute(
         %{command: ssh_cmd, interactive: true, pty: true, working_dir: @project_dir},
         frame
       )
 
-    refute resp.isError, "start_process failed: #{inspect(resp.content)}"
+    refute resp.isError, "execute_command failed: #{inspect(resp.content)}"
     process_id = extract_field(resp, "process_id")
     assert process_id, "No process_id in response"
 
@@ -134,12 +142,12 @@ defmodule Exhub.MCP.Tools.Desktop.SshPtyE2ETest do
     frame = %{}
 
     {:reply, resp, ^frame} =
-      StartProcess.execute(
+      ExecuteCommand.execute(
         %{command: ssh_cmd, interactive: true, pty: true, working_dir: @project_dir},
         frame
       )
 
-    refute resp.isError, "start_process failed: #{inspect(resp.content)}"
+    refute resp.isError, "execute_command failed: #{inspect(resp.content)}"
     process_id = extract_field(resp, "process_id")
     assert process_id, "No process_id in response"
 
@@ -156,6 +164,7 @@ defmodule Exhub.MCP.Tools.Desktop.SshPtyE2ETest do
       )
 
     refute resp.isError
+
     assert extract_field(resp, "auto_newline") == true,
            "Expected auto_newline=true for PTY process"
 

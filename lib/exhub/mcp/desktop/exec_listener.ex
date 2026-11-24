@@ -10,7 +10,7 @@ defmodule Exhub.MCP.Desktop.ExecListener do
 
   The listener is deliberately **not** linked to, and does **not** monitor, the
   process that spawned it. That process is Anubis's transient `tools/call` task,
-  which exits as soon as `start_process` returns; monitoring it (as this module
+  which exits as soon as `execute_command` returns; monitoring it (as this module
   used to) meant the child was stopped microseconds after it started — every
   `pty: true` process died instantly and captured no output.
 

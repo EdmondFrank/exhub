@@ -841,7 +841,7 @@ x-include-tools: read_file,write_file,list_directory
 **Exclude sensitive tools:**
 ```
 POST /desktop/mcp
-x-exclude-tools: execute_command,start_process,kill_process
+x-exclude-tools: execute_command,kill_process
 
 {"method": "tools/list"}
 ```
@@ -867,7 +867,7 @@ A client that knows the repository root sends `x-project-dir` on every request;
 `Exhub.MCP.ServerHelpers.request_cwd/1` validates it (absolute, existing
 directory, otherwise `:error` — never guessed) and the desktop tools use it:
 
-- `execute_command` / `start_process` take it as the default `working_dir` and
+- `execute_command` takes it as the default `working_dir` and
   echo the effective directory back as `cwd`; the Smart Decide
   `WorkingDir.needs_working_dir?/1` gate is only consulted when the header is
   absent.

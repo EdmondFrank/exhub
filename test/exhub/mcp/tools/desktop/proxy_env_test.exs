@@ -1,6 +1,7 @@
 defmodule Exhub.MCP.Tools.Desktop.ProxyEnvTest do
   use ExUnit.Case, async: false
 
+  alias Exhub.MCP.Desktop.ProcessStore
   alias Exhub.MCP.Desktop.ProxyEnv
   alias Exhub.MCP.Tools.Desktop.ExecuteCommand
 
@@ -847,7 +848,15 @@ defmodule Exhub.MCP.Tools.Desktop.ProxyEnvTest do
   describe "ExecuteCommand integration" do
     setup do
       {:ok, _} = Application.ensure_all_started(:exile)
+      ensure_process_store()
       :ok
+    end
+
+    defp ensure_process_store do
+      case GenServer.whereis(ProcessStore) do
+        nil -> {:ok, _} = GenServer.start(ProcessStore, :ok, name: ProcessStore)
+        _ -> :ok
+      end
     end
 
     # A closed loopback port: a real transport failure (`Failed to connect`),

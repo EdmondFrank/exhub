@@ -26,7 +26,7 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
   def description do
     """
     Send input to an interactive process's stdin. Use for processes started with
-    start_process(interactive: true): REPLs, ssh, TTY programs.
+    execute_command(interactive: true): REPLs, ssh, TTY programs.
 
     Modes: `raw` (default) sends input verbatim; `template` expands `${VAR_NAME}`
     (unset → "") and `` `command` `` (stdout, trailing newlines trimmed) in one
@@ -40,7 +40,7 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
   end
 
   schema do
-    field(:process_id, {:required, :string}, description: "The ID returned by start_process")
+    field(:process_id, {:required, :string}, description: "The ID returned by execute_command")
 
     field(:input, {:required, :string}, description: "The text to send to the process's stdin")
 

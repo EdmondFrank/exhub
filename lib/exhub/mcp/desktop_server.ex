@@ -23,8 +23,7 @@ defmodule Exhub.MCP.DesktopServer do
   - `edit_block`       — Targeted find-and-replace edit within a text file
 
   ### Process / Terminal
-  - `execute_command`  — Run a shell command and return its output (uses Exile)
-  - `start_process`    — Start a long-running command, returns process_id
+  - `execute_command`  — Run a shell command and return its output (uses Exile); one still running after `wait_ms` answers with a process_id
   - `read_process_output` — Read output from a managed process
   - `interact_with_process` — Send input to an interactive process
   - `list_managed_processes` — List all tracked processes
@@ -37,7 +36,7 @@ defmodule Exhub.MCP.DesktopServer do
   ## Safety
 
   Tool calls are gated by `Exhub.MCP.Desktop.CostGuard` before dispatch: a
-  `search_files`/`list_directory`/`execute_command`/`start_process` call that
+  `search_files`/`list_directory`/`execute_command` call that
   would scan the whole home directory or disk (a `~`/`/`/`/Users` path, or a
   `find ~` / `grep -r /` command) is refused up front — deterministically for
   blatant cases, otherwise via a Smart Decide (System One) judgment — so a
@@ -77,7 +76,6 @@ defmodule Exhub.MCP.DesktopServer do
 
   # Process / Terminal tools
   component(Exhub.MCP.Tools.Desktop.ExecuteCommand)
-  component(Exhub.MCP.Tools.Desktop.StartProcess)
   component(Exhub.MCP.Tools.Desktop.ReadProcessOutput)
   component(Exhub.MCP.Tools.Desktop.InteractWithProcess)
   component(Exhub.MCP.Tools.Desktop.ListManagedProcesses)

@@ -19,7 +19,7 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
     Send a signal to terminate a process.
 
     Two modes:
-    1. By managed process_id: Provide the string ID returned by start_process.
+    1. By managed process_id: Provide the string ID returned by execute_command.
        This updates the managed process status and sends a signal to the OS.
     2. By OS pid: Provide an integer process ID to send a signal directly.
 
@@ -33,7 +33,10 @@ defmodule Exhub.MCP.Tools.Desktop.KillProcess do
 
   schema do
     field(:pid, :integer, description: "The OS process ID (integer)")
-    field(:process_id, :string, description: "The managed process ID from start_process (string)")
+
+    field(:process_id, :string,
+      description: "The managed process ID from execute_command (string)"
+    )
 
     field(:force, :boolean,
       description: "If true, send SIGKILL instead of SIGTERM (default false)",

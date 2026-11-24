@@ -361,8 +361,8 @@ config :exhub, Exhub.MCP.Desktop.Search.Relevance,
   query_char_limit: 3200,
   fallback: true
 
-# Desktop shell tools (`execute_command`, `start_process`): decide whether a
-# command requires a `working_dir` before running it in the server's cwd.
+# Desktop shell tool (`execute_command`): decide whether a command requires a
+# `working_dir` before running it in the server's cwd.
 # Commands that specify their own location (absolute/~ paths, or `cd`) are
 # resolved locally; every other command is judged by a Smart Decide (System One)
 # `noul` question, with the deterministic `Exhub.MCP.Desktop.Helpers` heuristic
@@ -380,8 +380,8 @@ config :exhub, Exhub.MCP.Desktop.WorkingDir,
   cache_ttl_ms: 60_000,
   cache_limit: 2000
 
-# Desktop cost gate (`search_files`, `list_directory`, `execute_command`,
-# `start_process`): refuse a call before it runs when it looks set to scan the
+# Desktop cost gate (`search_files`, `list_directory`, `execute_command`):
+# refuse a call before it runs when it looks set to scan the
 # whole home directory or disk (a `~`/`/`/`/Users` path, or a `find ~` /
 # `grep -r /` command). Blatant cases are refused deterministically; the rest
 # are judged by a Smart Decide (System One) `noul` question, and a failed/disabled
@@ -405,11 +405,11 @@ config :exhub, Exhub.MCP.Desktop.CostGuard,
   timeout: 30_000,
   cache_ttl_ms: 60_000,
   cache_limit: 2000,
-  guarded_tools: ~w(search_files list_directory execute_command start_process),
+  guarded_tools: ~w(search_files list_directory execute_command),
   always_allow: []
 
 # Desktop secret gate (`read_file`, `read_multiple_files`, `search_files`,
-# `execute_command`, `start_process`): refuse a call before it runs when it looks
+# `execute_command`): refuse a call before it runs when it looks
 # set to expose a secret — a credential, private key, envless vault value, or a
 # production/release config — into the tool result. Blatant cases (the `envless`
 # value-printing CLI, an environment dump, a `.env`/key/`secrets/` path,
@@ -437,7 +437,7 @@ config :exhub, Exhub.MCP.Desktop.SecretGuard,
   timeout: 30_000,
   cache_ttl_ms: 60_000,
   cache_limit: 2000,
-  guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
+  guarded_tools: ~w(read_file read_multiple_files execute_command search_files),
   always_allow: []
 
 # Network counterpart of the working-dir gate: after a failed outbound command,
@@ -445,7 +445,7 @@ config :exhub, Exhub.MCP.Desktop.SecretGuard,
 # variables in the child's environment only (never persisted).
 #   - `enabled`: master switch (off ⇒ the tool never retries or touches env)
 #   - `mode`: `:on_fail` (default; judge only after a proxy-shaped failure) or
-#     `:pre` (also pre-inject for `start_process`, which cannot observe output)
+#     `:pre` (also pre-inject for the non-blocking path, which cannot observe output)
 #   - `proxy_url`: the candidate proxy; when unset, an exported HTTPS_PROXY is
 #     used, then `fallback_proxies` (a live local proxy such as Clash)
 #   - `fallback_proxies`: loopback candidates, each TCP-probed before use

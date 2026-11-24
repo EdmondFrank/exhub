@@ -2,7 +2,7 @@ defmodule Exhub.MCP.Tools.Desktop.TerminateProcess do
   @moduledoc """
   MCP Tool: terminate_process
 
-  Terminate a managed process started with start_process.
+  Terminate a managed process started by execute_command.
   """
 
   alias Anubis.Server.Response
@@ -16,19 +16,19 @@ defmodule Exhub.MCP.Tools.Desktop.TerminateProcess do
   @impl true
   def description do
     """
-    Terminate a managed process started with start_process.
+    Terminate a managed process started by execute_command.
 
     Sends SIGTERM to the process. If the process doesn't exit within the
     timeout, it can be force-killed with kill_process using the system PID.
 
     Parameters:
-    - process_id: The process ID returned by start_process
+    - process_id: The process ID returned by execute_command
     """
   end
 
   schema do
     field(:process_id, {:required, :string},
-      description: "The process ID returned by start_process"
+      description: "The process ID returned by execute_command"
     )
   end
 

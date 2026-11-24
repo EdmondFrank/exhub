@@ -3,7 +3,7 @@ defmodule Exhub.MCP.Desktop.PortListener do
   Listens for output from an Erlang port and forwards it to ProcessStore.
 
   This module is spawned as a separate process to receive messages from
-  interactive ports started with start_process(interactive: true).
+  interactive ports started with execute_command(interactive: true).
   """
 
   require Logger

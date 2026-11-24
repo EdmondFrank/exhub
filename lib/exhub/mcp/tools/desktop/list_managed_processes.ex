@@ -18,7 +18,7 @@ defmodule Exhub.MCP.Tools.Desktop.ListManagedProcesses do
     """
     List all processes currently being tracked by the Desktop MCP server.
 
-    Returns a list of processes started with start_process, including their
+    Returns a list of processes started by execute_command and still running, including their
     IDs, commands, status, and metadata. Processes are automatically cleaned
     up after 1 hour of inactivity.
 

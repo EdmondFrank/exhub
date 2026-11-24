@@ -93,11 +93,6 @@ defmodule Exhub.MCP.Tools.Desktop.CostGuardTest do
       end
     end
 
-    test "start_process is gated like execute_command" do
-      assert {:refuse, _} =
-               CostGuard.check("start_process", %{"command" => "rg foo /"}, enabled: false)
-    end
-
     test "broad_path? and broad_command? expose the pure heuristics" do
       assert CostGuard.broad_path?("~")
       assert CostGuard.broad_path?("/")

@@ -3,8 +3,8 @@ defmodule Exhub.MCP.Desktop.CostGuard do
   Pre-emptively interrupts Desktop tool calls that would scan a very large
   portion of the filesystem — the whole home directory or the entire disk.
 
-  A `search_files`, `list_directory`, `execute_command` or `start_process`
-  invocation is cheap when it is scoped to a project directory, but pathological
+  A `search_files`, `list_directory` or `execute_command` invocation is cheap
+  when it is scoped to a project directory, but pathological
   when it targets `~`, `/`, `/Users` or a whole-disk scan command (`find /`,
   `grep -r /…`, `du -s ~`, `mdfind`, …). Those calls can run for minutes, spin
   the disk, and burn the tool's entire timeout. This guard refuses them *before*
@@ -59,7 +59,7 @@ defmodule Exhub.MCP.Desktop.CostGuard do
     timeout: 30_000,
     cache_ttl_ms: 60_000,
     cache_limit: 2_000,
-    guarded_tools: ~w(search_files list_directory execute_command start_process),
+    guarded_tools: ~w(search_files list_directory execute_command),
     always_allow: []
   ]
 
@@ -342,7 +342,7 @@ defmodule Exhub.MCP.Desktop.CostGuard do
     broad_path?(arguments["path"]) and recursive_depth?(arguments["depth"])
   end
 
-  defp fast_refuse?(tool, arguments) when tool in ["execute_command", "start_process"] do
+  defp fast_refuse?("execute_command", arguments) do
     broad_command?(arguments["command"])
   end
 

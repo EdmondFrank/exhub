@@ -4,7 +4,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutputTest do
   alias Exhub.MCP.Desktop.ProcessStore
   alias Exhub.MCP.Tools.Desktop.KillProcess
   alias Exhub.MCP.Tools.Desktop.ReadProcessOutput
-  alias Exhub.MCP.Tools.Desktop.StartProcess
+  alias Exhub.MCP.Tools.Desktop.ExecuteCommand
 
   setup do
     ensure_process_store()
@@ -65,9 +65,15 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutputTest do
   end
 
   defp start_lines_process do
+    # A command that finishes inside the wait window answers inline and its
+    # entry is dropped, so keep it alive past `wait_ms` to exercise the store.
     {:reply, resp, _} =
-      StartProcess.execute(
-        %{command: "printf 'l%02d\\n' 1 2 3 4 5 6 7 8 9 10", working_dir: System.tmp_dir!()},
+      ExecuteCommand.execute(
+        %{
+          command: "printf 'l%02d\\n' 1 2 3 4 5 6 7 8 9 10; sleep 0.3",
+          wait_ms: 50,
+          working_dir: System.tmp_dir!()
+        },
         %{}
       )
 

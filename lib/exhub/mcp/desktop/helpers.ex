@@ -140,7 +140,7 @@ defmodule Exhub.MCP.Desktop.Helpers do
   @doc """
   Falls back to the request's project directory when `working_dir` is omitted.
 
-  Keeps `execute_command`/`start_process` usable from a client that sends
+  Keeps `execute_command` usable from a client that sends
   `x-project-dir`, without forcing a wasted round trip to learn the directory.
   Returns `nil` when neither an explicit directory nor a header is available, so
   the caller's existing "missing working_dir" gate still applies.

@@ -61,7 +61,7 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
     timeout: 30_000,
     cache_ttl_ms: 60_000,
     cache_limit: 2_000,
-    guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
+    guarded_tools: ~w(read_file read_multiple_files execute_command search_files),
     always_allow: [],
     vault_roots: nil
   ]
@@ -397,7 +397,7 @@ defmodule Exhub.MCP.Desktop.SecretGuard do
 
   # --- Fast path ---
 
-  defp fast_refuse?(tool, arguments, opts) when tool in ["execute_command", "start_process"] do
+  defp fast_refuse?("execute_command", arguments, opts) do
     secret_command?(arguments["command"], opts)
   end
 

@@ -1,7 +1,7 @@
 defmodule Exhub.MCP.Desktop.WorkingDir do
   @moduledoc """
   Decides whether a shell command requires a `working_dir`, so the Desktop
-  `execute_command` and `start_process` tools require one only when it actually
+  The `execute_command` tool requires one only when it actually
   matters.
 
   The decision is layered:

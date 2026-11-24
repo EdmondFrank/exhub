@@ -18,7 +18,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
     """
     Read output from a previously started process.
 
-    Returns the stdout/stderr output from a process started with start_process.
+    Returns the stdout/stderr output from a process started by execute_command.
     Use the offset parameter to read incrementally (for polling long-running
     commands). The process status and exit code are also returned.
 
@@ -28,7 +28,7 @@ defmodule Exhub.MCP.Tools.Desktop.ReadProcessOutput do
 
   schema do
     field(:process_id, {:required, :string},
-      description: "The process ID returned by start_process"
+      description: "The process ID returned by execute_command"
     )
 
     field(:offset, :integer,

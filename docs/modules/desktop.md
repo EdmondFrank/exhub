@@ -486,6 +486,85 @@ The `context` field shows `context_lines` before and after each match:
 
 ---
 
+### execute_command
+
+Runs a shell command in a login shell as a tracked process. The default is
+non-blocking: the call waits up to `wait_ms` for the command to finish, then
+answers with either the result or a `process_id` the other process tools accept.
+This one tool replaces the former `execute_command` / `start_process` split.
+
+**Parameters**
+
+| Name          | Type    | Required   | Default     | Description                                                                 |
+|---------------|---------|------------|-------------|-----------------------------------------------------------------------------|
+| `command`     | string  | yes        | —           | The shell command to execute                                                |
+| `working_dir` | string  | see below  | —           | Working directory; falls back to the request's `x-project-dir` header       |
+| `async`       | boolean | no         | `true`      | Return once `wait_ms` elapses instead of blocking                           |
+| `wait_ms`     | integer | no         | `5000`      | How long to wait for completion in async mode                               |
+| `timeout_ms`  | integer | no         | `30000`     | Blocking-mode timeout; the command is killed at it. Passing it without `async` implies `async: false` |
+| `interactive` | boolean | no         | `false`     | Keep stdin open for `interact_with_process`                                 |
+| `pty`         | boolean | no         | `interactive` | Allocate a PTY (requires `interactive: true`)                             |
+
+**Return Value — finished inside the wait window**
+
+| Field       | Type    | Description                                  |
+|-------------|---------|----------------------------------------------|
+| `exit_code` | integer | Exit status                                  |
+| `stdout`    | string  | Captured stdout; omitted when empty          |
+| `stderr`    | string  | Captured stderr; omitted when empty          |
+| `cwd`       | string  | The directory the command actually ran in    |
+
+The process is removed from the store when its result is delivered inline, so it
+does not linger in `list_managed_processes`.
+
+**Return Value — still running after `wait_ms`** (a normal response, not an error)
+
+| Field       | Type    | Description                                                             |
+|-------------|---------|-------------------------------------------------------------------------|
+| `process_id`| string  | Pass to `read_process_output`, `interact_with_process`, `kill_process`   |
+| `pid`       | integer | The child's real OS pid                                                 |
+| `status`    | string  | `"running"`                                                             |
+| `waited_ms` | integer | The wait window that elapsed                                            |
+| `stdout`    | string  | Output captured so far, tail-capped at 8000 bytes                       |
+| `stderr`    | string  | Output captured so far, tail-capped at 8000 bytes                       |
+| `hint`      | string  | How to follow the process                                               |
+
+Non-interactive output is buffered in the process store (stdout and stderr
+merged), so `read_process_output` returns its continuation plus the transcript
+captured up to that point.
+
+**Return Value — `interactive: true`**
+
+`process_id`, `pid`, `status: "running"`, `interactive`, `pty`, `backend` and a
+`hint`. The reply is immediate; the process waits for input.
+
+**Error Cases**
+
+- `"Missing required parameter: command"`
+- `"Missing required parameter: working_dir. ..."` — see the working-directory gate
+- `"pty: true requires interactive: true. ..."`
+- `"Failed to start process: <reason>"` — the port/PTY backend refused to start
+- `"Command timed out after <n>ms. Partial output captured before termination:\n<TOON>"` — `async: false` only
+- `"Command execution failed: <reason>"` — the child could not be streamed
+
+**Examples**
+
+```bash
+# Short command: the result comes back inline
+execute_command(command="git status", working_dir="/repo")
+# → exit_code: 0, stdout: "..."
+
+# Long command: the reply says it is still running
+execute_command(command="mix test", working_dir="/repo", wait_ms=5000)
+# → process_id: "proc_…", status: running, stdout: "<partial>"
+read_process_output(process_id="proc_…", offset=0)
+
+# Historical blocking behaviour
+execute_command(command="mix test", async=false, timeout_ms=30000)
+```
+
+---
+
 ### interact_with_process
 
 Sends input to an interactive process's stdin. Use this to interact with REPLs, interactive shells, or any process that requires user input.
@@ -494,7 +573,7 @@ Sends input to an interactive process's stdin. Use this to interact with REPLs, 
 
 | Name            | Type    | Required | Default | Description                                                                  |
 |-----------------|---------|----------|---------|------------------------------------------------------------------------------|
-| `process_id`    | string  | yes      | —       | The process ID returned by `start_process`                                   |
+| `process_id`    | string  | yes      | —       | The process ID returned by `execute_command` (still running)                 |
 | `input`         | string  | yes      | —       | The text to send to the process's stdin                                      |
 | `mode`          | string  | no       | `"raw"` | `"raw"` (send as-is) or `"template"` (expand `${VAR}` and `` `command` ``)    |
 | `wait_seconds`  | integer | no       | `2`     | Seconds to wait after sending before returning; `0` returns immediately      |
@@ -552,7 +631,7 @@ echoed back in `input_sent`, and it is masked (`[redacted]`) in the returned
 
 ```bash
 # Start an interactive shell with a PTY (auto_newline defaults to true)
-start_process(command="sh", interactive=true)
+execute_command(command="sh", interactive=true)
 # Returns: {"process_id": "proc_123_456", "pid": 12345, "interactive": true, "pty": true, "backend": "erlexec"}
 
 # Send a command (the newline is appended automatically for PTY processes)
@@ -564,13 +643,13 @@ interact_with_process(process_id="proc_123_456", input="echo hi")
 
 ### terminate_process
 
-Terminates a managed process started with `start_process`. Sends SIGTERM to the process.
+Terminates a managed process started by `execute_command`. Sends SIGTERM to the process.
 
 **Parameters**
 
 | Name         | Type   | Required | Default | Description                                |
 |--------------|--------|----------|---------|--------------------------------------------|
-| `process_id` | string | yes      | —       | The process ID returned by `start_process` |
+| `process_id` | string | yes      | —       | The process ID returned by `execute_command` |
 
 **Return Value (success)**
 
@@ -586,7 +665,8 @@ Terminates a managed process started with `start_process`. Sends SIGTERM to the 
 
 ### Process lifecycle, backends and PIDs
 
-`start_process` chooses one of three backends:
+`execute_command` chooses one of three backends (only the Exile backend is ever
+waited on; the interactive backends answer immediately):
 
 | `interactive` | `pty`   | Backend     | Used for                                                                 |
 |---------------|---------|-------------|--------------------------------------------------------------------------|
@@ -602,7 +682,9 @@ Terminates a managed process started with `start_process`. Sends SIGTERM to the 
 - **PTY listeners are not tied to the request.** Anubis runs each `tools/call`
   in a transient task; the erlexec listener therefore lives exactly as long as
   its child instead of monitoring that task (which killed every PTY process
-  immediately after `start_process` returned).
+  immediately after `execute_command` returned).
+- A command that finished inside the wait window is removed as soon as its
+  result is returned; a process that outlived the window stays readable.
 - A finished entry (`completed`/`terminated`/`error`) is pruned after 10 minutes;
   any entry is dropped after 1 hour of inactivity. `read_process_output` and
   `interact_with_process` reset that idle timer.
@@ -701,8 +783,8 @@ The following shells are automatically detected and use appropriate flags:
 
 The custom shell configuration applies to:
 
-- `execute_command` — Executes shell commands with the configured shell
-- `start_process` — Starts long-running processes with the configured shell
+- `execute_command` — Executes shell commands (and long-running managed
+  processes) with the configured shell
 - `search_files` — Uses the configured shell for grep fallback operations
 
 ### Examples
@@ -762,7 +844,7 @@ because Anubis runs every `tools/call` in a transient task.
 
 ### Working-directory gate — `Exhub.MCP.Desktop.WorkingDir`
 
-Decides whether `execute_command` / `start_process` must be given `working_dir`.
+Decides whether `execute_command` must be given `working_dir`.
 
 1. A command that names its own location (absolute / `~` path, or a `cd` into
    one) is resolved locally and never needs one.
@@ -849,9 +931,9 @@ and die with it, and the command string is never rewritten. `HTTPS_PROXY`,
 lower-case, because curl, git, Go, npm and apt each read a different
 convention.
 
-`start_process` returns before its child produces output, so it cannot observe
-a failure: it reuses the verdict `execute_command` already recorded for the
-same command (`cached_additions/1`), or inherits the environment untouched.
+A non-blocking run returns before its child produces output, so it cannot
+observe a failure: it reuses the verdict a blocking run of the same command
+already recorded (`cached_additions/1`), or inherits the environment untouched.
 
 ### The HTTP counterpart — `Exhub.MCP.WebTools.Proxy`
 
@@ -880,8 +962,8 @@ such a host in front of the model deliberately). See
 
 ### Cost gate — `Exhub.MCP.Desktop.CostGuard`
 
-Refuses `search_files` / `list_directory` / `execute_command` / `start_process`
-calls that look set to scan the whole home directory or disk. Blatant targets
+Refuses `search_files` / `list_directory` / `execute_command` calls that look
+set to scan the whole home directory or disk. Blatant targets
 (`~`, `/`, `/Users`; `find ~`, `grep -r /`) are refused locally; the rest are
 judged by one `noul` question, and — because a false refusal here would block
 legitimate work — the gate **fails open**. Verdicts are cached per
@@ -890,7 +972,7 @@ legitimate work — the gate **fails open**. Verdicts are cached per
 ### Secret-exposure gate — `Exhub.MCP.Desktop.SecretGuard`
 
 Refuses `read_file` / `read_multiple_files` / `search_files` /
-`execute_command` / `start_process` calls that look set to expose secrets — a
+`execute_command` calls that look set to expose secrets — a
 credential, private key, envless vault value, or production/release config —
 into the tool result and therefore into the conversation.
 
@@ -924,7 +1006,7 @@ config :exhub, Exhub.MCP.Desktop.SecretGuard,
   enabled: true,
   model: "SemIf-OpenJev-4B",   # task-specific pick; NOT CostGuard's APUS-9B
   threshold: 0.3,             # lower cut buys recall for a security gate
-  guarded_tools: ~w(read_file read_multiple_files execute_command start_process search_files),
+  guarded_tools: ~w(read_file read_multiple_files execute_command search_files),
   always_allow: [],
   vault_roots: nil            # nil ⇒ $ENVLESS_ROOT, else ~/GTD
 ```
@@ -934,7 +1016,7 @@ config :exhub, Exhub.MCP.Desktop.SecretGuard,
 ```elixir
 config :exhub, Exhub.MCP.Desktop.ProxyEnv,
   enabled: true,               # off ⇒ no retry, no probe, no model call
-  mode: :on_fail,              # or :pre (also pre-inject for start_process)
+  mode: :on_fail,              # or :pre (also pre-inject for non-blocking runs)
   proxy_url: nil,              # candidate proxy; nil ⇒ env, then fallbacks
   fallback_proxies: ["http://127.0.0.1:7890", "http://127.0.0.1:1080"],
   no_proxy: [],                # mechanical bypass only (loopback is built in)

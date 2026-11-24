@@ -2,7 +2,7 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
   use ExUnit.Case, async: false
 
   alias Exhub.MCP.Tools.Desktop.InteractWithProcess
-  alias Exhub.MCP.Tools.Desktop.StartProcess
+  alias Exhub.MCP.Tools.Desktop.ExecuteCommand
   alias Exhub.MCP.Desktop.ProcessStore
 
   # ==========================================================================
@@ -20,12 +20,12 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcessTest do
     frame = %{}
 
     {:reply, resp, ^frame} =
-      StartProcess.execute(
+      ExecuteCommand.execute(
         %{command: "cat", interactive: true, pty: false, working_dir: System.tmp_dir!()},
         frame
       )
 
-    refute resp.isError, "start_process failed: #{inspect(resp.content)}"
+    refute resp.isError, "execute_command failed: #{inspect(resp.content)}"
     extract_field(resp, "process_id")
   end
 

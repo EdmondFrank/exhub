@@ -68,6 +68,13 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert {:list, 0} in functions
     end
 
+    test "ProcessLauncher module exists" do
+      assert is_atom(Exhub.MCP.Desktop.ProcessLauncher)
+      functions = Exhub.MCP.Desktop.ProcessLauncher.__info__(:functions)
+      assert {:start, 4} in functions
+      assert {:new_process_id, 0} in functions
+    end
+
     test "ExecListener module exists" do
       assert is_atom(Exhub.MCP.Desktop.ExecListener)
       functions = Exhub.MCP.Desktop.ExecListener.__info__(:functions)
@@ -166,14 +173,6 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert {:execute, 2} in functions
     end
 
-    test "StartProcess module exists" do
-      assert is_atom(Exhub.MCP.Tools.Desktop.StartProcess)
-      functions = Exhub.MCP.Tools.Desktop.StartProcess.__info__(:functions)
-      assert {:name, 0} in functions
-      assert {:description, 0} in functions
-      assert {:execute, 2} in functions
-    end
-
     test "ReadProcessOutput module exists" do
       assert is_atom(Exhub.MCP.Tools.Desktop.ReadProcessOutput)
       functions = Exhub.MCP.Tools.Desktop.ReadProcessOutput.__info__(:functions)
@@ -266,10 +265,6 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert Exhub.MCP.Tools.Desktop.ExecuteCommand.name() == "execute_command"
     end
 
-    test "StartProcess has correct name" do
-      assert Exhub.MCP.Tools.Desktop.StartProcess.name() == "start_process"
-    end
-
     test "ReadProcessOutput has correct name" do
       assert Exhub.MCP.Tools.Desktop.ReadProcessOutput.name() == "read_process_output"
     end
@@ -356,12 +351,6 @@ defmodule Exhub.MCP.DesktopServerTest do
       assert String.length(description) > 0
     end
 
-    test "StartProcess has description" do
-      description = Exhub.MCP.Tools.Desktop.StartProcess.description()
-      assert is_binary(description)
-      assert String.length(description) > 0
-    end
-
     test "ReadProcessOutput has description" do
       description = Exhub.MCP.Tools.Desktop.ReadProcessOutput.description()
       assert is_binary(description)
@@ -400,7 +389,7 @@ defmodule Exhub.MCP.DesktopServerTest do
   end
 
   describe "component count" do
-    test "DesktopServer has 17 component declarations" do
+    test "DesktopServer has 16 component declarations" do
       # Count the component() calls by extracting the module body
       {:ok, content} = File.read("lib/exhub/mcp/desktop_server.ex")
 
@@ -409,8 +398,8 @@ defmodule Exhub.MCP.DesktopServerTest do
         |> String.split("\n")
         |> Enum.count(&String.contains?(&1, "component("))
 
-      assert component_count == 17,
-             "Expected 17 component() declarations, got #{component_count}"
+      assert component_count == 16,
+             "Expected 16 component() declarations, got #{component_count}"
     end
   end
 end

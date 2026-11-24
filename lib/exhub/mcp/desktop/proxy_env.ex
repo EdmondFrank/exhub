@@ -537,11 +537,11 @@ defmodule Exhub.MCP.Desktop.ProxyEnv do
   @doc """
   Additions from a verdict already reached for this exact `command`.
 
-  `start_process` returns before its child produces output and therefore cannot
-  observe a failure, so it reuses the verdict `execute_command` recorded rather
-  than making its own model call. In `:pre` mode it instead builds the
-  environment straight from the configured proxy (no model call), and returns
-  `[]` when there is nothing to inject.
+  A command's non-blocking run returns before its child produces output and
+  therefore cannot observe a failure, so it reuses the verdict a blocking run of
+  the same command recorded rather than making its own model call. In `:pre`
+  mode it instead builds the environment straight from the configured proxy (no
+  model call), and returns `[]` when there is nothing to inject.
   """
   @spec cached_additions(String.t() | nil) :: [{String.t(), String.t()}]
   def cached_additions(command) when is_binary(command) do
