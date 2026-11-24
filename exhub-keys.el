@@ -55,6 +55,7 @@
 ;;; Code:
 
 (require 'exhub)
+(require 'exhub-gherkin)
 
 (declare-function which-key-add-key-based-replacements "which-key"
                   (key-sequence replacement &rest more))
@@ -178,7 +179,8 @@ A `kbd'-style key sequence.  Set this before enabling
       ("toggle vault mode" "m" exhub-vault-mode)))
     ("document preview" "d"
      (("preview Markdown (posframe)" "p" exhub-preview-markdown)
-      ("preview Markdown in EWW" "w" exhub-preview-markdown-in-eww)))
+      ("preview Markdown in EWW" "w" exhub-preview-markdown-in-eww)
+      ("preview Gherkin feature" "g" exhub-gherkin-preview)))
     ("model" "m"
      (("switch model" "m" exhub-switch-model)
       ("show current model" "c" exhub-model)

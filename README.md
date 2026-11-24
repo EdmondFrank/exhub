@@ -274,6 +274,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-agent        | Emacs client for the Agent Hub (Sagents agent profiles)               | [docs/modules/agent.md](docs/modules/agent.md)               |
 | exhub-translate    | Symbol and region translation utilities                               | [docs/modules/translate.md](docs/modules/translate.md)       |
 | exhub-file         | File operations and posframe Markdown/Mermaid preview                 | [docs/modules/file.md](docs/modules/file.md)                 |
+| exhub-gherkin      | Gherkin `.feature` preview rendered as Org                            | [docs/modules/gherkin.md](docs/modules/gherkin.md)           |
 | exhub-fim          | LLM-powered fill-in-the-middle code completion                        | [docs/modules/fim.md](docs/modules/fim.md)                   |
 | exhub-keep-alive   | macOS Bluetooth connection maintenance                                | [docs/modules/keep-alive.md](docs/modules/keep-alive.md)     |
 | exhub-health-check | URL monitoring with webhook notifications                             | [docs/modules/health-check.md](docs/modules/health-check.md) |
