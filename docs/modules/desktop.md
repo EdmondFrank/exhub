@@ -40,25 +40,48 @@ Reads the contents of a file from the filesystem. Supports both plain text files
 | `path`    | string  | yes      | —       | Absolute path to the file to read                                                            |
 | `offset`  | integer | no       | `0`     | Line number to start reading from (0-based, e.g. 100 skips first 100 lines); text files only |
 | `length`  | integer | no       | `1000`  | Maximum number of lines to read; text files only                                             |
+| `with_lines` | boolean | no       | `false` | Prefix each line with its 1-based file line number (`12\|text`)                                |
+| `since_hash` | string  | no       | —       | A `sha256` from an earlier read; an unchanged file returns metadata only                      |
 | `extract` | boolean | no       | `true`  | Whether to attempt document extraction for non-text files                                    |
 
 **Return Value (success) — Text Files**
 
-| Field         | Type    | Description                          |
-|---------------|---------|--------------------------------------|
-| `path`        | string  | The absolute path that was read      |
-| `offset`      | integer | The offset that was applied          |
-| `lines_read`  | integer | Number of lines actually returned    |
-| `total_lines` | integer | Total lines in the file              |
-| `content`     | string  | The file content (newline-separated) |
+| Field         | Type    | Description                                           |
+|---------------|---------|-------------------------------------------------------|
+| `path`        | string  | The absolute path that was read                       |
+| `offset`      | integer | The offset that was applied                           |
+| `lines_read`  | integer | Number of lines actually returned                     |
+| `total_lines` | integer | Total lines in the file                               |
+| `sha256`      | string  | First 12 hex chars of the file digest                 |
+| `mtime`       | integer | File modification time (Unix seconds)                 |
+| `size`        | integer | File size in bytes                                    |
+| `content`     | string  | The file content (newline-separated, optionally `N\|`-prefixed) |
 
 **Return Value (success) — Document Files**
 
-| Field     | Type   | Description                                  |
-|-----------|--------|----------------------------------------------|
-| `path`    | string | The absolute path that was read              |
-| `content` | string | The extracted text content (Markdown format) |
-| `type`    | string | The detected document type (e.g., `"pdf"`)   |
+| Field        | Type    | Description                                  |
+|--------------|---------|----------------------------------------------|
+| `path`       | string  | The absolute path that was read              |
+| `extraction` | boolean | `true` — content came from an extractor      |
+| `sha256`     | string  | First 12 hex chars of the file digest        |
+| `mtime`      | integer | File modification time (Unix seconds)        |
+| `size`       | integer | File size in bytes                           |
+| `content`    | string  | The extracted text content (Markdown format) |
+
+**Line anchors and unchanged re-reads**
+
+`with_lines: true` labels each returned line with its 1-based file line
+number (`42|`), which is what `edit_block` reports in its errors and what a
+grep hit means. `offset` stays 0-based, so line `N` is read with
+`offset: N - 1`. The prefix is presentation only — never copy it into
+`edit_block`'s `old_string`. A trailing newline terminates the last line rather
+than starting an empty one, so `total_lines` matches the content you see.
+
+Every response carries `sha256` (12 hex chars, `nil` above 8 MB) and `mtime`.
+Pass the digest back as `since_hash` and an unchanged file answers with
+`{path, unchanged: true, sha256, mtime, size}` instead of the content, so a
+re-read costs a few tokens rather than the whole file. A changed file returns
+the normal payload with the new digest.
 
 **Document Extraction Requirements**
 
