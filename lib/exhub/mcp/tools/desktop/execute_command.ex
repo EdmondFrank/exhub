@@ -39,25 +39,18 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
   @impl true
   def description do
     """
-    Execute a shell command and return its output.
+    Run a shell command in a login shell (`sh -l -c`) as a tracked process.
 
-    The command runs in a login shell (sh -l -c) as a managed process. By default
-    (`async: true`) the tool waits up to `wait_ms` milliseconds: if the command
-    finishes in that window, its stdout, stderr and exit code are returned
-    directly. Otherwise the reply carries a `process_id` and `status: running`
-    together with the output captured so far — read the rest with
-    `read_process_output(process_id: ...)` and stop it with `kill_process`.
+    Default (`async: true`) waits up to `wait_ms` (5000 ms). A command that
+    finishes returns `stdout`, `stderr` and `exit_code`; one that does not
+    returns a `process_id` with `status: running` plus the output captured so
+    far — follow it with `read_process_output`, feed it with
+    `interact_with_process`, stop it with `kill_process`.
 
-    Set `async: false` to block up to `timeout_ms` instead; the command is killed
-    at the timeout and the output captured before termination is returned.
-    `timeout_ms` is only honoured in that mode: passing it without `async` keeps
-    the non-blocking default, so use `wait_ms` to widen the async wait.
+    `async: false` blocks up to `timeout_ms` and kills the command there.
+    `interactive: true` keeps stdin open and answers immediately with the id.
 
-    Set `interactive: true` (optionally `pty: true`, the default) to keep stdin
-    open for `interact_with_process`; the call returns immediately with the
-    process id.
-
-    Processes are automatically cleaned up after 1 hour of inactivity.
+    Processes are cleaned up after 1 hour of inactivity.
     """
   end
 
@@ -68,28 +61,26 @@ defmodule Exhub.MCP.Tools.Desktop.ExecuteCommand do
 
     field(:async, :boolean,
       description:
-        "Return once `wait_ms` has elapsed instead of blocking (default true). Set false to block up to `timeout_ms` and kill the command on timeout."
+        "Wait only `wait_ms` then reply with a running process_id (default true). false = block until `timeout_ms`."
     )
 
     field(:wait_ms, :integer,
-      description:
-        "How long to wait for completion before replying with a running process_id (default 5000, async mode only)",
+      description: "How long to wait before replying with a running process_id (default 5000)",
       default: 5_000
     )
 
     field(:timeout_ms, :integer,
       description:
-        "Maximum time to wait when `async: false` (default 30000); the command is killed at the timeout. Ignored when `async` is not false — use `wait_ms` to widen the async wait."
+        "Blocking-mode budget; the command is killed at it (default 30000). Ignored unless `async: false`."
     )
 
     field(:interactive, :boolean,
       default: false,
-      description: "Enable interactive mode for sending input with interact_with_process"
+      description: "Keep stdin open for interact_with_process"
     )
 
     field(:pty, :boolean,
-      description:
-        "Enable PTY support (requires interactive: true). Defaults to true when interactive is true. Use for SSH sessions and TTY-dependent programs."
+      description: "PTY backend for ssh/TTY programs (requires interactive: true)"
     )
   end
 

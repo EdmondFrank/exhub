@@ -25,57 +25,47 @@ defmodule Exhub.MCP.Tools.Desktop.InteractWithProcess do
   @impl true
   def description do
     """
-    Send input to an interactive process's stdin. Use for processes started with
-    execute_command(interactive: true): REPLs, ssh, TTY programs.
+    Send input to an interactive process's stdin — one started with
+    `execute_command(interactive: true)`: REPLs, ssh, TTY programs.
 
-    Modes: `raw` (default) sends input verbatim; `template` expands `${VAR_NAME}`
-    (unset → "") and `` `command` `` (stdout, trailing newlines trimmed) in one
-    left-to-right pass, without re-scanning the result. Substitutions pass the same
-    cost/secret gates as execute_command; when any expansion occurs the value is
-    treated as sensitive — it is not echoed in `input_sent` and is masked out of
-    `output`.
+    `mode: "template"` expands ${VAR_NAME} (unset → "") and `command`
+    substitution in one left-to-right pass. Any expansion makes the input
+    sensitive: it is not echoed in `input_sent` and is masked out of `output`.
 
-    `auto_newline` defaults to true for PTY processes (PTY modes need a newline).
+    `auto_newline` defaults to true for PTY processes.
     """
   end
 
   schema do
-    field(:process_id, {:required, :string}, description: "The ID returned by execute_command")
+    field(:process_id, {:required, :string}, description: "Process ID from execute_command")
 
     field(:input, {:required, :string}, description: "The text to send to the process's stdin")
 
     field(:mode, :string,
       default: "raw",
-      description:
-        "Input processing mode: 'raw' (default, send as-is) or 'template' (expand ${VAR_NAME} and `command` before sending)"
+      description: "'raw' (default, send as-is) or 'template' (expand ${VAR_NAME} and `command`)"
     )
 
     field(:wait_seconds, :integer,
       default: 2,
-      description:
-        "Number of seconds to wait after sending input before returning (default: 2). Set to 0 to return immediately."
+      description: "Seconds to wait for output after sending (default 2; 0 = return immediately)"
     )
 
     field(:return_output, :boolean,
       default: true,
-      description:
-        "Whether to include the process output in the response (default: true). When true, the response includes output, status, exit_code, and total_lines."
+      description: "Include process output in the reply (default true)"
     )
 
     field(:auto_newline, :boolean,
-      description:
-        "Whether to append a newline (\\n) to the input before sending (default: false). Automatically defaults to true for PTY processes. Set to false explicitly to send input without a trailing newline."
+      description: "Append a newline before sending (default false; true for PTY processes)"
     )
 
     field(:offset, :integer,
       default: 0,
-      description: "Line offset to start reading output from (0 = from beginning, default 0)"
+      description: "Output line to start reading from (default 0)"
     )
 
-    field(:length, :integer,
-      default: 1000,
-      description: "Maximum number of output lines to return (default 1000)"
-    )
+    field(:length, :integer, default: 1000, description: "Max output lines (default 1000)")
   end
 
   @impl true

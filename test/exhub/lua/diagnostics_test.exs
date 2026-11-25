@@ -125,5 +125,27 @@ defmodule Exhub.Lua.DiagnosticsTest do
       assert message =~ "UnknownTool: 'nosuch'"
       assert message =~ "retrieve_tools"
     end
+
+    test "a call on a result field is named as such, not as a missing tool" do
+      message =
+        Diagnostics.classify(%Lua.RuntimeException{
+          original: "attempt to call a nil value (global 'content')"
+        })
+
+      assert message =~ "UnknownTool: 'content'"
+      assert message =~ "result field, not a tool"
+      assert message =~ "`r.content[1].text`"
+      refute message =~ "is not available in this sandbox"
+    end
+
+    test "the same hint applies to an indexed field" do
+      message =
+        Diagnostics.classify(%Lua.RuntimeException{
+          original: "attempt to index a nil value (field 'text')"
+        })
+
+      assert message =~ "UnknownTool: 'text'"
+      assert message =~ "result field"
+    end
   end
 end

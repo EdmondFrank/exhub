@@ -93,8 +93,22 @@ defmodule Exhub.Lua.Diagnostics do
     |> classify_runtime()
   end
 
+  # `(<scope> '<name>')` in a Lua runtime error — "global", "local", "field",
+  # "method", "upvalue". One capture group, holding the bare name.
+  @nil_call ~r/attempt to (?:call|index) a nil value \((?:\w+ )?'([^']+)'/
+
+  # Names that are *result* fields rather than tools. `r.content[1].text` is the
+  # canonical payload of an MCP tool result and appears in the `code_mode`
+  # example, so `content(...)` / `r.content.text` is the most common mistake.
+  @result_fields ~w(content text output result value)
+
   defp classify_runtime(message) do
-    case Regex.run(~r/attempt to (?:call|index) a nil value \([^']*'([^']+)'/, message) do
+    case Regex.run(@nil_call, message) do
+      [_, name] when name in @result_fields ->
+        "UnknownTool: '#{name}' is a result field, not a tool. " <>
+          "Read a tool result's payload at `r.content[1].text`; list the real tools " <>
+          "with retrieve_tools({query = '...'})."
+
       [_, name] ->
         "UnknownTool: '#{name}' is not available in this sandbox. " <>
           "Use retrieve_tools({query = '...'}) inside the code to find available tools."

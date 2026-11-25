@@ -52,106 +52,77 @@ defmodule Exhub.MCP.Tools.Desktop.SearchFiles do
   @impl true
   def description do
     """
-    Search a codebase. Three modes, selected with `search_type`:
+    Search a codebase. `search_type` selects the mode:
 
-    - semantic (default): AST-aware BM25 code search over `query`, returning whole
-      code blocks. Supports Elasticsearch syntax (AND/OR/NOT, +required, -excluded,
-      "phrases") and hints (ext:ts, file:src/**/*.py, dir:tests, lang:typescript).
-      Results are relevance-filtered by Smart Decide against `purpose`; set
-      `filter: false` for the raw ranking.
-    - glob: match paths against a `pattern` relative to `path` (`src/**/*.ts`,
-      `*.md`); results are relative to `path`, directories suffixed "/". Hidden and
-      ignored files are excluded unless `include_ignored: true`.
-    - content: match file contents against `pattern`, with `context_lines` of context.
+    - "semantic" (default): AST-aware BM25 over `query` (Elasticsearch syntax,
+      hints like `lang:ts`, `file:src/**/*.py`). Results are relevance-filtered
+      against `purpose`; `filter: false` returns the raw ranking.
+    - "glob": `pattern` matched against paths relative to `path` (`**/*.ts`,
+      `*.md`); directories are suffixed "/".
+    - "content": `pattern` (literal or regex) matched inside files, with
+      `context_lines` around each hit.
 
-    `query` is required for "semantic"; `pattern` for "glob"/"content".
+    `path` may be a directory (searched recursively) or a single file.
     """
   end
 
   schema do
-    field(:path, {:required, :string},
-      description: "Absolute path or ~ shorthand to the directory or file to search in"
-    )
+    field(:path, {:required, :string}, description: "Directory or file to search in")
 
     field(:search_type, :string,
       description: "\"semantic\" (default), \"glob\" or \"content\"",
       default: "semantic"
     )
 
-    field(:query, :string,
-      description:
-        "Semantic search query with Elasticsearch syntax (required for search_type \"semantic\"). Use + for important terms."
-    )
+    field(:query, :string, description: "Semantic query (required for semantic)")
 
     field(:purpose, :string,
-      description:
-        "Natural-language purpose of the semantic search, used by the Smart Decide relevance filter to judge each result. Falls back to `query` when omitted."
+      description: "Purpose used by the relevance filter (falls back to `query`)"
     )
 
     field(:pattern, :string,
-      description:
-        "Required for search_type \"glob\" or \"content\". For \"glob\", a glob pattern relative to `path` (e.g. \"src/**/*.ts\", \"*.md\"); for \"content\", a substring or regex."
+      description: "Glob (glob mode) or literal/regex (content mode); required for both"
     )
 
-    field(:allow_tests, :boolean,
-      description: "Include test files in semantic search results (default false)",
-      default: false
-    )
+    field(:allow_tests, :boolean, description: "Include test files (semantic)", default: false)
 
-    field(:exact, :boolean,
-      description: "Exact (tokenization-free, case-insensitive) semantic search (default false)",
-      default: false
-    )
+    field(:exact, :boolean, description: "Exact token matching (semantic)", default: false)
 
-    field(:max_results, :integer,
-      description:
-        "Maximum number of results to return (default 1000 for glob, 50 for content; optional for semantic)"
-    )
+    field(:max_results, :integer, description: "Max results (glob 1000, content 50)")
 
     field(:max_tokens, :integer,
-      description: "Maximum tokens of code content returned by semantic search (default 5000)",
+      description: "Max code tokens returned (semantic, default 5000)",
       default: @default_max_tokens
     )
 
-    field(:language, :string,
-      description:
-        "Limit semantic search to a programming language (e.g. \"typescript\", \"python\", \"rust\")"
-    )
+    field(:language, :string, description: "Language filter (e.g. \"typescript\")")
 
-    field(:file_pattern, :string,
-      description: "Optional glob pattern to filter files (e.g. \"*.ex\"; content search only)"
-    )
+    field(:file_pattern, :string, description: "Extra file filter (content mode)")
 
-    field(:ignore, {:list, :string},
-      description:
-        "Glob patterns to exclude from glob results (e.g. [\"**/node_modules/**\"]). Ignored files are already excluded unless `include_ignored` is true."
-    )
+    field(:ignore, {:list, :string}, description: "Globs to exclude (glob mode)")
 
     field(:ignore_case, :boolean,
-      description: "Case-insensitive matching for content search (default true)",
+      description: "Case-insensitive matching (content, default true)",
       default: true
     )
 
     field(:include_ignored, :boolean,
-      description:
-        "Include files excluded by .gitignore/.ignore/.rgignore and hidden dotfiles (default false)",
+      description: "Include gitignored and hidden files (default false)",
       default: false
     )
 
     field(:include_dirs, :boolean,
-      description:
-        "Glob search only: include directories in the results (default true). Directories are suffixed with \"/\"; set false for files only.",
+      description: "Include directories in glob results (default true)",
       default: true
     )
 
     field(:context_lines, :integer,
-      description: "Number of context lines around content matches (default 2)",
+      description: "Context lines around each match (content, default 2)",
       default: 2
     )
 
     field(:filter, :boolean,
-      description:
-        "Smart Decide relevance filtering of semantic results (default: true). Set `false` for the raw results"
+      description: "Smart Decide relevance filtering of semantic results (default true)"
     )
   end
 
