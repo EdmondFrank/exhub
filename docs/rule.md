@@ -75,6 +75,8 @@ From `retrieve_tools` results:
 | brain       | Obsidian brain vault operations                                                   |
 | exhub       | Exhub self-management (compile, reload, restart)                                  |
 | mac-use     | macOS native app automation via axcli                                             |
+| nanocua     | macOS computer use via nanocua.app (element refs, JPEG screenshots, policy gates) |
+
 | amap        | Amap map and location services integration                                        |
 | context7    | Pull up-to-date, version-specific documentation and code examples for any library |
 | deepwiki    | Provides up-to-date documentation you can talk to, for every repo in the world    |

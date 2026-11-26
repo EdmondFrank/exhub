@@ -23,6 +23,8 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
 - **Todo Management**: MCP-based multi-tenant todo list management with `set_items`, `get_items`, `update_item_completion` (single item or batch), and `clear_items` tools; backed by an in-memory ETS store with automatic 2-hour TTL expiry.
 - **Desktop Commander**: MCP-based local filesystem and process management — read/write/edit/search files, list directories, execute commands, and manage long-running background processes. Supports document extraction: Office files (`.docx`, `.xlsx`, `.pptx`) via local [nanoxml](https://github.com/justrach/nanoxml) CLI, and PDF/images via Gitee AI (Unlimited-OCR-2 / MinerU2.5-Pro). Exposes 17 tools at `/desktop/mcp`, including `read_multiple_files` for parallel file reading.
 - **Mac-use (Native macOS Automation)**: MCP-based automation of any native macOS application via the Accessibility API, powered by [axcli](https://github.com/andelf/axcli). Explore accessibility trees, click buttons, type text, press keys, scroll, take occlusion-proof screenshots, and control mouse/keyboard — all background-safe (no focus steal). Exposes 17 tools at `/mac-use/mcp`.
+- **Nanocua (macOS Computer Use)**: MCP-based computer use powered by [nanocua](https://github.com/justrach/nanoui/tree/main/apps/nanocua) — a small signed app that owns the Accessibility/Screen Recording grants plus an agents' stdio MCP server (10 tools: `list_apps`, `get_ui_tree`, `screenshot`, `click`, `type_text`, `press_key`, `scroll`, `move_mouse`, `set_value`, `open_app`). Trees come with stable refs and frames, screenshots are occlusion-proof JPEGs with a pixel→point mapping, and input runs in the background behind explicit *Allow input* / *Allow whole screen* / *Stop* switches with an activity log. Registered as an external hub upstream named `nanocua`, so tools appear as `nanocua__*`. See [docs/modules/nanocua.md](docs/modules/nanocua.md).
+
 - **Document Extraction**: MCP-based document text extraction (PDF, DOCX, images, etc.) via Gitee AI Unlimited-OCR-2, supporting both local files and remote URLs. Returns extracted content in Markdown format at `/doc-extract/mcp`.
 - **Smart Decide (System One)**: MCP-based structured decision making via Gitee AI / System One (`APUS-OpenJev-v1-9B`). Evaluates a `state` against typed questions (`noul` yes/no, `choice`, `score`) and returns one answer per question with calibrated probabilities — no free-form text generated. Exposes the `smart_decide` tool at `/smart-decide/mcp`. See [docs/modules/smart-decide.md](docs/modules/smart-decide.md).
 - **ACP Agent MCP Server**: MCP-based bridge to ACP (Agent Communication Protocol) agents like Claude Code, Gemini CLI, OpenCode, and Codex. Spawn, manage, and interact with AI coding agents via MCP tools at `/agent/mcp`. Supports session management, prompts, permission handling, and multi-agent pipelines.
@@ -67,6 +69,18 @@ Exhub is an Elixir-powered enhancement plugin for Emacs, based on WebSocket comm
    cargo install axcli
    ```
    See [docs/modules/mac-use.md](docs/modules/mac-use.md) for full setup instructions.
+
+   **Note**: For Nanocua (`nanocua__*` MCP tools), the `nanocua.app` bundle must
+   be built/installed and granted Accessibility + Screen Recording (the grants
+   belong to the app, not to the terminal), then registered in
+   `~/.config/exhub/mcp_servers.json` as a stdio upstream:
+   ```bash
+   ASDF_ZIG_VERSION=0.17.0 VERSION=0.1.0 \
+     sh apps/nanocua/macos/package.sh aarch64-macos ~/Applications
+   ```
+   See [docs/modules/nanocua.md](docs/modules/nanocua.md) for build, permissions,
+   policy switches and the tool reference.
+
 
    **Quick setup for browser automation:**
    ```bash
@@ -288,6 +302,7 @@ Use the `exhub-send` function to send messages to the Elixir server:
 | exhub-todo         | MCP multi-tenant todo list management with TTL expiry                 | [docs/modules/todo.md](docs/modules/todo.md)                 |
 | exhub-desktop      | MCP desktop commander (filesystem, search, process management)        | [docs/modules/desktop.md](docs/modules/desktop.md)           |
 | exhub-mac-use      | MCP macOS native app automation (accessibility via axcli)             | [docs/modules/mac-use.md](docs/modules/mac-use.md)           |
+| nanocua (ext.)     | MCP macOS computer use via nanocua.app (refs, JPEG screenshots, policy)| [docs/modules/nanocua.md](docs/modules/nanocua.md)           |
 | exhub-doc-extract  | MCP document text extraction (PDF, DOCX, images) via Gitee AI         | [docs/modules/doc-extract.md](docs/modules/doc-extract.md)   |
 | exhub-agent-mcp    | MCP ACP Agent bridge for AI coding agents integration                 | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)       |
 | exhub-vault        | Org-mode password vault (AES-256-GCM encrypted org links)             | [docs/modules/vault.md](docs/modules/vault.md)               |

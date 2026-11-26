@@ -1,5 +1,12 @@
 # Mac-use MCP Server
 
+> **Prefer [`nanocua`](nanocua.md) for computer use.** Nanocua owns its own
+> Accessibility/Screen Recording grants (so screenshots work no matter which
+> agent drives it), returns real JPEGs with a pixel→point mapping, and hands out
+> stable element refs instead of CSS selectors. Keep this server for what
+> nanocua does not cover: `wait`, `scroll_to`, `focus`, `get_attribute`, and a
+> foreground `activate`.
+
 ## Overview
 
 The Mac-use MCP Server provides Playwright/Puppeteer-style control over any native macOS application via the Accessibility API. Explore UI trees, interact with elements, take screenshots, and automate native apps — all from MCP.

@@ -31,6 +31,10 @@ defmodule Exhub.Toonflow.Snapshot do
 
       {:ok, jobs} = Jobs.list(project, [limit: 10], server)
       {:ok, shots} = shots_with_assets(project, name, dir, server)
+      characters = subjects(Assets.list_characters(project, [], server), name, dir, "appearance")
+      scenes = subjects(Assets.list_scenes(project, [], server), name, dir, "description")
+      props = subjects(Assets.list_props(project, [], server), name, dir, "description")
+      assets = gallery(Media.list_assets(project, [], server), name, dir)
 
       {:ok,
        %{
@@ -42,6 +46,10 @@ defmodule Exhub.Toonflow.Snapshot do
          "jobs" => jobs,
          "shots" => shots,
          "cast" => cast(project, server),
+         "characters" => characters,
+         "scenes" => scenes,
+         "props" => props,
+         "assets" => assets,
          "outputs" => outputs(dir),
          "at" => now()
        }}
@@ -212,6 +220,68 @@ defmodule Exhub.Toonflow.Snapshot do
         []
     end
   end
+
+  # --- subject galleries (characters / scenes / props / assets) ---
+
+  # The cast & material tabs read one normalized shape: name + explanatory
+  # text + local media URLs for its reference images.
+  defp subjects({:ok, items}, name, dir, text_key) do
+    Enum.map(items, fn item ->
+      %{
+        "id" => item["id"],
+        "name" => item["name"],
+        "text" => item[text_key],
+        "refs" =>
+          (item["refs"] || [])
+          |> Enum.map(&ref_url(&1, name, dir))
+          |> Enum.reject(&is_nil/1)
+      }
+    end)
+  end
+
+  defp subjects(_error, _name, _dir, _text_key), do: []
+
+  defp ref_url(ref, name, dir) when is_binary(ref) do
+    if String.starts_with?(ref, "http://") or String.starts_with?(ref, "https://") do
+      ref
+    else
+      asset_url(%{"path" => ref}, name, dir)
+    end
+  end
+
+  defp ref_url(ref, name, dir) when is_map(ref), do: asset_url(ref, name, dir)
+  defp ref_url(_ref, _name, _dir), do: nil
+
+  # Every generated asset (character refs, keyframes, frames, clips, audio) in
+  # one newest-first list for the material tab.
+  defp gallery({:ok, assets}, name, dir) do
+    assets
+    # A shot's media can be re-rendered; the material tab shows the newest
+    # version of each (shot, kind), while subject references are all kept.
+    |> Enum.reduce(%{}, fn asset, acc ->
+      key =
+        if asset["shot_id"],
+          do: {asset["shot_id"], asset["kind"]},
+          else: {asset["id"], asset["kind"]}
+
+      Map.put(acc, key, asset)
+    end)
+    |> Map.values()
+    |> Enum.map(fn asset ->
+      %{
+        "id" => asset["id"],
+        "shot_id" => asset["shot_id"],
+        "kind" => asset["kind"],
+        "url" => asset_url(asset, name, dir),
+        "prompt" => asset["prompt"],
+        "created_at" => asset["created_at"]
+      }
+    end)
+    |> Enum.reject(&is_nil(&1["url"]))
+    |> Enum.sort_by(&(&1["created_at"] || ""), :desc)
+  end
+
+  defp gallery(_error, _name, _dir), do: []
 
   # `meta.edited` is stamped by `Storyboard.update_shot/4` with the asset kinds
   # an edit invalidated; grouping them lets the canvas say "clip stale" rather

@@ -475,6 +475,22 @@
 
 ---
 
+## Nanocua — macOS Computer Use (External Hub Upstream)
+
+- **New Upstream**: [`nanocua`](https://github.com/justrach/nanoui/tree/main/apps/nanocua) is registered as an **external stdio MCP server** in `~/.config/exhub/mcp_servers.json` (not an in-process Anubis server), so its tools surface as `nanocua__*` next to the built-in `mac-use__*` ones
+- **Architecture**: `nanocua mcp` is a thin stdio shim; `nanocua.app` owns Accessibility, Screen Recording, the policy and the activity log. Permissions therefore belong to the app, not to the terminal/ExHub host
+- **10 Tools**: `list_apps`, `get_ui_tree`, `screenshot`, `click`, `type_text`, `press_key`, `scroll`, `move_mouse`, `set_value`, `open_app`
+- **Refs, not selectors**: `get_ui_tree` returns one line per element with a `ref`, role, title, value and frame in screen points; refs are stable across consecutive reads and valid until the next tree read
+- **Real screenshots**: app-window JPEG (occlusion-proof, even behind other windows) with an explicit pixel→point mapping; `whole_screen` covers the display or a region
+- **Policy gates**: **Stop** kill switch (⌃⌥⌘.), **Allow input** off at launch, **Allow whole screen** off at launch; denials come back as agent-readable reasons
+- **Measured vs `mac-use`**: Finder tree 400 nodes ≈ 10 k chars (refs + frames) vs axcli snapshot 4 k chars (role+title, no geometry); `mac-use__screenshot` returned an empty `image_base64` on this machine while nanocua captured a 96 KB JPEG
+- **Build**: Zig 0.17 + `apps/nanocua/macos/package.sh aarch64-macos ~/Applications` (ad-hoc signed ⇒ TCC grants must be re-given after each rebuild)
+- **Limits**: Electron/WebView apps (WeChat, Feishu) still expose an almost empty tree; `wait`, `scroll_to`, `focus`, `get_attribute` and foreground `activate` remain `mac-use`-only
+- **License note**: nanocua is codegraff's modified AGPLv3 — keep it an external app, never vendor it
+- **Full Docs**: [docs/modules/nanocua.md](docs/modules/nanocua.md)
+
+---
+
 ## MCP Hub — Built-in Server Integration & Modularization
 
 - **New Feature**: MCP Hub now auto-registers all 14 built-in MCP servers for direct in-process tool execution, bypassing HTTP loopback

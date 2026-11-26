@@ -146,6 +146,28 @@ defmodule Exhub.Router.ToonflowView do
         .outputs li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid #21262d; }
         .conn { font-size: 11px; color: #8b949e; }
         .conn.on { color: #3fb950; }
+        .tabs { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
+        .tabs button { background: #161b22; border: 1px solid #30363d; color: #8b949e; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; }
+        .tabs button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+        .subject-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+        .subject { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
+        .subject img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: #161b22; display: block; cursor: zoom-in; }
+        .subject .body { padding: 10px; }
+        .subject .name { font-weight: 600; color: #e6edf3; font-size: 14px; }
+        .subject .text { color: #8b949e; font-size: 12px; line-height: 1.45; margin-top: 4px; max-height: 9em; overflow: auto; }
+        .subject .noref { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; color: #6e7681; font-size: 12px; background: #161b22; }
+        .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+        .asset { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+        .asset img, .asset video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #161b22; }
+        .asset img { cursor: zoom-in; }
+        .asset .meta { padding: 6px 8px; font-size: 11px; color: #8b949e; display: flex; justify-content: space-between; gap: 6px; }
+        .asset .meta .kind { color: #79c0ff; }
+        .lightbox { position: fixed; inset: 0; background: #000c; display: none; align-items: center; justify-content: center; z-index: 100; padding: 24px; }
+        .lightbox.on { display: flex; }
+        .lightbox img, .lightbox video { max-width: 92vw; max-height: 88vh; border-radius: 10px; }
+        .lightbox .close { position: absolute; top: 14px; right: 22px; font-size: 30px; color: #fff; cursor: pointer; line-height: 1; }
       </style>
     </head>
     <body data-project="#{escaped}">
@@ -162,6 +184,12 @@ defmodule Exhub.Router.ToonflowView do
         </div>
       </header>
       <div class="wrap">
+        <div class="tabs">
+          <button class="tab active" data-tab="storyboard">分镜</button>
+          <button class="tab" data-tab="cast">角色 &amp; 场景</button>
+          <button class="tab" data-tab="assets">物料</button>
+        </div>
+        <section class="tab-pane active" id="tab-storyboard">
         <div class="layout">
           <aside class="panel rail">
             <h2>Stages</h2>
@@ -190,7 +218,17 @@ defmodule Exhub.Router.ToonflowView do
             <ul id="outputs" class="outputs"></ul>
           </aside>
         </div>
+        </section>
+        <section class="tab-pane" id="tab-cast">
+          <div class="panel"><h2>角色</h2><div id="cast-characters" class="subject-grid"></div></div>
+          <div class="panel" style="margin-top:12px"><h2>场景</h2><div id="cast-scenes" class="subject-grid"></div></div>
+          <div class="panel" style="margin-top:12px"><h2>道具</h2><div id="cast-props" class="subject-grid"></div></div>
+        </section>
+        <section class="tab-pane" id="tab-assets">
+          <div class="panel"><h2>物料</h2><div id="asset-grid" class="asset-grid"></div></div>
+        </section>
       </div>
+      <div id="lightbox" class="lightbox"><span class="close" onclick="document.getElementById('lightbox').classList.remove('on')">×</span><div id="lightbox-body"></div></div>
       <script>
         #{project_script()}
       </script>
@@ -302,6 +340,12 @@ defmodule Exhub.Router.ToonflowView do
     const AI_FIELDS = #{Jason.encode!(Exhub.Toonflow.ShotAssist.fields())};
     const AI_ACTIONS = #{Jason.encode!(Enum.map(Exhub.Toonflow.ShotAssist.actions(), &[&1, Exhub.Toonflow.ShotAssist.action_label(&1)]))};
     const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0, live: {} };
+
+    // Tabs: 分镜 (existing canvas) / 角色 & 场景 / 物料.
+    document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === b));
+      document.querySelectorAll('.tab-pane').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + b.dataset.tab));
+    }));
 
     const el = (id) => document.getElementById(id);
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -718,6 +762,60 @@ defmodule Exhub.Router.ToonflowView do
       }
     }
 
+    // ── 角色 & 物料 tabs ─────────────────────────────────────────────
+    function subjectCard(s, empty) {
+      const ref = (s.refs || [])[0];
+      const media = ref
+        ? `<img loading="lazy" data-full="${esc(ref)}" src="${esc(ref)}" alt="${esc(s.name || '')}">`
+        : `<div class="noref">${esc(empty)}</div>`;
+      return `<div class="subject">${media}<div class="body"><div class="name">${esc(s.name || '')}</div><div class="text">${esc(s.text || '')}</div></div></div>`;
+    }
+
+    function renderCast() {
+      const snap = state.snap || {};
+      const chars = snap.characters || [];
+      const scenes = snap.scenes || [];
+      const props = snap.props || [];
+      el('cast-characters').innerHTML = chars.length
+        ? chars.map((s) => subjectCard(s, 'no reference yet')).join('')
+        : '<p class="empty">No characters yet — run the assets stage.</p>';
+      el('cast-scenes').innerHTML = scenes.length
+        ? scenes.map((s) => subjectCard(s, 'no reference yet')).join('')
+        : '<p class="empty">No scenes yet.</p>';
+      el('cast-props').innerHTML = props.length
+        ? props.map((s) => subjectCard(s, 'no reference yet')).join('')
+        : '<p class="empty">No props yet.</p>';
+    }
+
+    function assetCard(a) {
+      const isVideo = a.kind === 'video';
+      const media = isVideo
+        ? `<video src="${esc(a.url)}" controls preload="metadata"></video>`
+        : `<img loading="lazy" data-full="${esc(a.url)}" src="${esc(a.url)}" alt="${esc(a.kind || '')}">`;
+      const when = (a.created_at || '').replace('T', ' ').slice(0, 19);
+      return `<div class="asset">${media}<div class="meta"><span class="kind">${esc(a.kind || '')}</span><span>${esc(when)}</span></div></div>`;
+    }
+
+    function renderAssets() {
+      const assets = (state.snap && state.snap.assets) || [];
+      el('asset-grid').innerHTML = assets.length
+        ? assets.map(assetCard).join('')
+        : '<p class="empty">No assets yet.</p>';
+    }
+
+    function openLightbox(url, kind) {
+      const body = el('lightbox-body');
+      body.innerHTML = kind === 'video'
+        ? `<video src="${esc(url)}" controls autoplay></video>`
+        : `<img src="${esc(url)}">`;
+      el('lightbox').classList.add('on');
+    }
+
+    document.addEventListener('click', (e) => {
+      const node = e.target.closest('[data-full]');
+      if (node) openLightbox(node.getAttribute('data-full'), 'image');
+    });
+
     function renderOutputs() {
       const outs = (state.snap && state.snap.outputs) || [];
       el('outputs').innerHTML = outs.length
@@ -726,7 +824,7 @@ defmodule Exhub.Router.ToonflowView do
     }
 
     function renderAll() {
-      renderSubtitle(); renderRail(); renderStagePick(); renderShots(); renderInspector(); renderOutputs();
+      renderSubtitle(); renderRail(); renderStagePick(); renderShots(); renderInspector(); renderOutputs(); renderCast(); renderAssets();
     }
 
     async function load() {

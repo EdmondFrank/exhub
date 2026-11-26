@@ -166,9 +166,40 @@ Provides comprehensive filesystem, editing, process control, and search capabili
 | **Process / Terminal** | `execute_command` (also starts long-running managed processes), `read_process_output`, `interact_with_process`, `list_managed_processes`, `list_processes`, `kill_process` |
 | **Search** | `search_files` — search a codebase: probe-backed semantic code search (default), filename match, or content match |
 
+### Nanocua (macOS Computer Use)
+
+Computer use for native macOS apps through [nanocua](https://github.com/justrach/nanoui/tree/main/apps/nanocua):
+a small app that owns the Accessibility/Screen Recording grants, plus an agents'
+stdio MCP server registered as the `nanocua` hub upstream.
+
+**Usage workflow:**
+1. `retrieve_tools` with the query `nanocua` — or call `nanocua__*` directly.
+2. `list_apps` → `get_ui_tree` (refs like `[12]`, frame in screen points) → act on
+   a ref (`click`, `type_text`, `set_value`, `press_key`, `scroll`) → re-read the
+   tree or `screenshot` to verify.
+3. Refs stay valid until the next `get_ui_tree`; re-read after every action.
+
+**Tool categories:**
+
+| Category | Tools |
+|----------|-------|
+| **Discovery** | `list_apps` — running apps with windows, bundle id, frontmost |
+| **Inspection** | `get_ui_tree` (role/title/value/frame per element + ref), `screenshot` (window JPEG, occlusion-proof, pixel→point mapping) |
+| **Interaction** | `click` (by ref, or `x,y`; right/double), `type_text`, `press_key`, `scroll`, `move_mouse` |
+| **Fields / apps** | `set_value` (set text through accessibility), `open_app` |
+
+Action tools are refused until the user turns on **Allow input** in the nanocua
+panel; `whole_screen` additionally needs **Allow whole screen**, and **Stop** kills
+every call. See [docs/modules/nanocua.md](docs/modules/nanocua.md).
+
 ### Mac Use
 
-Provides Playwright/Puppeteer-style control over any macOS application using the Accessibility API. Explore UI trees, interact with elements, take screenshots, and automate native apps.
+Provides Playwright/Puppeteer-style control over any macOS application using the Accessibility API.
+
+> Fallback for what nanocua does not cover (`wait`, `scroll_to`, `focus`,
+> `get_attribute`, foreground `activate`) and for hosts where the axcli process
+> already holds Accessibility + Screen Recording.
+ Explore UI trees, interact with elements, take screenshots, and automate native apps.
 
 **Usage workflow:**
 1. Use `retrieve_tools` with the query `mac-use` to obtain the tools.
