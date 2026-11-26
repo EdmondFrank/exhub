@@ -28,7 +28,14 @@ defmodule Exhub.MCP.BrainServer do
                            configurable search policies (`policy`) for ranking
                            and hybrid semantic search. Ranked candidates are
                            filtered for relevance by the Smart Decide model
-                           (on by default; `filter: false` disables it).
+                           (for conversational queries; `filter: true`/`false`
+                           forces it). Output is bounded by `limit` notes and
+                           `snippets_per_note` lines (`format: "json"` for a
+                           structured envelope).
+  - `brain_read_note`    — Read a note or one of its Markdown sections with
+                           line-numbered output, `offset`/`limit` pagination,
+                           a `max_chars` budget, and optional backlink count.
+                           Use it after `brain_search_vault` to read the body.
 
   ### Note Management
   - `brain_create_note`  — Create a new note in the vault.
@@ -56,6 +63,7 @@ defmodule Exhub.MCP.BrainServer do
   # Search & navigation
   component(Exhub.MCP.Tools.Brain.SearchVault)
   component(Exhub.MCP.Tools.Brain.ListNotes)
+  component(Exhub.MCP.Tools.Brain.ReadNote)
 
   # Note management
   component(Exhub.MCP.Tools.Brain.CreateNote)

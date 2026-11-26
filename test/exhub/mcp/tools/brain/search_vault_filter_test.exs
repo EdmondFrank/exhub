@@ -79,4 +79,40 @@ defmodule Exhub.MCP.Tools.Brain.SearchVaultFilterTest do
     assert output =~ "notes.md"
     assert output =~ "found nothing relevant"
   end
+
+  test "default skips Smart Decide for single-word queries", %{vault: vault} do
+    File.write!(Path.join(vault, "budget.md"), "quarterly budget planning notes")
+
+    parent = self()
+
+    decider = fn _state, _questions, _opts ->
+      send(parent, :filter_called)
+      noul(0.5)
+    end
+
+    Application.put_env(:exhub, Relevance, enabled: true, decider: decider)
+
+    output = search(%{query: "quarterly"})
+
+    assert output =~ "budget.md"
+    refute output =~ "relevance filter"
+    refute_received :filter_called
+  end
+
+  test "default filters conversational queries", %{vault: vault} do
+    File.write!(Path.join(vault, "budget.md"), "quarterly budget planning notes")
+    File.write!(Path.join(vault, "grocery.md"), "quarterly grocery shopping list")
+
+    decider = fn state, _questions, _opts ->
+      if String.contains?(state, "budget.md"), do: noul(0.95), else: noul(0.05)
+    end
+
+    Application.put_env(:exhub, Relevance, enabled: true, decider: decider, fallback: false)
+
+    output = search(%{query: "quarterly budget planning notes", policy: "keyword"})
+
+    assert output =~ "budget.md"
+    refute output =~ "grocery.md"
+    assert output =~ "judged 1/2 note(s) relevant"
+  end
 end

@@ -131,6 +131,71 @@ defmodule Exhub.MCP.Tools.Brain.SearchVaultTest do
     assert output =~ "tag_match=1.000"
   end
 
+  test "policy is accepted as a name and as an inline map" do
+    assert {:ok, params} = SearchVault.mcp_schema(%{"query" => "x", "policy" => "keyword"})
+    assert params.policy == "keyword"
+
+    assert {:ok, params} =
+             SearchVault.mcp_schema(%{"query" => "x", "policy" => %{"top_n" => 3}})
+
+    assert params.policy == %{"top_n" => 3}
+  end
+
+  test "filename policy narrows retrieval to filenames", %{vault: vault} do
+    File.write!(Path.join(vault, "alpha-note.md"), "# Alpha\nnothing here\n")
+    File.write!(Path.join(vault, "other.md"), "alpha appears in the body\n")
+
+    output = text_of(search(%{query: "alpha", policy: "filename"}))
+
+    assert output =~ "alpha-note.md"
+    refute output =~ "other.md"
+  end
+
+  test "limit bounds results and reports truncation", %{vault: vault} do
+    for i <- 1..5 do
+      File.write!(Path.join(vault, "note-#{i}.md"), "common term #{i}")
+    end
+
+    output = text_of(search(%{query: "common", limit: 2}))
+
+    assert output =~ "Showing 2 of 5 ranked note(s)"
+    assert output =~ "Found 5 match(es) in 5 file(s)"
+    assert length(Regex.scan(~r/score: /, output)) == 2
+  end
+
+  test "snippets_per_note caps displayed matches", %{vault: vault} do
+    File.write!(Path.join(vault, "many.md"), "hit one\nhit two\nhit three\n")
+
+    output = text_of(search(%{query: "hit", snippets_per_note: 1}))
+
+    assert output =~ "L1: hit one"
+    refute output =~ "L2: hit two"
+    assert output =~ "+2 more match(es)"
+  end
+
+  test "json format returns a structured, bounded envelope", %{vault: vault} do
+    for i <- 1..4 do
+      File.write!(Path.join(vault, "n#{i}.md"), "term line one\nterm line two\nterm line three\n")
+    end
+
+    payload =
+      search(%{query: "term", limit: 2, snippets_per_note: 1, format: "json"})
+      |> text_of()
+      |> Jason.decode!()
+
+    assert payload["truncated"] == true
+    assert payload["total_candidates"] == 4
+    assert payload["selected"] == 4
+    assert payload["returned"] == 2
+    assert payload["total_matches"] == 12
+    assert length(payload["results"]) == 2
+
+    first = hd(payload["results"])
+    assert first["matches_truncated"] == true
+    assert length(first["matches"]) == 1
+    assert is_float(first["score"])
+  end
+
   defp rank_of(output, file) do
     output
     |> String.split("\n")

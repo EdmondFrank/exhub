@@ -71,6 +71,7 @@ The Brain MCP server runs at the `/brain/mcp` endpoint.
 |----------------------|------------------------------------------------------------------|
 | `brain_list_notes`   | List notes and directories in the vault or a subfolder           |
 | `brain_search_vault` | Search notes by content, filename, or tags                       |
+| `brain_read_note`    | Read a note or one of its Markdown sections                      |
 | `brain_create_note`  | Create a new note in the vault                                   |
 | `brain_move_note`    | Move or rename a note within the vault                           |
 
@@ -121,10 +122,13 @@ Search for notes by content, filename, or tags.
 | `search_type`    | string  | `"content"`  | `"content"`, `"filename"`, or `"both"`                            |
 | `case_sensitive` | boolean | `false`      | Enable case-sensitive matching                                    |
 | `abs_path`       | boolean | `false`      | Return absolute filesystem paths instead of relative              |
-| `policy`         | any     | `"auto"`     | Search policy: `"auto"`, `"balanced"`, `"keyword"`, `"semantic"`, `"recency"`, `"filename"`, a custom config name, or an inline map |
-| `semantic`       | boolean | `false`      | Enable hybrid vector (RAG) semantic search                        |
+| `policy`         | string/map | `"auto"` | Search policy: `"auto"`, `"balanced"`, `"keyword"`, `"semantic"`, `"recency"`, `"filename"`, a custom config name, or an inline map |
+| `semantic`       | boolean | policy       | Enable hybrid vector (RAG) semantic search; `false` disables it even when the policy would auto-enable it |
 | `semantic_limit` | integer | `10`         | Max notes returned from vector search when `semantic` is enabled  |
-| `filter`         | boolean | `true`       | Smart Decide relevance filtering; `false` returns the raw ranked results |
+| `limit`          | integer | policy `top_n`, else `8` | Maximum notes returned; the response reports the untruncated candidate count |
+| `snippets_per_note` | integer | `3`       | Maximum matching lines shown per note (the note's total is still reported) |
+| `format`         | string  | `"text"`     | `"text"`, `"json"`, or `"toon"` structured output                  |
+| `filter`         | boolean | conversational only | Smart Decide relevance filtering; `true`/`false` forces it (see below) |
 
 **Search types:**
 
@@ -139,9 +143,11 @@ Prefix the query with `tag:` to search for inline `#tags` and frontmatter tags.
 Hierarchical tags are supported — `tag:project` also matches `#project/active`.
 
 **Response format:**
-- Response always starts with `Vault: <path>`
-- Each matching file is listed with its matching lines (`L<n>: <text>`)
+- Response always starts with `Vault: <path>` (JSON/TOON formats use envelope fields instead)
+- Each matching file is listed with its matching lines (`L<n>: <text>`), capped at `snippets_per_note`; the remainder is reported as `… +N more match(es)`
 - Filename matches are shown as `Filename match: <path>`
+- At most `limit` notes are returned; when the pool is larger the response says `Showing X of Y ranked note(s)` (JSON: `selected`, `returned`, `truncated`, `total_candidates`)
+- `format: "json"` returns `{vault, query, policy, search_type, semantic, fusion, filter, total_candidates, selected, returned, truncated, total_matches, results: [{path, score, signals, total_matches, matches, matches_truncated, preview}]}`
 
 **Search policies:**
 
@@ -203,12 +209,14 @@ config :exhub, :brain_search,
 
 **Relevance filtering:**
 
-After ranking, `brain_search_vault` applies a second, sharper pass powered by
+After ranking, `brain_search_vault` can apply a second, sharper pass powered by
 the Smart Decide (System One) `noul` model: each candidate note is judged with
 a single yes/no question (`Note: <file>` plus a preview) and only the relevant
-notes are kept. Set `filter: false` to skip it and get the raw ranked results.
-Filtering widens the ranked pool to `candidate_limit` first, then narrows it to
-the policy's `top_n`.
+notes are kept. It runs by default only for **conversational queries** (4+ words,
+i.e. when `semantic_query?/1` is true); a single-word or `tag:` lookup skips it
+because it costs one model call per candidate. `filter: true` forces the pass and
+`filter: false` disables it. Filtering widens the ranked pool to
+`candidate_limit` first, then narrows it to `limit` (or the policy's `top_n`).
 
 The pass is fault-tolerant:
 
@@ -224,8 +232,8 @@ overridable under `config :exhub, Exhub.MCP.Brain.Search.Relevance` in
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `enabled` | `true` | Master switch (`brain_search_vault.filter` overrides per call) |
-| `candidate_limit` | `20` | Ranked pool judged when filtering (always ≥ the policy's `top_n`) |
+| `enabled` | `true` | Master switch; `filter: true`/`false` overrides per call (absent = conversational queries only) |
+| `candidate_limit` | `20` | Ranked pool judged when filtering (always ≥ `limit`) |
 | `max_concurrency` | `8` | Concurrent System One requests (one note per request) |
 | `threshold` | `0.5` | Minimum `noul` probability to keep a note |
 | `timeout` | `30_000` | Per-request timeout in ms |
@@ -281,6 +289,47 @@ The default `semantic` weight is `0.3` and can be tuned per-call via `weights`.
 
 If the index is empty or the embedding API is unavailable, semantic search
 degrades gracefully to keyword-only search.
+
+---
+
+### `brain_read_note`
+
+Read a note, or one Markdown section of it, with bounded output. Search only
+returns matching lines, so use this tool to read a note's body after
+`brain_search_vault` finds it.
+
+**Parameters:**
+
+| Parameter          | Type    | Default      | Description                                                        |
+|--------------------|---------|--------------|--------------------------------------------------------------------|
+| `path`             | string  | *(required)* | Note path relative to the vault root (`.md` added when there is no extension) |
+| `heading`          | string  | —            | Read only that section (up to the next heading of the same or higher level) |
+| `offset`           | integer | `1`          | 1-based first line (relative to the section when `heading` is given) |
+| `limit`            | integer | `200`        | Maximum lines returned                                            |
+| `max_chars`        | integer | `20000`      | Maximum characters of body returned (truncated on a line boundary) |
+| `include_backlinks` | boolean | `false`     | Also count incoming `[[wikilinks]]` (scans the whole vault)        |
+| `format`           | string  | `"text"`     | `"text"` (line-numbered), `"json"`, or `"toon"`                    |
+
+**Response format:**
+- Text output starts with `Vault: <path>` and a `Note:` header (line/byte count, mtime), then optional `Tags:`, `Backlinks:`, `Section:` and `Lines:` lines
+- Body lines are numbered (`L<n>: <text>`); when the note continues, the header says `truncated; continue with offset=<n>`
+- JSON output returns `{vault, path, abs_path, total_lines, size, mtime, tags, backlinks, section, offset, limit, first_line, last_line, returned_lines, truncated, body}` with the raw (un-numbered) body
+
+**Examples:**
+
+```json
+// Whole note
+{ "path": "projects/todo" }
+
+// One section
+{ "path": "designs/api.md", "heading": "Endpoints" }
+
+// Second page of a long note
+{ "path": "journal/2026-11-19", "offset": 201, "limit": 100 }
+
+// Structured, with backlinks
+{ "path": "inbox/notes.md", "format": "json", "include_backlinks": true }
+```
 
 ---
 
@@ -357,6 +406,7 @@ are created automatically.
 Exhub.MCP.BrainServer          ← Anubis MCP server, mounted at /brain/mcp
 ├── Exhub.MCP.Tools.Brain.ListNotes    ← brain_list_notes tool
 ├── Exhub.MCP.Tools.Brain.SearchVault  ← brain_search_vault tool
+├── Exhub.MCP.Tools.Brain.ReadNote     ← brain_read_note tool
 ├── Exhub.MCP.Tools.Brain.CreateNote   ← brain_create_note tool
 ├── Exhub.MCP.Tools.Brain.MoveNote     ← brain_move_note tool
 ├── Exhub.MCP.Brain.Search.Relevance   ← Smart Decide relevance filter

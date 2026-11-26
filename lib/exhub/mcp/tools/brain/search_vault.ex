@@ -41,8 +41,18 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
     Tuning: `fusion`, `weights` (scorer → weight, merged over defaults),
     `min_score`. Explicit params override the search `policy` ("auto" default,
-    "balanced"/"keyword"/"semantic"/"recency"/"filename", or a custom name).
-    `semantic: true` adds RAG vector search (needs an embedding key).
+    "balanced"/"keyword"/"semantic"/"recency"/"filename", a custom name, or an
+    inline policy map). `semantic: true` adds RAG vector search (needs an
+    embedding key).
+
+    Output is bounded: `limit` notes (default 8, or the policy's `top_n`) with
+    at most `snippets_per_note` matching lines each (default 3). The response
+    reports `total_candidates`/`truncated` so you know what was withheld.
+    Use `format: "json"` for structured results, and `brain_read_note` to read
+    a note's body after finding it.
+
+    Relevance filtering runs only for conversational queries (4+ words) unless
+    `filter: true`/`false` forces it.
     """
   end
 
@@ -58,6 +68,11 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     field(:search_type, :string,
       description: "Type of search: 'content' (default), 'filename', or 'both'",
       default: "content"
+    )
+
+    field(:policy, {:either, {:string, :map}},
+      description:
+        "Search policy: 'auto' (default), a built-in name ('balanced', 'keyword', 'semantic', 'recency', 'filename'), a custom policy name, or an inline policy map (e.g. {\"semantic\": \"on\", \"top_n\": 5})"
     )
 
     field(:case_sensitive, :boolean,
@@ -89,13 +104,28 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
     field(:filter, :boolean,
       description:
-        "Smart Decide relevance filtering (default: true). Set `false` for the raw ranked results"
+        "Smart Decide relevance filtering. Absent: on only for conversational queries (4+ words) when enabled in config. `true`/`false` force it"
+    )
+
+    field(:limit, :integer,
+      description:
+        "Maximum notes returned (default: the policy's `top_n`, otherwise 8). The response reports the untruncated candidate count"
+    )
+
+    field(:snippets_per_note, :integer,
+      description:
+        "Maximum matching lines shown per note (default: 3); each note still reports its total match count",
+      default: 3
+    )
+
+    field(:format, :string,
+      description: "Output format: 'text' (default), 'json', or 'toon'",
+      default: "text"
     )
 
     field(:semantic, :boolean,
       description:
-        "Enable vector/semantic search (RAG). Requires OpenAI/Gitee AI embedding API key. Combines keyword + vector results.",
-      default: false
+        "Enable vector/semantic search (RAG). Requires OpenAI/Gitee AI embedding API key. Combines keyword + vector results. Absent: follows the policy"
     )
 
     field(:semantic_limit, :integer,
@@ -104,6 +134,8 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     )
   end
 
+  @default_limit 8
+
   @impl true
   def execute(params, frame) do
     query = Map.get(params, :query)
@@ -111,17 +143,20 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     case_sensitive = Map.get(params, :case_sensitive, false)
     abs_path = Map.get(params, :abs_path, false)
     semantic_limit = Map.get(params, :semantic_limit, 10)
+    snippets_per_note = non_neg_integer(Map.get(params, :snippets_per_note), 3)
+    format = normalize_format(Map.get(params, :format, "text"))
 
     # Resolve the active search policy (explicit param, config default, or
     # auto-selected via query heuristics) and derive retrieval + ranking
     # decisions from it. Explicit params override the policy.
     policy = resolve_policy(params, query)
+    limit = effective_limit(Map.get(params, :limit), policy.top_n)
     search_type = effective_search_type(params, policy)
     semantic = effective_semantic(policy, params, query)
     fusion = effective_fusion(policy, params)
     weights = effective_weights(policy, params)
     min_score = effective_min_score(policy, params)
-    filter? = filter?(Map.get(params, :filter))
+    filter? = filter?(Map.get(params, :filter), query)
 
     vault = Helpers.vault_path()
     search_dir = if scope_path, do: Path.join(vault, scope_path), else: vault
@@ -167,13 +202,20 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
       ranked =
         Ranker.rank(notes, rank_opts)
 
-      ranked = maybe_top_n(ranked, candidate_limit(policy.top_n, filter?))
+      # Keep the pre-truncation pool size so callers can tell that `limit`
+      # narrowed the response.
+      candidates = length(ranked)
+
+      # Widen the pool before relevance filtering so the model has enough to
+      # choose from; without filtering there is nothing to widen.
+      ranked = if filter?, do: maybe_top_n(ranked, candidate_limit(limit)), else: ranked
 
       {ranked, stats} = maybe_filter(query, ranked, filter?)
 
-      ranked = maybe_top_n(ranked, policy.top_n)
-      ranked = if abs_path, do: absolutize(ranked, vault), else: ranked
+      selected = length(ranked)
 
+      # Count matches across the whole selected pool (not just the page), so
+      # the response does not understate results hidden by `limit`.
       total_matches =
         Enum.reduce(ranked, 0, fn r, acc ->
           # Semantic-only notes carry no keyword matches; count their preview
@@ -182,8 +224,27 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
           acc + n
         end)
 
-      output = format_results(ranked, total_matches, vault, stats)
-      resp = Response.tool() |> Response.text(output)
+      ranked = maybe_top_n(ranked, limit)
+      ranked = if abs_path, do: absolutize(ranked, vault), else: ranked
+
+      meta = %{
+        vault: vault,
+        query: query,
+        policy: policy.name,
+        search_type: search_type,
+        semantic: semantic,
+        fusion: fusion,
+        candidates: candidates,
+        selected: selected,
+        returned: length(ranked),
+        truncated: selected > length(ranked),
+        stats: stats
+      }
+
+      resp =
+        Response.tool()
+        |> render_results(ranked, total_matches, meta, format, snippets_per_note)
+
       {:reply, resp, frame}
     else
       {:error, reason} ->
@@ -234,17 +295,24 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
   defp effective_semantic(_policy, _params, query) when is_nil(query), do: false
 
   defp effective_semantic(policy, params, query) when is_binary(query) do
-    cond do
-      Map.get(params, :semantic, false) == true ->
+    case Map.get(params, :semantic) do
+      true -> true
+      # An explicit `false` must win over a `:auto`/`:on` policy; only an
+      # absent param (nil) defers to the policy.
+      false -> false
+      nil -> policy_semantic(policy, query)
+    end
+  end
+
+  defp policy_semantic(policy, query) do
+    case policy.semantic do
+      :on ->
         true
 
-      policy.semantic == :on ->
-        true
-
-      policy.semantic == :off ->
+      :off ->
         false
 
-      true ->
+      _ ->
         not String.starts_with?(query, "tag:") and
           Selector.semantic_query?(query) and
           Policies.semantic_autodetect?()
@@ -277,17 +345,31 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
   # ── Smart Decide relevance filter ─────────────────────────────────────────
 
-  # `filter: false` skips the Smart Decide pass; absent (nil) follows config.
-  defp filter?(nil), do: Relevance.enabled?()
-  defp filter?(value), do: value == true
+  # `filter: false` skips the Smart Decide pass and `true` forces it. When the
+  # param is absent, filter only conversational queries: a one-word lookup does
+  # not justify one System One request per candidate (latency and cost).
+  defp filter?(nil, query), do: Relevance.enabled?() and conversational?(query)
+  defp filter?(value, _query), do: value == true
+
+  defp conversational?(query) when is_binary(query), do: Selector.semantic_query?(query)
+  defp conversational?(_query), do: false
+
+  # Explicit `limit` > policy `top_n` > default.
+  defp effective_limit(limit, _top_n) when is_integer(limit) and limit > 0, do: limit
+  defp effective_limit(_limit, top_n) when is_integer(top_n) and top_n > 0, do: top_n
+  defp effective_limit(_limit, _top_n), do: @default_limit
+
+  defp non_neg_integer(value, _default) when is_integer(value) and value >= 0, do: value
+  defp non_neg_integer(_value, default), do: default
+
+  defp normalize_format(format) when format in ["json", "toon"], do: format
+  defp normalize_format(_format), do: "text"
 
   # When filtering, widen the ranked pool so the model has enough to choose from.
-  defp candidate_limit(top_n, true) do
+  defp candidate_limit(limit) do
     configured = Keyword.get(Relevance.config(), :candidate_limit, 0)
-    max(top_n || 0, configured)
+    max(limit || 0, configured)
   end
-
-  defp candidate_limit(top_n, false), do: top_n
 
   defp maybe_filter(_query, ranked, false) do
     total = length(ranked)
@@ -622,21 +704,79 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
     end)
   end
 
-  defp format_results([], _total, vault, _stats) do
-    "Vault: #{vault}\n\nNo results found."
+  defp render_results(resp, results, total, meta, "json", snippets) do
+    Response.json(resp, results_payload(results, total, meta, snippets))
   end
 
-  defp format_results(results, total, vault, stats) do
+  defp render_results(resp, results, total, meta, "toon", snippets) do
+    Helpers.toon_response(resp, results_payload(results, total, meta, snippets))
+  end
+
+  defp render_results(resp, results, total, meta, _text, snippets) do
+    Response.text(resp, format_results(results, total, meta, snippets))
+  end
+
+  defp results_payload(results, total, meta, snippets) do
+    stats =
+      Map.merge(
+        %{filtered: false, candidates: 0, relevant: 0, errors: 0, fallback: false},
+        meta.stats
+      )
+
+    %{
+      vault: meta.vault,
+      query: meta.query,
+      policy: meta.policy,
+      search_type: meta.search_type,
+      semantic: meta.semantic,
+      fusion: to_string(meta.fusion),
+      filter: %{
+        applied: stats.filtered,
+        candidates: stats.candidates,
+        relevant: stats.relevant,
+        errors: stats.errors,
+        fallback: stats.fallback
+      },
+      total_candidates: meta.candidates,
+      selected: meta.selected,
+      returned: meta.returned,
+      truncated: meta.truncated,
+      total_matches: total,
+      results: Enum.map(results, &result_payload(&1, snippets))
+    }
+  end
+
+  defp result_payload(result, snippets) do
+    matches = result.matches
+    shown = Enum.take(matches, snippets)
+
+    %{
+      path: result.file,
+      score: result.final_score,
+      signals: Map.new(Map.get(result, :scores) || %{}, fn {k, v} -> {to_string(k), v} end),
+      total_matches: length(matches),
+      matches_truncated: length(matches) > length(shown),
+      matches: Enum.map(shown, fn %{line: line, text: text} -> %{line: line, text: text} end),
+      preview: Map.get(result, :preview)
+    }
+  end
+
+  defp format_results([], _total, meta, _snippets) do
+    "Vault: #{meta.vault}\n\nNo results found."
+  end
+
+  defp format_results(results, total, meta, snippets) do
     header =
-      "Vault: #{vault}\n\n" <>
-        filter_summary(stats) <>
-        "Found #{total} match(es) in #{length(results)} file(s):\n\n"
+      "Vault: #{meta.vault}\n\n" <>
+        filter_summary(meta.stats) <>
+        truncation_summary(meta) <>
+        "Found #{total} match(es) in #{meta.selected} file(s):\n\n"
 
     body =
       Enum.map_join(results, "\n", fn result ->
         file = result.file
         score = result.final_score
-        scores = Map.get(result, :scores, %{})
+        scores = Map.get(result, :scores) || %{}
 
         signals =
           scores
@@ -645,10 +785,15 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
             "#{name}=#{:erlang.float_to_binary(v, decimals: 3)}"
           end)
 
+        shown = Enum.take(result.matches, snippets)
+        omitted = length(result.matches) - length(shown)
+
         match_lines =
-          Enum.map_join(result.matches, "\n", fn %{line: line, text: text} ->
+          Enum.map_join(shown, "\n", fn %{line: line, text: text} ->
             if line == 0, do: "  #{text}", else: "  L#{line}: #{text}"
           end)
+
+        more_line = if omitted > 0, do: "  … +#{omitted} more match(es)", else: ""
 
         preview_line =
           case Map.get(result, :preview) do
@@ -657,7 +802,7 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
           end
 
         lines =
-          [preview_line, match_lines]
+          [preview_line, match_lines, more_line]
           |> Enum.reject(&(&1 == ""))
           |> Enum.join("\n")
 
@@ -666,6 +811,12 @@ defmodule Exhub.MCP.Tools.Brain.SearchVault do
 
     header <> body
   end
+
+  defp truncation_summary(%{truncated: true} = meta) do
+    "Showing #{meta.returned} of #{meta.selected} ranked note(s) — raise `limit` for more.\n\n"
+  end
+
+  defp truncation_summary(_meta), do: ""
 
   defp filter_summary(%{filtered: true, fallback: true}) do
     "Smart Decide relevance filter found nothing relevant — showing ranked results.\n\n"

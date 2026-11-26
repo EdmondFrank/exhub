@@ -1,5 +1,21 @@
 # Recent Enhancements
 
+## Brain — Agent-Friendly Search Bounds + `brain_read_note`
+
+- **Feature**: `brain_search_vault` responses are now bounded and self-describing. New params `limit` (final notes; default policy `top_n`, else 8), `snippets_per_note` (matching lines shown per note, default 3), and `format` (`"text"` default, `"json"`, `"toon"`). The response reports the untruncated pool (`total_candidates`), `selected`, `returned` and `truncated`, and text output says `Showing X of Y ranked note(s)` plus `… +N more match(es)` per note. Previously a single search could return 59–104 KB of matching lines.
+- **New tool**: `brain_read_note` reads a note or one Markdown `heading` section with line-numbered output, `offset`/`limit` pagination, a `max_chars` budget, optional backlink count, and `text`/`json`/`toon` output — closing the search → read loop inside the Brain server.
+- **Fix**: `policy` was read by `SearchVault.execute/2` but absent from the tool schema, so Peri's strict validation silently dropped it (verified: `policy: "filename"` and inline `top_n: 3` returned identical results). The field now accepts a policy name or an inline map.
+- **Fix**: an explicit `semantic: false` could not override a policy's `:auto`/`:on`; the schema default `false` also made the param indistinguishable from absent. Absent now follows the policy, and an explicit `false` disables semantic search.
+- **Behavior**: the Smart Decide relevance filter (one System One call per candidate) no longer runs by default on single-word and `tag:` queries — only on conversational queries (4+ words); `filter: true`/`false` forces it.
+- **Tests**: `test/exhub/mcp/tools/brain/read_note_test.exs`; new cases in `search_vault_test.exs` (policy schema, filename policy, limit truncation, snippet cap, JSON envelope) and `search_vault_filter_test.exs` (default conversational-only filtering).
+- **Modified Files**:
+  - `lib/exhub/mcp/tools/brain/search_vault.ex` — schema (`policy`, `limit`, `snippets_per_note`, `format`), bounded rendering, JSON/TOON envelope, filter default
+  - `lib/exhub/mcp/tools/brain/read_note.ex` — new tool
+  - `lib/exhub/mcp/brain_server.ex` — registers `brain_read_note`
+  - `docs/modules/brain.md` — parameters, response format, new tool section
+
+---
+
 ## MCP Gateway — a `tools/call` Is Answered on Its Own POST Connection
 
 - **Fix**: `Exhub.MCP.ConcurrentToolDispatcher` pushed a `tools/call` response onto the session's standalone GET SSE stream and acknowledged the POST with `202 Accepted {}` whenever such a stream was attached. Per MCP Streamable HTTP a request must be answered on the stream that carried it — `202` is only legal for notifications and responses — and clients that keep a GET stream open, pi-mcp (`@earendil-works/pi-mcp`) among them, treat `202` for a request as a fatal transport error and drop the response that arrives on GET. In practice ~67% of nested tool calls failed on such a client, drifting per server with "is the GET stream up at call time?". The dispatcher now always writes `200` + `application/json` back on the POST connection; nothing is diverted to the GET stream, which carries only keepalives and server-initiated messages. Anubis' own plug already behaved this way for non-`tools/call` requests.
