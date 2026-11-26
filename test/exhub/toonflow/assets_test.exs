@@ -335,6 +335,81 @@ defmodule Exhub.Toonflow.AssetsTest do
     end
   end
 
+  describe "stale material" do
+    setup do
+      root =
+        Path.join(System.tmp_dir!(), "toonflow_delete_#{System.unique_integer([:positive])}")
+
+      server = :"toonflow_delete_store_#{System.unique_integer([:positive])}"
+      {:ok, pid} = Store.start_link(root_dir: root, name: server)
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm_rf(root)
+      end)
+
+      %{server: server}
+    end
+
+    test "delete_asset removes the row, the file and the subject reference", %{server: server} do
+      sheet = reference_file(server, "sheet.png")
+      insert_character(server, "林昭", "青衫少年", [sheet])
+
+      assert {:ok, asset} =
+               Media.insert_asset(
+                 "demo",
+                 [kind: "character_ref", path: sheet, prompt: "用户上传"],
+                 server
+               )
+
+      assert File.exists?(sheet)
+
+      assert {:ok, %{"file_removed" => true, "subjects" => ["林昭"]}} =
+               Assets.delete_asset("demo", asset["asset_id"], server)
+
+      refute File.exists?(sheet)
+      assert {:ok, [character]} = Assets.list_characters("demo", [name: "林昭"], server)
+      assert character["refs"] == []
+      assert {:ok, []} = Media.list_assets("demo", [kind: "character_ref"], server)
+    end
+
+    test "delete_asset only unlinks files inside the project", %{server: server} do
+      outside = Path.join(System.tmp_dir!(), "outside_#{System.unique_integer([:positive])}.png")
+      File.write!(outside, "PNG")
+      on_exit(fn -> File.rm(outside) end)
+
+      assert {:ok, asset} = Media.insert_asset("demo", [kind: "image", path: outside], server)
+
+      assert {:ok, %{"file_removed" => false}} =
+               Assets.delete_asset("demo", asset["asset_id"], server)
+
+      assert File.exists?(outside)
+    end
+
+    test "delete_asset validates its id", %{server: server} do
+      assert {:error, :missing_asset_id} = Assets.delete_asset("demo", "", server)
+      assert {:error, :asset_not_found} = Assets.delete_asset("demo", "ast_missing", server)
+    end
+
+    test "clear_references empties a subject's refs and deletes the files", %{server: server} do
+      old = reference_file(server, "old.png")
+      newer = reference_file(server, "newer.png")
+      insert_character(server, "林昭", "青衫少年", [newer, old])
+      assert {:ok, _} = Media.insert_asset("demo", [kind: "character_ref", path: newer], server)
+      assert {:ok, _} = Media.insert_asset("demo", [kind: "character_ref", path: old], server)
+
+      assert {:ok, %{"removed" => 2}} =
+               Assets.clear_references("demo", "character", "林昭", server)
+
+      refute File.exists?(old)
+      refute File.exists?(newer)
+      assert {:ok, [character]} = Assets.list_characters("demo", [name: "林昭"], server)
+      assert character["refs"] == []
+      assert {:ok, []} = Media.list_assets("demo", [kind: "character_ref"], server)
+    end
+  end
+
   defp insert_script(server) do
     {:ok, _} =
       Store.run_project(

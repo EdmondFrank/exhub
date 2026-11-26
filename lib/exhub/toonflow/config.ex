@@ -21,8 +21,17 @@ defmodule Exhub.Toonflow.Config do
       "receive_timeout" => 300_000
     },
     "media" => %{
-      "image_model" => "qwen-image-2.0",
+      # `gpt-image-2` is the default because a shot is conditioned on the
+      # project's character sheets: it takes every reference in one multipart
+      # `/images/edits` request and keeps the cast, while the Qwen models post
+      # base64 data URLs to `/images/generations`, which MoArk's IP filter
+      # rejects outright for anime character art. It is slower (~1 min/frame).
+      "image_model" => "gpt-image-2",
       "video_model" => "MiniMax-H3",
+      # Vision model for `Exhub.Toonflow.Reverse`: it reads a reference sheet
+      # back into a description (角色看形象与人设、场景看环境) so an uploaded
+      # picture also drives the text later frames are rendered from.
+      "vision_model" => "deepseek-v4.1-flash",
       # Delivery canvas. Keyframes and clips are generated at the same ratio, so
       # the image model composes for the frame the clip is cut into. A square
       # keyframe inside a 16:9 clip forces the video model to re-frame every
@@ -168,6 +177,18 @@ defmodule Exhub.Toonflow.Config do
     case media() do
       %{"image_size" => value} when is_binary(value) and value != "" -> String.trim(value)
       _ -> nil
+    end
+  end
+
+  @doc """
+  The vision model (`media.vision_model`) used to read a reference sheet back
+  into a description, default `"deepseek-v4.1-flash"`.
+  """
+  @spec vision_model() :: String.t()
+  def vision_model do
+    case media() do
+      %{"vision_model" => value} when is_binary(value) and value != "" -> String.trim(value)
+      _ -> "deepseek-v4.1-flash"
     end
   end
 

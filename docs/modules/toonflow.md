@@ -59,7 +59,7 @@ non-loopback `POST` gets `403 forbidden (mutating endpoints are loopback-only)`
 traversal, symlinks and non-regular files, returning `404` otherwise.
 
 **角色 & 场景 tab** — one editable card per extracted character, scene and prop,
-plus a 物料 gallery of every generated asset. Each card offers three actions:
+plus a 物料 gallery of every generated asset. Cards offer:
 
 - **上传图片** sends the picture over the page's websocket
   (`{"action":"subject_upload","kind","name","data"}` — base64 JPEG, drawn at
@@ -67,18 +67,42 @@ plus a 物料 gallery of every generated asset. Each card offers three actions:
   validates the magic bytes (`Exhub.Toonflow.Upload.ext_for/1`), stores it under
   a fresh `assets/images/ref_<kind>_<key>_up_<rand>.<ext>` name, and it
   *replaces* the subject's references — several contradicting sheets in one i2i
-  request only confuse the model. Superseded files stay on disk and keep
-  appearing in 物料.
+  request only confuse the model. Superseded files stay on disk until they are
+  deleted from 物料.
+
+  The upload then **infers the description from the picture**
+  (`Exhub.Toonflow.Reverse.infer/4` → `Exhub.Toonflow.Vision` →
+  `Exhub.MCP.Tools.Look.analyze/2`) and answers with a second `reverse` frame
+  that fills the textarea. The sheet itself is *not* re-rendered: the uploaded
+  picture is the one the user wanted to keep.
+- **反推提示词** (`{"action":"subject_reverse","kind","name"}`) runs the same
+  inference against the current sheet — for a generated sheet, or to retry after
+  an upload. The prompts are written for transfer, not for captioning: a
+  character yields its constant look and the 人设 it conveys (no pose,
+  expression, camera angle or background), a scene yields the environment (no
+  actors, framing, depth of field or resolution). The reply replaces
+  `appearance` / `description`, so the next keyframe of every shot the subject
+  appears in uses it.
 - **仅保存** rewrites the description (`appearance` for characters,
   `description` for scenes/props). That text is both the reference prompt and
   what the storyboard hands to the image model, so it changes the next keyframe
   of every shot the subject appears in.
 - **保存并重新生成** does the above and re-renders the sheet synchronously,
   keeping the kind's setup prefix (`角色定妆设定图：…`) and swapping only the
-  description. Both actions answer with
-  `{"type":"subject","status":"ok"|"error",…}` plus a fresh snapshot; the render
-  runs in `Exhub.MCP.ToolTaskSupervisor` so the socket keeps streaming progress
-  while the image is generated.
+  description. All actions answer with
+  `{"type":"subject","status":"ok"|"error",…}` plus a fresh snapshot; a render or
+  an inference runs in `Exhub.MCP.ToolTaskSupervisor` so the socket keeps
+  streaming progress while it works.
+- **清除参考图** (`{"action":"subject_clear","kind","name"}`) deletes the
+  subject's reference rows *and files* and empties `refs`; the subject itself
+  stays in the cast, ready to be re-uploaded or re-rendered.
+
+The 物料 gallery puts a ✕ on each asset (`{"action":"asset_delete","asset_id"}`).
+Deletion is real: the row, the file (only when it lives inside the project) and
+every `refs` entry that pointed at it are removed —
+`Exhub.Toonflow.Assets.delete_asset/3` also detaches wardrobe variations, so a
+stale sheet stops conditioning new frames. That is the way to clean up the
+superseded uploads and regenerated keyframes that otherwise accumulate forever.
 
 Reference URLs in the snapshot carry an `mtime` query version: a re-render
 overwrites the same filename and the media route caches for a minute, so a
@@ -112,14 +136,18 @@ continuation text.
 | `shot` | per-shot media stage | `{stage, shot_id, status, detail|reason}` |
 | `jobs` | every `ui.tick_ms` | last 5 job rows (coarse refresh) |
 | `heartbeat` | tick when the project is unknown | — |
-| `subject` | after a cast-tab `subject_upload` / `subject_reference` | `{status: started\|ok\|error, action, kind, name, path?, error?}` |
+| `subject` | after a cast-tab `subject_upload` / `subject_reference` / `subject_reverse` / `subject_clear` | `{status: started\|ok\|error, action, kind, name, text?, path?, error?}` |
+| `assets` | after a 物料 `asset_delete` | `{status: ok\|error, action: delete, asset_id, file_removed?, subjects?, error?}` |
 | `pong` / `error` | after a client `{"action":"ping"}` / bad frame | — |
 
 Client messages: `{"action":"subscribe","project":"…"}`, `"unsubscribe"`,
-`"refresh"`, `"ping"`, and the two cast-tab edits
+`"refresh"`, `"ping"`, the cast-tab edits
 `{"action":"subject_upload","kind","name","data"}` /
-`{"action":"subject_reference","kind","name","text","regenerate"}` (mutating
-actions are gated by `Exhub.Toonflow.Access.writable?/1` on the peer address).
+`{"action":"subject_reference","kind","name","text","regenerate"}` /
+`{"action":"subject_reverse","kind","name"}` /
+`{"action":"subject_clear","kind","name"}`, and the 物料 delete
+`{"action":"asset_delete","asset_id"}` (mutating actions are gated by
+`Exhub.Toonflow.Access.writable?/1` on the peer address).
 
 > **Cowboy frame gotcha.** `cowlib`'s `cow_ws:frame/2` has **no clause for a bare
 > binary**, so a reply must be a frame tuple. `Exhub.Toonflow.SocketHandler`
@@ -831,8 +859,14 @@ config :exhub, :toonflow, %{
     "qa" => "deepseek-v4.1-flash"
   },
   "media" => %{
-    "image_model" => "qwen-image-2.0",
+    # Multi-reference frames go through the multipart `/images/edits` endpoint,
+    # which accepts the project's character sheets; the Qwen models inline
+    # base64 into `/images/generations`, which MoArk's IP filter rejects for
+    # anime character art.
+    "image_model" => "gpt-image-2",
     "video_model" => "MiniMax-H3",
+    # Vision model behind the cast tab's 反推提示词 (image → description).
+    "vision_model" => "deepseek-v4.1-flash",
     "tts_model" => "TeleTTS-Bidirectional-Mandarin",
     "tts_voice" => "guangzhounv",
     # Per-character voices: a shot's `meta.speaker` (else its only character)
@@ -910,7 +944,9 @@ The memory index (`Exhub.Toonflow.Memory.Index`) reuses
 | `Exhub.Toonflow.Novel` | Novel ingest + chapter splitting (pure `split_chapters/1`) |
 | `Exhub.Toonflow.Events` | Event-graph extraction (pure `parse_events/1`) |
 | `Exhub.Toonflow.Script` | Script generation/versioning (pure `parse_script/1`) |
-| `Exhub.Toonflow.Assets` | Character/scene/prop extraction (pure `parse_assets/1`), reference images, wardrobe variations, and the canvas' description edit / uploaded-sheet replacement (`update_text/5`, `import_reference/6`) |
+| `Exhub.Toonflow.Assets` | Character/scene/prop extraction (pure `parse_assets/1`), reference images, wardrobe variations, and the canvas' edits (`update_text/5`, `import_reference/6`, `reference_path/4`, `delete_asset/3`, `clear_references/4`) |
+| `Exhub.Toonflow.Reverse` | Reference sheet → description (pure `prompt/1` / `clean/1`, `infer/4` via the `Vision` seam) |
+| `Exhub.Toonflow.Vision` | Vision seam (`analyze/2`); `Vision.Default` is one `Exhub.MCP.Tools.Look.analyze/2` call on `media.vision_model` |
 | `Exhub.Toonflow.Upload` | Magic-byte validation for reference-sheet uploads (pure `ext_for/1`, `max_bytes/0`) |
 | `Exhub.Toonflow.Storyboard` | Shot planning (pure `parse_storyboard/1`, `characters_of/1`, `shot_prompt/3`) + `split_shot/3` |
 | `Exhub.Toonflow.Keyframe` | Start/end keyframe generation, cross-shot continuity copies, candidate-cell selection (pure `normalize_type/1`, `adjacent/2`, `normalize_cell/1`, `continuity_attrs/3`) |

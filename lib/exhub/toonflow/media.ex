@@ -19,7 +19,7 @@ defmodule Exhub.Toonflow.Media do
   alias Exhub.Toonflow
   alias Exhub.Toonflow.{Assets, Config, DB, Schema, Store, Storyboard}
 
-  @default_model "qwen-image-2.0"
+  @default_model "gpt-image-2"
   @default_size "1024x1024"
 
   # Pixel buckets per delivery aspect, longest side first. `gpt-image-2` accepts
@@ -580,7 +580,9 @@ defmodule Exhub.Toonflow.Media.Default do
 
   @impl true
   def generate_image(prompt, opts) do
-    model = Keyword.get(opts, :model) || "qwen-image-2.0"
+    model =
+      Keyword.get(opts, :model) || Exhub.Toonflow.Config.media()["image_model"] || "gpt-image-2"
+
     size = Keyword.get(opts, :size, "1024x1024") |> normalize_size(model)
     refs = Keyword.get(opts, :refs, [])
     out_path = Keyword.fetch!(opts, :out_path)

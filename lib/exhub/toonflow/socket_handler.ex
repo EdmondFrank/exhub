@@ -18,11 +18,21 @@ defmodule Exhub.Toonflow.SocketHandler do
   two small operations:
 
     * `subject_upload` — `{kind, name, data}` with a base64 JPEG; stored as the
-      subject's only reference sheet (`Exhub.Toonflow.Assets.import_reference/6`);
+      subject's only reference sheet (`Exhub.Toonflow.Assets.import_reference/6`).
+      The sheet is then read back into a description by
+      `Exhub.Toonflow.Reverse` and answered as a second `reverse` frame, so the
+      text later frames are rendered from matches the picture that was just
+      uploaded;
     * `subject_reference` — `{kind, name, text, regenerate}`; saves the edited
       description and, unless `regenerate` is `false`, re-renders the sheet. The
       render runs in `Exhub.MCP.ToolTaskSupervisor` so the socket keeps
-      streaming progress while an image takes tens of seconds to come back.
+      streaming progress while an image takes tens of seconds to come back;
+    * `subject_reverse` — `{kind, name}`; re-infers the description from the
+      current sheet without replacing it;
+    * `subject_clear` — `{kind, name}`; deletes the subject's reference rows and
+      files and empties its `refs` (the subject itself stays in the cast);
+    * `asset_delete` — `{asset_id}`; deletes one 物料 asset, its file, and every
+      reference that still points at it.
 
   Both answer with `{"type":"subject","status":"started"|"ok"|"error",…}`
   followed by a fresh snapshot. Mutating actions honour
@@ -37,7 +47,7 @@ defmodule Exhub.Toonflow.SocketHandler do
   require Logger
 
   alias Exhub.Toonflow
-  alias Exhub.Toonflow.{Access, Assets, Jobs, Progress, Snapshot, Upload}
+  alias Exhub.Toonflow.{Access, Assets, Jobs, Progress, Reverse, Snapshot, Upload}
 
   @tick_ms 5_000
 
@@ -80,6 +90,15 @@ defmodule Exhub.Toonflow.SocketHandler do
       {:ok, %{"action" => "subject_reference"} = msg} ->
         subject_reference(msg, state)
 
+      {:ok, %{"action" => "subject_reverse"} = msg} ->
+        subject_reverse(msg, state)
+
+      {:ok, %{"action" => "subject_clear"} = msg} ->
+        subject_clear(msg, state)
+
+      {:ok, %{"action" => "asset_delete"} = msg} ->
+        asset_delete(msg, state)
+
       {:ok, %{"action" => action}} ->
         {:reply, frames(%{"type" => "error", "error" => "unknown action: #{action}"}), state}
 
@@ -119,7 +138,8 @@ defmodule Exhub.Toonflow.SocketHandler do
   # ── cast-tab edits ───────────────────────────────────────────────────
 
   # Small enough to run inline: the bytes are already in memory and the write is
-  # one file plus two rows.
+  # one file plus two rows. The description is inferred afterwards, off the
+  # connection process, because one vision request takes seconds.
   defp subject_upload(msg, state) do
     kind = msg["kind"]
     name = msg["name"]
@@ -131,8 +151,106 @@ defmodule Exhub.Toonflow.SocketHandler do
         Assets.import_reference(state.project, kind, name, bytes, ext)
       end
 
-    context = {kind, name, "upload"}
+    case result do
+      {:ok, payload} ->
+        # A failed spawn must not leave the card "反推中…" forever: only promise
+        # the follow-up frame when the task actually started.
+        reverse? = start_reverse(state.project, kind, name) == :ok
+
+        frames(
+          Map.merge(
+            %{"type" => "subject", "status" => "ok", "action" => "upload", "reverse" => reverse?},
+            payload
+          )
+        ) ++ snapshot_frames(state.project)
+
+      {:error, _reason} = error ->
+        subject_frames(error, {kind, name, "upload"}) ++ snapshot_frames(state.project)
+    end
+  end
+
+  # Re-read the *current* sheet into a description, leaving the picture alone: a
+  # generated sheet or a sheet uploaded before reverse existed can both be
+  # retried without going through the file picker again.
+  defp subject_reverse(msg, state) do
+    kind = msg["kind"]
+    name = msg["name"]
+    context = {kind, name, "reverse"}
+
+    case writable(state) do
+      :ok ->
+        case start_reverse(state.project, kind, name) do
+          :ok ->
+            {:reply,
+             frames(%{
+               "type" => "subject",
+               "status" => "started",
+               "action" => "reverse",
+               "kind" => kind,
+               "name" => name
+             }), state}
+
+          {:error, reason} ->
+            {:reply, subject_frames({:error, reason}, context), state}
+        end
+
+      {:error, reason} ->
+        {:reply, subject_frames({:error, reason}, context), state}
+    end
+  end
+
+  defp subject_clear(msg, state) do
+    kind = msg["kind"]
+    name = msg["name"]
+    context = {kind, name, "clear"}
+
+    result =
+      with :ok <- writable(state),
+           {:ok, payload} <- Assets.clear_references(state.project, kind, name) do
+        {:ok, payload}
+      end
+
     {:reply, subject_frames(result, context) ++ snapshot_frames(state.project), state}
+  end
+
+  defp asset_delete(msg, state) do
+    asset_id = msg["asset_id"]
+
+    result =
+      with :ok <- writable(state),
+           {:ok, payload} <- Assets.delete_asset(state.project, asset_id) do
+        {:ok, payload}
+      end
+
+    {:reply, asset_frames(result, asset_id) ++ snapshot_frames(state.project), state}
+  end
+
+  defp asset_frames({:ok, payload}, _asset_id) do
+    frames(Map.merge(%{"type" => "assets", "status" => "ok", "action" => "delete"}, payload))
+  end
+
+  defp asset_frames({:error, reason}, asset_id) do
+    Logger.warning("[Toonflow] asset delete #{inspect(asset_id)}: #{inspect(reason)}")
+
+    frames(%{
+      "type" => "assets",
+      "status" => "error",
+      "action" => "delete",
+      "asset_id" => asset_id,
+      "error" => reason_text(reason)
+    })
+  end
+
+  defp start_reverse(project, kind, name) do
+    parent = self()
+    context = {kind, name, "reverse"}
+
+    case Task.Supervisor.start_child(Exhub.MCP.ToolTaskSupervisor, fn ->
+           send(parent, {:subject_done, context, Reverse.infer(project, kind, name)})
+         end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> {:error, {:task_failed, reason}}
+    end
   end
 
   # A render takes tens of seconds; run it off the connection process so progress
@@ -246,6 +364,13 @@ defmodule Exhub.Toonflow.SocketHandler do
   defp reason_text(:too_large), do: "图片过大"
   defp reason_text(:unsupported_image), do: "只支持 PNG / JPEG / WebP 图片"
   defp reason_text(:subject_not_found), do: "找不到该角色 / 场景 / 道具"
+  defp reason_text(:no_reference), do: "这个对象还没有参考图，先上传一张"
+  defp reason_text(:reference_missing), do: "参考图文件已不存在，请重新上传"
+  defp reason_text(:asset_not_found), do: "素材不存在（可能已被删除）"
+  defp reason_text(:missing_asset_id), do: "缺少素材 id"
+  defp reason_text(:empty_vision_result), do: "没有识别出可用的描述，换一张更清晰的图"
+  defp reason_text({:vision_failed, reason}), do: "反推提示词失败：#{inspect(reason)}"
+  defp reason_text({:task_failed, reason}), do: "无法启动任务：#{inspect(reason)}"
   defp reason_text(:missing_description), do: "提示词不能为空"
   defp reason_text(:missing_name), do: "缺少名称"
   defp reason_text(:invalid_reference_kind), do: "未知的类型"

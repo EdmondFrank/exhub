@@ -20,10 +20,16 @@ defmodule Exhub.Toonflow.Assets do
   `Exhub.Toonflow.Storyboard.set_shot_variations/4`.
 
   The canvas' cast tab edits a subject directly: `update_text/5` rewrites the
-  description the reference sheet and every later frame are rendered from, and
-  `import_reference/6` swaps in a user-supplied sheet. Both are what makes a
-  model-invented character "look right" without re-running the whole
-  extraction.
+  description the reference sheet and every later frame are rendered from,
+  `import_reference/6` swaps in a user-supplied sheet, and `reference_path/4`
+  exposes the current sheet so `Exhub.Toonflow.Reverse` can read a description
+  back out of it. Both are what makes a model-invented character "look right"
+  without re-running the whole extraction.
+
+  Stale material is removable: `delete_asset/3` drops one asset row *and* its
+  file, and detaches the path from every character/scene/prop variation that
+  still conditioned on it; `clear_references/4` resets one subject to "no
+  sheet" without deleting the subject itself.
 
   `parse_assets/1` is pure and unit-tested.
   """
@@ -276,6 +282,88 @@ defmodule Exhub.Toonflow.Assets do
          {:ok, subject} <- fetch_subject(project, kind, name, server),
          :ok <- write_text(project, kind, subject, text, server) do
       {:ok, %{"kind" => kind, "name" => subject["name"], "text" => text}}
+    end
+  end
+
+  @doc """
+  The subject's current reference sheet, as an absolute path.
+
+  The first entry of `refs` is the sheet the canvas shows and the one a new
+  description is inferred from. Returns `{:error, :no_reference}` when the
+  subject has none yet.
+  """
+  @spec reference_path(String.t(), String.t(), String.t(), GenServer.server()) ::
+          {:ok, String.t()} | {:error, term()}
+  def reference_path(project, kind, name, server \\ Store) do
+    kind = normalize_kind(kind)
+    name = Toonflow.blank(name)
+
+    with :ok <- validate_reference(kind, name),
+         {:ok, subject} <- fetch_subject(project, kind, name, server) do
+      case subject["refs"] || [] do
+        [path | _] when is_binary(path) and path != "" -> {:ok, path}
+        _ -> {:error, :no_reference}
+      end
+    end
+  end
+
+  @doc """
+  Delete one asset: its row, its file, and every reference that points at it.
+
+  The file is removed only when it lives inside the project directory, so a row
+  that points outside the workspace cannot delete unrelated files. Used by the
+  canvas' 物料 gallery to clear stale sheets, keyframes and clips; superseded
+  reference sheets from an upload are otherwise kept on disk forever.
+  """
+  @spec delete_asset(String.t(), String.t(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def delete_asset(project, asset_id, server \\ Store) do
+    case Toonflow.blank(asset_id) do
+      nil ->
+        {:error, :missing_asset_id}
+
+      asset_id ->
+        with {:ok, meta} <- Store.get_project(project, server),
+             {:ok, asset} <- fetch_asset(project, asset_id, server),
+             {:ok, subjects} <- detach_path(project, asset["path"], server),
+             :ok <- delete_asset_row(project, asset_id, server) do
+          {:ok,
+           %{
+             "asset_id" => asset_id,
+             "path" => asset["path"],
+             "file_removed" => remove_asset_file(meta["root_dir"], asset["path"]),
+             "subjects" => subjects
+           }}
+        end
+    end
+  end
+
+  @doc """
+  Drop every reference of a subject: the asset rows, their files, and the
+  `refs` list itself.
+
+  The subject stays in the cast, with no sheet — the state a freshly extracted
+  character starts in, so it can be re-uploaded or re-rendered from scratch.
+  """
+  @spec clear_references(String.t(), String.t(), String.t(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def clear_references(project, kind, name, server \\ Store) do
+    kind = normalize_kind(kind)
+    name = Toonflow.blank(name)
+
+    with :ok <- validate_reference(kind, name),
+         {:ok, subject} <- fetch_subject(project, kind, name, server),
+         {:ok, meta} <- Store.get_project(project, server) do
+      refs = subject["refs"] || []
+
+      Enum.each(refs, fn path ->
+        delete_assets_at(project, path, server)
+        remove_asset_file(meta["root_dir"], path)
+      end)
+
+      with :ok <- store_refs(project, kind, subject, [], server) do
+        {:ok, %{"kind" => kind, "name" => subject["name"], "removed" => length(refs)}}
+      end
     end
   end
 
@@ -712,6 +800,114 @@ defmodule Exhub.Toonflow.Assets do
       end,
       server
     )
+  end
+
+  # --- stale material ---
+
+  defp fetch_asset(project, asset_id, server) do
+    sql = "SELECT #{Schema.asset_columns()} FROM assets WHERE id = ?"
+
+    Store.run_project(
+      project,
+      fn conn ->
+        case DB.query_one(conn, sql, [asset_id]) do
+          {:ok, nil} -> {:error, :asset_not_found}
+          {:ok, row} -> {:ok, Schema.decode_asset(row)}
+          {:error, reason} -> {:error, reason}
+        end
+      end,
+      server
+    )
+  end
+
+  defp delete_asset_row(project, asset_id, server) do
+    Store.run_project(
+      project,
+      fn conn -> DB.execute(conn, "DELETE FROM assets WHERE id = ?", [asset_id]) end,
+      server
+    )
+  end
+
+  defp delete_assets_at(project, path, server) when is_binary(path) do
+    Store.run_project(
+      project,
+      fn conn -> DB.execute(conn, "DELETE FROM assets WHERE path = ?", [path]) end,
+      server
+    )
+  end
+
+  defp delete_assets_at(_project, _path, _server), do: :ok
+
+  # Every table that conditions a render on a reference path. A sheet removed
+  # from the gallery must not keep steering a character sheet or a wardrobe
+  # variation.
+  defp reference_tables do
+    [
+      {"characters", Schema.character_columns(), &Schema.decode_character/1},
+      {"scenes", Schema.scene_columns(), &Schema.decode_scene/1},
+      {"props", Schema.prop_columns(), &Schema.decode_prop/1},
+      {"character_variations", Schema.variation_columns(), &Schema.decode_variation/1}
+    ]
+  end
+
+  defp detach_path(project, path, server) when is_binary(path) and path != "" do
+    Store.run_project(
+      project,
+      fn conn ->
+        DB.transaction(conn, fn ->
+          names =
+            Enum.flat_map(reference_tables(), fn {table, columns, decode} ->
+              detach_in(conn, table, columns, decode, path)
+            end)
+
+          {:ok, names}
+        end)
+      end,
+      server
+    )
+  end
+
+  defp detach_path(_project, _path, _server), do: {:ok, []}
+
+  defp detach_in(conn, table, columns, decode, path) do
+    case DB.query(conn, "SELECT #{columns} FROM #{table}", []) do
+      {:ok, rows} ->
+        rows
+        |> Enum.map(decode)
+        |> Enum.filter(&(path in (&1["refs"] || [])))
+        |> Enum.flat_map(fn subject ->
+          refs = Enum.reject(subject["refs"] || [], &(&1 == path))
+
+          case DB.execute(conn, "UPDATE #{table} SET refs_json = ? WHERE id = ?", [
+                 Schema.encode_json(refs),
+                 subject["id"]
+               ]) do
+            :ok -> [subject["name"]]
+            _ -> []
+          end
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  # Only paths inside the project may be unlinked: an asset row is data, and a
+  # hand-edited `path` must not turn a delete into an arbitrary `rm`.
+  defp remove_asset_file(root_dir, path) do
+    with root when is_binary(root) <- root_dir,
+         path when is_binary(path) and path != "" <- path,
+         true <- inside?(root, path),
+         true <- File.exists?(path) do
+      File.rm(path) == :ok
+    else
+      _ -> false
+    end
+  end
+
+  defp inside?(root, path) do
+    root = Path.expand(root)
+    String.starts_with?(Path.expand(path), root <> "/")
   end
 
   defp rand_suffix, do: Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)

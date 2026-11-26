@@ -167,8 +167,12 @@ defmodule Exhub.Router.ToonflowView do
         .subject .status.error { color: #f85149; }
         .subject .status.busy { color: #d29922; }
         .subject .noref { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; color: #6e7681; font-size: 12px; background: #161b22; }
+        .subject .row button.danger { color: #f85149; }
         .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-        .asset { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+        .asset { position: relative; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+        .asset-del { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; border-radius: 999px; border: 1px solid #30363d; background: #0d1117cc; color: #c9d1d9; font-size: 13px; line-height: 1; cursor: pointer; opacity: .45; }
+        .asset:hover .asset-del { opacity: 1; }
+        .asset-del:hover { border-color: #f85149; color: #f85149; }
         .asset img, .asset video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #161b22; }
         .asset img { cursor: zoom-in; }
         .asset .meta { padding: 6px 8px; font-size: 11px; color: #8b949e; display: flex; justify-content: space-between; gap: 6px; }
@@ -781,6 +785,10 @@ defmodule Exhub.Router.ToonflowView do
     function subjectCard(s, empty, kind) {
       const ref = (s.refs || [])[0];
       const st = state.subj[subjectKey(kind, s.name)] || {};
+      // `busy` is stored with the status, so a snapshot that rebuilds the cards
+      // mid-render cannot hand the buttons back to the user.
+      const dis = st.cls === 'busy' ? ' disabled' : '';
+      const noRef = ref ? '' : ' disabled';
       const media = ref
         ? `<img loading="lazy" data-full="${esc(ref)}" src="${esc(ref)}" alt="${esc(s.name || '')}">`
         : `<div class="noref">${esc(empty)}</div>`;
@@ -790,9 +798,13 @@ defmodule Exhub.Router.ToonflowView do
           <div class="name">${esc(s.name || '')}</div>
           <textarea class="subject-text" spellcheck="false" placeholder="外观 / 场景描述（参考图与后续分镜都据此生成）">${esc(s.text || '')}</textarea>
           <div class="row">
-            <button class="ghost" data-act="upload">上传图片</button>
-            <button data-act="regen">保存并重新生成</button>
-            <button class="ghost" data-act="save">仅保存</button>
+            <button class="ghost" data-act="upload"${dis}>上传图片</button>
+            <button class="ghost" data-act="reverse"${dis}${noRef} title="用视觉模型从当前参考图反推描述">反推提示词</button>
+          </div>
+          <div class="row">
+            <button data-act="regen"${dis}>保存并重新生成</button>
+            <button class="ghost" data-act="save"${dis}>仅保存</button>
+            <button class="ghost danger" data-act="clear"${dis}${noRef} title="删除该对象的参考图与文件">清除参考图</button>
           </div>
           <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none">
           <div class="status ${esc(st.cls || '')}">${esc(st.text || '')}</div>
@@ -833,6 +845,10 @@ defmodule Exhub.Router.ToonflowView do
       state.subj[subjectKey(card.dataset.kind, card.dataset.name)] = st;
       const node = card.querySelector('.status');
       if (node) { node.textContent = text; node.className = 'status ' + (cls || ''); }
+      // Keep the buttons in step: a snapshot rebuilds the cards from
+      // `state.subj`, so a busy action must stay disabled across the refresh.
+      const busy = (cls || '') === 'busy';
+      card.querySelectorAll('button').forEach((b) => { b.disabled = busy; });
     }
 
     function subjectBusy(card, busy) {
@@ -866,15 +882,32 @@ defmodule Exhub.Router.ToonflowView do
       const card = findSubjectCard(msg.kind, msg.name);
       if (!card) return;
       if (msg.status === 'started') {
-        subjectStatus(card, msg.action === 'save' ? '保存中…' : '生成中…（约 20-40 秒）', 'busy');
+        const pending = msg.action === 'reverse' ? '正在根据参考图反推提示词…'
+          : msg.action === 'save' ? '保存中…' : '生成中…（约 20-40 秒）';
+        subjectStatus(card, pending, 'busy');
         return;
       }
-      subjectBusy(card, false);
       if (msg.status === 'error') {
         subjectStatus(card, msg.error || '操作失败', 'error');
         return;
       }
+      if (msg.action === 'reverse') {
+        const ta = card.querySelector('.subject-text');
+        if (ta && msg.text) ta.value = msg.text;
+        subjectStatus(card, '已根据参考图反推提示词，可编辑后重新生成', 'ok');
+        requestRefresh();
+        return;
+      }
+      if (msg.action === 'upload' && msg.reverse) {
+        // The upload answers immediately and a `reverse` frame follows a moment
+        // later; keep the card busy meanwhile so nothing is rendered from the
+        // old description.
+        subjectStatus(card, '已替换参考图，正在反推提示词…', 'busy');
+        requestRefresh();
+        return;
+      }
       const done = msg.action === 'upload' ? '已替换参考图'
+        : msg.action === 'clear' ? '已清除参考图'
         : msg.action === 'save' ? '已保存' : '已重新生成';
       subjectStatus(card, done, 'ok');
       requestRefresh();
@@ -910,6 +943,15 @@ defmodule Exhub.Router.ToonflowView do
       });
     }
 
+    function clearSubject(card) {
+      if (!window.confirm('删除该角色的全部参考图？文件会一并删除，且不可撤销。')) return;
+      subjectSend(card, {
+        action: 'subject_clear',
+        kind: card.dataset.kind,
+        name: card.dataset.name
+      }, '清除中…');
+    }
+
     async function uploadSubject(card, file) {
       subjectBusy(card, true);
       subjectStatus(card, '处理图片…', 'busy');
@@ -941,6 +983,12 @@ defmodule Exhub.Router.ToonflowView do
         saveSubject(card, false);
       } else if (act === 'regen') {
         saveSubject(card, true);
+      } else if (act === 'reverse') {
+        subjectSend(card, {
+          action: 'subject_reverse', kind: card.dataset.kind, name: card.dataset.name
+        }, '反推中…');
+      } else if (act === 'clear') {
+        clearSubject(card);
       }
     });
 
@@ -958,8 +1006,32 @@ defmodule Exhub.Router.ToonflowView do
         ? `<video src="${esc(a.url)}" controls preload="metadata"></video>`
         : `<img loading="lazy" data-full="${esc(a.url)}" src="${esc(a.url)}" alt="${esc(a.kind || '')}">`;
       const when = (a.created_at || '').replace('T', ' ').slice(0, 19);
-      return `<div class="asset">${media}<div class="meta"><span class="kind">${esc(a.kind || '')}</span><span>${esc(when)}</span></div></div>`;
+      const del = a.id
+        ? `<button class="asset-del" data-del="${esc(a.id)}" title="删除素材（含文件，并从角色参考中移除）">✕</button>`
+        : '';
+      return `<div class="asset">${del}${media}<div class="meta"><span class="kind">${esc(a.kind || '')}</span><span>${esc(when)}</span></div></div>`;
     }
+
+    // 物料 deletion is optimistic: drop the card at once, then let the snapshot
+    // confirm. The server unlinks the file and detaches the path from every
+    // subject reference, so a deleted sheet also stops conditioning new frames.
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('#asset-grid [data-del]');
+      if (!btn) return;
+      e.stopPropagation();
+      const id = btn.getAttribute('data-del');
+      if (!id) return;
+      if (!window.confirm('删除这个素材？文件会一并删除，且不可撤销。')) return;
+      if (!state.ws || state.ws.readyState !== 1) {
+        log('socket 未连接，刷新页面后重试', 'error');
+        return;
+      }
+      state.snap = state.snap || {};
+      state.snap.assets = (state.snap.assets || []).filter((a) => a.id !== id);
+      renderAssets();
+      state.ws.send(JSON.stringify({ action: 'asset_delete', asset_id: id }));
+      log('删除素材…', 'started');
+    });
 
     function renderAssets() {
       const assets = (state.snap && state.snap.assets) || [];
@@ -1083,6 +1155,12 @@ defmodule Exhub.Router.ToonflowView do
         if (msg.type === 'stage') { log(`stage ${msg.stage}: ${msg.status}` + (msg.detail ? ' ' + JSON.stringify(msg.detail) : ''), msg.status); return; }
         if (msg.type === 'shot') { onShotEvent(msg); return; }
         if (msg.type === 'subject') { onSubjectEvent(msg); return; }
+        if (msg.type === 'assets') {
+          if (msg.status === 'error') log('删除失败：' + (msg.error || ''), 'error');
+          else log('已删除素材', 'ok');
+          requestRefresh();
+          return;
+        }
         if (msg.type === 'job') { log(`job ${msg.status}`, msg.status); return; }
       };
     }

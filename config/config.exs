@@ -147,8 +147,15 @@ config :exhub, :toonflow, %{
     "qa" => "deepseek-v4.1-flash"
   },
   "media" => %{
-    "image_model" => "qwen-image-2.0",
+    # Multi-reference frames go through the multipart `/images/edits` endpoint,
+    # which accepts the project's character sheets; the Qwen models inline
+    # base64 into `/images/generations`, which MoArk's IP filter rejects for
+    # anime character art. Slower (~1 min/frame) but on-model.
+    "image_model" => "gpt-image-2",
     "video_model" => "MiniMax-H3",
+    # Vision model behind the cast tab's 反推提示词 (`Exhub.Toonflow.Reverse`):
+    # one MoArk chat request with the sheet as a data-URI image.
+    "vision_model" => "deepseek-v4.1-flash",
     # TTS default: MoArk's streaming WebSocket endpoint (`Exhub.TTS.Realtime`).
     # Verified live 2026-10-25: `TeleTTS-Bidirectional-Mandarin` honours the full
     # voice catalogue; `TeleTTS-MultiDialect` answered `TELEAI_WS_CLOSED` (1002)
