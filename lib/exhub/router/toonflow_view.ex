@@ -151,12 +151,21 @@ defmodule Exhub.Router.ToonflowView do
         .tabs button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
-        .subject-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+        .subject-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
         .subject { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
         .subject img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: #161b22; display: block; cursor: zoom-in; }
         .subject .body { padding: 10px; }
         .subject .name { font-weight: 600; color: #e6edf3; font-size: 14px; }
         .subject .text { color: #8b949e; font-size: 12px; line-height: 1.45; margin-top: 4px; max-height: 9em; overflow: auto; }
+        .subject textarea { width: 100%; min-height: 96px; margin-top: 6px; padding: 6px 8px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font: inherit; font-size: 12px; line-height: 1.45; resize: vertical; }
+        .subject textarea:focus { outline: none; border-color: #58a6ff; }
+        .subject .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .subject .row button { padding: 4px 10px; font-size: 12px; }
+        .subject .row button:disabled { opacity: .55; cursor: progress; }
+        .subject .status { min-height: 15px; margin-top: 6px; font-size: 11px; color: #8b949e; }
+        .subject .status.ok { color: #3fb950; }
+        .subject .status.error { color: #f85149; }
+        .subject .status.busy { color: #d29922; }
         .subject .noref { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; color: #6e7681; font-size: 12px; background: #161b22; }
         .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
         .asset { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
@@ -339,7 +348,7 @@ defmodule Exhub.Router.ToonflowView do
     const DIRECTOR_MODEL = #{Jason.encode!(Exhub.Toonflow.Config.agent_model("director") || "default")};
     const AI_FIELDS = #{Jason.encode!(Exhub.Toonflow.ShotAssist.fields())};
     const AI_ACTIONS = #{Jason.encode!(Enum.map(Exhub.Toonflow.ShotAssist.actions(), &[&1, Exhub.Toonflow.ShotAssist.action_label(&1)]))};
-    const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0, live: {} };
+    const state = { snap: null, shots: [], selected: null, cast: [], dirty: false, inspFor: null, ws: null, stages: null, retries: 0, live: {}, subj: {} };
 
     // Tabs: 分镜 (existing canvas) / 角色 & 场景 / 物料.
     document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => {
@@ -763,29 +772,185 @@ defmodule Exhub.Router.ToonflowView do
     }
 
     // ── 角色 & 物料 tabs ─────────────────────────────────────────────
-    function subjectCard(s, empty) {
+    // A subject card is editable: the reference sheet can be replaced by an
+    // upload, and the description it was rendered from can be rewritten and
+    // re-rendered. The status line is kept in `state.subj` so it survives the
+    // snapshot-driven re-render that follows a save.
+    function subjectKey(kind, name) { return kind + '|' + (name || ''); }
+
+    function subjectCard(s, empty, kind) {
       const ref = (s.refs || [])[0];
+      const st = state.subj[subjectKey(kind, s.name)] || {};
       const media = ref
         ? `<img loading="lazy" data-full="${esc(ref)}" src="${esc(ref)}" alt="${esc(s.name || '')}">`
         : `<div class="noref">${esc(empty)}</div>`;
-      return `<div class="subject">${media}<div class="body"><div class="name">${esc(s.name || '')}</div><div class="text">${esc(s.text || '')}</div></div></div>`;
+      return `<div class="subject" data-kind="${esc(kind)}" data-name="${esc(s.name || '')}">
+        ${media}
+        <div class="body">
+          <div class="name">${esc(s.name || '')}</div>
+          <textarea class="subject-text" spellcheck="false" placeholder="外观 / 场景描述（参考图与后续分镜都据此生成）">${esc(s.text || '')}</textarea>
+          <div class="row">
+            <button class="ghost" data-act="upload">上传图片</button>
+            <button data-act="regen">保存并重新生成</button>
+            <button class="ghost" data-act="save">仅保存</button>
+          </div>
+          <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none">
+          <div class="status ${esc(st.cls || '')}">${esc(st.text || '')}</div>
+        </div>
+      </div>`;
     }
 
     function renderCast() {
+      // A snapshot can arrive while a description is being typed; rebuilding the
+      // cards would discard the edit.
+      const active = document.activeElement;
+      if (active && active.classList && active.classList.contains('subject-text')) return;
       const snap = state.snap || {};
       const chars = snap.characters || [];
       const scenes = snap.scenes || [];
       const props = snap.props || [];
       el('cast-characters').innerHTML = chars.length
-        ? chars.map((s) => subjectCard(s, 'no reference yet')).join('')
+        ? chars.map((s) => subjectCard(s, 'no reference yet', 'character')).join('')
         : '<p class="empty">No characters yet — run the assets stage.</p>';
       el('cast-scenes').innerHTML = scenes.length
-        ? scenes.map((s) => subjectCard(s, 'no reference yet')).join('')
+        ? scenes.map((s) => subjectCard(s, 'no reference yet', 'scene')).join('')
         : '<p class="empty">No scenes yet.</p>';
       el('cast-props').innerHTML = props.length
-        ? props.map((s) => subjectCard(s, 'no reference yet')).join('')
+        ? props.map((s) => subjectCard(s, 'no reference yet', 'prop')).join('')
         : '<p class="empty">No props yet.</p>';
     }
+
+    function findSubjectCard(kind, name) {
+      const nodes = document.querySelectorAll('#tab-cast .subject');
+      for (const node of nodes) {
+        if (node.dataset.kind === kind && node.dataset.name === name) return node;
+      }
+      return null;
+    }
+
+    function subjectStatus(card, text, cls) {
+      const st = { text, cls: cls || '' };
+      state.subj[subjectKey(card.dataset.kind, card.dataset.name)] = st;
+      const node = card.querySelector('.status');
+      if (node) { node.textContent = text; node.className = 'status ' + (cls || ''); }
+    }
+
+    function subjectBusy(card, busy) {
+      card.querySelectorAll('button').forEach((b) => { b.disabled = busy; });
+    }
+
+    // Edits travel over the page's websocket: it is already open and
+    // authenticated, and the socket also carries the "started"/"ok"/"error"
+    // frames that a 20-40 second render needs.
+    function subjectSend(card, payload, pending) {
+      if (!state.ws || state.ws.readyState !== 1) {
+        subjectStatus(card, 'socket 未连接，刷新页面后重试', 'error');
+        return;
+      }
+      subjectBusy(card, true);
+      subjectStatus(card, pending, 'busy');
+      state.ws.send(JSON.stringify(payload));
+    }
+
+    function saveSubject(card, regenerate) {
+      const text = card.querySelector('.subject-text').value;
+      subjectSend(card, {
+        action: 'subject_reference',
+        kind: card.dataset.kind,
+        name: card.dataset.name,
+        text, regenerate
+      }, regenerate ? '生成中…（约 20-40 秒）' : '保存中…');
+    }
+
+    function onSubjectEvent(msg) {
+      const card = findSubjectCard(msg.kind, msg.name);
+      if (!card) return;
+      if (msg.status === 'started') {
+        subjectStatus(card, msg.action === 'save' ? '保存中…' : '生成中…（约 20-40 秒）', 'busy');
+        return;
+      }
+      subjectBusy(card, false);
+      if (msg.status === 'error') {
+        subjectStatus(card, msg.error || '操作失败', 'error');
+        return;
+      }
+      const done = msg.action === 'upload' ? '已替换参考图'
+        : msg.action === 'save' ? '已保存' : '已重新生成';
+      subjectStatus(card, done, 'ok');
+      requestRefresh();
+    }
+
+    // One websocket frame is capped at ~1MB, so the picked file is normalized
+    // first: draw it at ≤1408px and re-encode as JPEG. That is plenty for a
+    // conditioning image and keeps phone/camera files from being rejected.
+    function shrinkImage(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          try {
+            const max = 1408;
+            const scale = Math.min(1, max / Math.max(img.width, img.height));
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            let data = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+            if (data.length > 700000) data = canvas.toDataURL('image/jpeg', 0.72).split(',')[1];
+            if (data.length > 900000) throw new Error('图片过大，请换一张');
+            resolve(data);
+          } catch (err) { reject(err); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取该图片')); };
+        img.src = url;
+      });
+    }
+
+    async function uploadSubject(card, file) {
+      subjectBusy(card, true);
+      subjectStatus(card, '处理图片…', 'busy');
+      try {
+        const data = await shrinkImage(file);
+        subjectBusy(card, false);
+        subjectSend(card, {
+          action: 'subject_upload',
+          kind: card.dataset.kind,
+          name: card.dataset.name,
+          data
+        }, '上传中…');
+      } catch (err) {
+        subjectBusy(card, false);
+        subjectStatus(card, String(err.message || err), 'error');
+      }
+    }
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('#tab-cast button[data-act]');
+      if (!btn) return;
+      const card = btn.closest('.subject');
+      if (!card) return;
+      const act = btn.dataset.act;
+      if (act === 'upload') {
+        const input = card.querySelector('input[type=file]');
+        if (input) { input.value = ''; input.click(); }
+      } else if (act === 'save') {
+        saveSubject(card, false);
+      } else if (act === 'regen') {
+        saveSubject(card, true);
+      }
+    });
+
+    document.addEventListener('change', (e) => {
+      const input = e.target.closest ? e.target.closest('#tab-cast .subject input[type=file]') : null;
+      if (!input) return;
+      const card = input.closest('.subject');
+      const file = (input.files || [])[0];
+      if (card && file) uploadSubject(card, file);
+    });
 
     function assetCard(a) {
       const isVideo = a.kind === 'video';
@@ -917,6 +1082,7 @@ defmodule Exhub.Router.ToonflowView do
         if (msg.type === 'error') { log('server error: ' + (msg.error || ''), 'error'); return; }
         if (msg.type === 'stage') { log(`stage ${msg.stage}: ${msg.status}` + (msg.detail ? ' ' + JSON.stringify(msg.detail) : ''), msg.status); return; }
         if (msg.type === 'shot') { onShotEvent(msg); return; }
+        if (msg.type === 'subject') { onSubjectEvent(msg); return; }
         if (msg.type === 'job') { log(`job ${msg.status}`, msg.status); return; }
       };
     }

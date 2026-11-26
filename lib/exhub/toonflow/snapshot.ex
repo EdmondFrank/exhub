@@ -31,9 +31,20 @@ defmodule Exhub.Toonflow.Snapshot do
 
       {:ok, jobs} = Jobs.list(project, [limit: 10], server)
       {:ok, shots} = shots_with_assets(project, name, dir, server)
-      characters = subjects(Assets.list_characters(project, [], server), name, dir, "appearance")
-      scenes = subjects(Assets.list_scenes(project, [], server), name, dir, "description")
-      props = subjects(Assets.list_props(project, [], server), name, dir, "description")
+
+      characters =
+        subjects(
+          Assets.list_characters(project, [], server),
+          name,
+          dir,
+          "character",
+          "appearance"
+        )
+
+      scenes =
+        subjects(Assets.list_scenes(project, [], server), name, dir, "scene", "description")
+
+      props = subjects(Assets.list_props(project, [], server), name, dir, "prop", "description")
       assets = gallery(Media.list_assets(project, [], server), name, dir)
 
       {:ok,
@@ -223,12 +234,14 @@ defmodule Exhub.Toonflow.Snapshot do
 
   # --- subject galleries (characters / scenes / props / assets) ---
 
-  # The cast & material tabs read one normalized shape: name + explanatory
-  # text + local media URLs for its reference images.
-  defp subjects({:ok, items}, name, dir, text_key) do
+  # The cast & material tabs read one normalized shape: kind (which endpoint the
+  # canvas posts an edit to) + name + explanatory text + local media URLs for its
+  # reference images.
+  defp subjects({:ok, items}, name, dir, kind, text_key) do
     Enum.map(items, fn item ->
       %{
         "id" => item["id"],
+        "kind" => kind,
         "name" => item["name"],
         "text" => item[text_key],
         "refs" =>
@@ -239,18 +252,33 @@ defmodule Exhub.Toonflow.Snapshot do
     end)
   end
 
-  defp subjects(_error, _name, _dir, _text_key), do: []
+  defp subjects(_error, _name, _dir, _kind, _text_key), do: []
 
   defp ref_url(ref, name, dir) when is_binary(ref) do
     if String.starts_with?(ref, "http://") or String.starts_with?(ref, "https://") do
       ref
     else
-      asset_url(%{"path" => ref}, name, dir)
+      # A regenerated reference overwrites the same filename, and the media route
+      # caches for a minute — version by mtime so a new sheet actually appears.
+      asset_url(%{"path" => ref}, name, dir) |> with_mtime(ref)
     end
   end
 
   defp ref_url(ref, name, dir) when is_map(ref), do: asset_url(ref, name, dir)
   defp ref_url(_ref, _name, _dir), do: nil
+
+  defp with_mtime(nil, _path), do: nil
+
+  defp with_mtime(url, path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} ->
+        join = if String.contains?(url, "?"), do: "&", else: "?"
+        url <> join <> "v=m#{mtime}"
+
+      _ ->
+        url
+    end
+  end
 
   # Every generated asset (character refs, keyframes, frames, clips, audio) in
   # one newest-first list for the material tab.

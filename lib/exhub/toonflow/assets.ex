@@ -19,6 +19,12 @@ defmodule Exhub.Toonflow.Assets do
   (see `Exhub.Toonflow.Media.variation_prompt/1`). A shot selects variations via
   `Exhub.Toonflow.Storyboard.set_shot_variations/4`.
 
+  The canvas' cast tab edits a subject directly: `update_text/5` rewrites the
+  description the reference sheet and every later frame are rendered from, and
+  `import_reference/6` swaps in a user-supplied sheet. Both are what makes a
+  model-invented character "look right" without re-running the whole
+  extraction.
+
   `parse_assets/1` is pure and unit-tested.
   """
 
@@ -209,7 +215,10 @@ defmodule Exhub.Toonflow.Assets do
 
   `opts`: `:kind` (`"character"` | `"scene"` | `"prop"`, required), `:name`
   (required), `:prompt` (full override; by default a kind-specific setup prefix
-  plus the subject's appearance/description is used), `:model`, `:size`.
+  plus the subject's appearance/description is used), `:instructions` (replace
+  only the description, keeping the setup prefix — this is what the canvas
+  sends after an edit), `:replace` (drop the previous references instead of
+  accumulating them), `:model`, `:size`.
   Returns `{:ok, %{"kind", "name", "path", "refs"}}` or `{:error, reason}`.
   """
   @spec generate_reference(String.t(), keyword(), GenServer.server()) ::
@@ -220,15 +229,103 @@ defmodule Exhub.Toonflow.Assets do
 
     with :ok <- validate_reference(kind, name),
          {:ok, subject} <- fetch_subject(project, kind, name, server),
-         {:ok, prompt} <- reference_prompt(kind, subject, Keyword.get(opts, :prompt)) do
+         {:ok, prompt} <-
+           reference_prompt(
+             kind,
+             subject,
+             Keyword.get(opts, :prompt),
+             Keyword.get(opts, :instructions)
+           ) do
       media_opts =
         [prompt: prompt, kind: "#{kind}_ref", key: "ref_#{kind}_#{name}"]
         |> put_opt(:model, Keyword.get(opts, :model))
         |> put_opt(:size, Keyword.get(opts, :size))
 
       case Media.generate_image(project, media_opts, server) do
-        {:ok, asset} -> attach_reference(project, kind, subject, asset, server)
-        {:error, reason} -> {:error, reason}
+        {:ok, asset} ->
+          attach_reference(
+            project,
+            kind,
+            subject,
+            asset,
+            Keyword.get(opts, :replace, false),
+            server
+          )
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Rewrite a subject's editable description.
+
+  `kind` is `"character"` (updates `appearance`) or `"scene"` / `"prop"`
+  (updates `description`). This is the text a reference sheet is rendered from
+  *and* the text the storyboard hands to the image model, so an edit here
+  affects the next keyframe of every shot that subject appears in.
+  """
+  @spec update_text(String.t(), String.t(), String.t(), String.t() | nil, GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  def update_text(project, kind, name, text, server \\ Store) do
+    kind = normalize_kind(kind)
+    name = Toonflow.blank(name)
+
+    with :ok <- validate_reference(kind, name),
+         {:ok, subject} <- fetch_subject(project, kind, name, server),
+         :ok <- write_text(project, kind, subject, text, server) do
+      {:ok, %{"kind" => kind, "name" => subject["name"], "text" => text}}
+    end
+  end
+
+  @doc """
+  Store a user-supplied image as a subject's reference sheet.
+
+  `ext` comes from `Exhub.Toonflow.Upload.ext_for/1` (validated magic bytes, not
+  the request header). The file lands in `assets/images/` under a fresh name:
+  the reference gallery is cacheable and a re-render that reused a name would
+  keep showing the old picture.
+
+  The upload becomes the subject's *only* reference. "Replace" is what the
+  canvas offers, and several contradicting sheets in one i2i request only
+  confuse the model. The previous files stay on disk, so the material tab still
+  lists them.
+  """
+  @spec import_reference(
+          String.t(),
+          String.t(),
+          String.t(),
+          binary(),
+          String.t(),
+          GenServer.server()
+        ) :: {:ok, map()} | {:error, term()}
+  def import_reference(project, kind, name, bytes, ext, server \\ Store)
+
+  def import_reference(_project, _kind, _name, bytes, _ext, _server)
+      when not is_binary(bytes) or bytes == "",
+      do: {:error, :empty_image}
+
+  def import_reference(project, kind, name, bytes, ext, server) do
+    kind = normalize_kind(kind)
+    name = Toonflow.blank(name)
+
+    with :ok <- validate_reference(kind, name),
+         {:ok, subject} <- fetch_subject(project, kind, name, server),
+         {:ok, meta} <- Store.get_project(project, server) do
+      dir = Path.join([meta["root_dir"], "assets", "images"])
+      File.mkdir_p(dir)
+      file = "ref_#{kind}_#{Toonflow.file_key(name)}_up_#{rand_suffix()}.#{ext}"
+      path = Path.join(dir, file)
+
+      with :ok <- File.write(path, bytes),
+           {:ok, asset} <-
+             Media.insert_asset(
+               project,
+               [kind: "#{kind}_ref", path: path, prompt: "用户上传"],
+               server
+             ) do
+        replace_reference(project, kind, subject, asset, server)
       end
     end
   end
@@ -536,14 +633,25 @@ defmodule Exhub.Toonflow.Assets do
   defp fetch_subject(project, "scene", name, server), do: get_scene(project, name, server)
   defp fetch_subject(project, "prop", name, server), do: get_prop(project, name, server)
 
-  defp reference_prompt(_kind, _subject, explicit) when is_binary(explicit) do
+  # An explicit prompt is rendered as-is (the "custom prompt" path).
+  defp reference_prompt(_kind, _subject, explicit, _instructions) when is_binary(explicit) do
     case Toonflow.blank(explicit) do
       nil -> {:error, :missing_description}
       text -> {:ok, text}
     end
   end
 
-  defp reference_prompt(kind, subject, _explicit) do
+  # `:instructions` is the description the canvas just edited: keep the
+  # kind-specific setup line so a character sheet still asks for a full body on
+  # a plain background, and swap only the description.
+  defp reference_prompt(kind, _subject, _explicit, instructions) when is_binary(instructions) do
+    case Toonflow.blank(instructions) do
+      nil -> {:error, :missing_description}
+      text -> {:ok, @reference_prefixes[kind] <> "\n" <> text}
+    end
+  end
+
+  defp reference_prompt(kind, subject, _explicit, _instructions) do
     case subject["appearance"] || subject["description"] do
       description when is_binary(description) ->
         {:ok, @reference_prefixes[kind] <> "\n" <> description}
@@ -553,22 +661,28 @@ defmodule Exhub.Toonflow.Assets do
     end
   end
 
-  defp attach_reference(project, kind, subject, asset, server) do
-    refs = Enum.uniq([asset["path"] | subject["refs"] || []])
+  defp write_text(project, kind, subject, text, server) do
+    column = if kind == "character", do: "appearance", else: "description"
 
-    result =
-      Store.run_project(
-        project,
-        fn conn ->
-          DB.execute(conn, "UPDATE #{table_for(kind)} SET refs_json = ? WHERE id = ?", [
-            Schema.encode_json(refs),
-            subject["id"]
-          ])
-        end,
-        server
-      )
+    Store.run_project(
+      project,
+      fn conn ->
+        DB.execute(conn, "UPDATE #{table_for(kind)} SET #{column} = ? WHERE id = ?", [
+          text,
+          subject["id"]
+        ])
+      end,
+      server
+    )
+  end
 
-    case result do
+  defp attach_reference(project, kind, subject, asset, replace?, server) do
+    refs =
+      if replace?,
+        do: [asset["path"]],
+        else: Enum.uniq([asset["path"] | subject["refs"] || []])
+
+    case store_refs(project, kind, subject, refs, server) do
       :ok ->
         {:ok,
          %{
@@ -583,6 +697,24 @@ defmodule Exhub.Toonflow.Assets do
         {:error, reason}
     end
   end
+
+  defp replace_reference(project, kind, subject, asset, server),
+    do: attach_reference(project, kind, subject, asset, true, server)
+
+  defp store_refs(project, kind, subject, refs, server) do
+    Store.run_project(
+      project,
+      fn conn ->
+        DB.execute(conn, "UPDATE #{table_for(kind)} SET refs_json = ? WHERE id = ?", [
+          Schema.encode_json(refs),
+          subject["id"]
+        ])
+      end,
+      server
+    )
+  end
+
+  defp rand_suffix, do: Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
   defp table_for("character"), do: "characters"
   defp table_for("scene"), do: "scenes"

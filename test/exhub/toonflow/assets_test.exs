@@ -232,6 +232,109 @@ defmodule Exhub.Toonflow.AssetsTest do
     end
   end
 
+  describe "canvas edits" do
+    setup do
+      root =
+        Path.join(System.tmp_dir!(), "toonflow_edits_#{System.unique_integer([:positive])}")
+
+      server = :"toonflow_edits_store_#{System.unique_integer([:positive])}"
+      {:ok, pid} = Store.start_link(root_dir: root, name: server)
+      assert {:ok, _} = Store.create_project("demo", [], server)
+
+      previous = Application.get_env(:exhub, :toonflow_media_client)
+      Application.put_env(:exhub, :toonflow_media_client, Exhub.Toonflow.AssetsTest.StubClient)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm_rf(root)
+
+        if previous,
+          do: Application.put_env(:exhub, :toonflow_media_client, previous),
+          else: Application.delete_env(:exhub, :toonflow_media_client)
+      end)
+
+      %{server: server}
+    end
+
+    test "update_text rewrites a character's appearance and a scene's description", %{
+      server: server
+    } do
+      insert_character(server, "林昭", "青衫少年", [])
+      insert_scene(server, "祖宅", "雨夜庭院")
+
+      assert {:ok, %{"kind" => "character", "text" => "黑发金瞳"}} =
+               Assets.update_text("demo", "character", "林昭", "黑发金瞳", server)
+
+      assert {:ok, [character]} = Assets.list_characters("demo", [name: "林昭"], server)
+      assert character["appearance"] == "黑发金瞳"
+
+      assert {:ok, _} = Assets.update_text("demo", "scene", "祖宅", "雪夜庭院", server)
+      assert {:ok, scene} = Assets.get_scene("demo", "祖宅", server)
+      assert scene["description"] == "雪夜庭院"
+
+      assert {:error, :invalid_reference_kind} =
+               Assets.update_text("demo", "npc", "林昭", "随便", server)
+
+      assert {:error, :subject_not_found} =
+               Assets.update_text("demo", "character", "无", "随便", server)
+    end
+
+    test "generate_reference keeps the setup prefix and can replace the refs", %{server: server} do
+      old = reference_file(server, "old.png")
+      insert_character(server, "林昭", "青衫少年", [old])
+
+      assert {:ok, reference} =
+               Assets.generate_reference(
+                 "demo",
+                 [kind: "character", name: "林昭", instructions: "黑发金瞳，玄色长袍", replace: true],
+                 server
+               )
+
+      assert reference["refs"] == [reference["path"]]
+      refute reference["path"] == old
+
+      rendered = File.read!(reference["path"])
+      assert rendered =~ "黑发金瞳，玄色长袍"
+      # `:instructions` swaps the description only — the kind's setup line stays.
+      assert rendered =~ "角色定妆设定图"
+
+      assert {:ok, [character]} = Assets.list_characters("demo", [name: "林昭"], server)
+      assert character["refs"] == [reference["path"]]
+    end
+
+    test "import_reference stores an uploaded sheet and becomes the only ref", %{server: server} do
+      old = reference_file(server, "old.png")
+      insert_character(server, "林昭", "青衫少年", [old])
+      bytes = <<0x89, "PNG\r\n", 0x1A, "\n", 0, 0, 0, 0>>
+
+      assert {:ok, imported} =
+               Assets.import_reference("demo", "character", "林昭", bytes, "png", server)
+
+      assert imported["refs"] == [imported["path"]]
+      assert imported["path"] =~ "/assets/images/ref_character_"
+      assert File.read!(imported["path"]) == bytes
+
+      assert {:ok, [character]} = Assets.list_characters("demo", [name: "林昭"], server)
+      assert character["refs"] == [imported["path"]]
+
+      assert {:ok, assets} = Media.list_assets("demo", [kind: "character_ref"], server)
+      assert Enum.any?(assets, &(&1["path"] == imported["path"]))
+    end
+
+    test "import_reference validates the upload and the subject", %{server: server} do
+      insert_character(server, "林昭", "青衫少年", [])
+
+      assert {:error, :empty_image} =
+               Assets.import_reference("demo", "character", "林昭", "", "png", server)
+
+      assert {:error, :invalid_reference_kind} =
+               Assets.import_reference("demo", "npc", "林昭", "PNG", "png", server)
+
+      assert {:error, :subject_not_found} =
+               Assets.import_reference("demo", "character", "无", "PNG", "png", server)
+    end
+  end
+
   defp insert_script(server) do
     {:ok, _} =
       Store.run_project(

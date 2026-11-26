@@ -58,6 +58,32 @@ non-loopback `POST` gets `403 forbidden (mutating endpoints are loopback-only)`
 `output/` and `storyboards/`. `Exhub.Toonflow.Snapshot.resolve_media/3` rejects
 traversal, symlinks and non-regular files, returning `404` otherwise.
 
+**角色 & 场景 tab** — one editable card per extracted character, scene and prop,
+plus a 物料 gallery of every generated asset. Each card offers three actions:
+
+- **上传图片** sends the picture over the page's websocket
+  (`{"action":"subject_upload","kind","name","data"}` — base64 JPEG, drawn at
+  ≤1408px by the browser because one socket frame is capped at ~1MB). The server
+  validates the magic bytes (`Exhub.Toonflow.Upload.ext_for/1`), stores it under
+  a fresh `assets/images/ref_<kind>_<key>_up_<rand>.<ext>` name, and it
+  *replaces* the subject's references — several contradicting sheets in one i2i
+  request only confuse the model. Superseded files stay on disk and keep
+  appearing in 物料.
+- **仅保存** rewrites the description (`appearance` for characters,
+  `description` for scenes/props). That text is both the reference prompt and
+  what the storyboard hands to the image model, so it changes the next keyframe
+  of every shot the subject appears in.
+- **保存并重新生成** does the above and re-renders the sheet synchronously,
+  keeping the kind's setup prefix (`角色定妆设定图：…`) and swapping only the
+  description. Both actions answer with
+  `{"type":"subject","status":"ok"|"error",…}` plus a fresh snapshot; the render
+  runs in `Exhub.MCP.ToolTaskSupervisor` so the socket keeps streaming progress
+  while the image is generated.
+
+Reference URLs in the snapshot carry an `mtime` query version: a re-render
+overwrites the same filename and the media route caches for a minute, so a
+stable URL would keep showing the old picture.
+
 ### AI assist in the inspector
 
 The shot inspector's prose fields (scene, description, dialogue, prompt, start/end
@@ -86,10 +112,14 @@ continuation text.
 | `shot` | per-shot media stage | `{stage, shot_id, status, detail|reason}` |
 | `jobs` | every `ui.tick_ms` | last 5 job rows (coarse refresh) |
 | `heartbeat` | tick when the project is unknown | — |
+| `subject` | after a cast-tab `subject_upload` / `subject_reference` | `{status: started\|ok\|error, action, kind, name, path?, error?}` |
 | `pong` / `error` | after a client `{"action":"ping"}` / bad frame | — |
 
 Client messages: `{"action":"subscribe","project":"…"}`, `"unsubscribe"`,
-`"refresh"`, `"ping"`.
+`"refresh"`, `"ping"`, and the two cast-tab edits
+`{"action":"subject_upload","kind","name","data"}` /
+`{"action":"subject_reference","kind","name","text","regenerate"}` (mutating
+actions are gated by `Exhub.Toonflow.Access.writable?/1` on the peer address).
 
 > **Cowboy frame gotcha.** `cowlib`'s `cow_ws:frame/2` has **no clause for a bare
 > binary**, so a reply must be a frame tuple. `Exhub.Toonflow.SocketHandler`
@@ -880,7 +910,8 @@ The memory index (`Exhub.Toonflow.Memory.Index`) reuses
 | `Exhub.Toonflow.Novel` | Novel ingest + chapter splitting (pure `split_chapters/1`) |
 | `Exhub.Toonflow.Events` | Event-graph extraction (pure `parse_events/1`) |
 | `Exhub.Toonflow.Script` | Script generation/versioning (pure `parse_script/1`) |
-| `Exhub.Toonflow.Assets` | Character/scene/prop extraction (pure `parse_assets/1`), reference images and wardrobe variations |
+| `Exhub.Toonflow.Assets` | Character/scene/prop extraction (pure `parse_assets/1`), reference images, wardrobe variations, and the canvas' description edit / uploaded-sheet replacement (`update_text/5`, `import_reference/6`) |
+| `Exhub.Toonflow.Upload` | Magic-byte validation for reference-sheet uploads (pure `ext_for/1`, `max_bytes/0`) |
 | `Exhub.Toonflow.Storyboard` | Shot planning (pure `parse_storyboard/1`, `characters_of/1`, `shot_prompt/3`) + `split_shot/3` |
 | `Exhub.Toonflow.Keyframe` | Start/end keyframe generation, cross-shot continuity copies, candidate-cell selection (pure `normalize_type/1`, `adjacent/2`, `normalize_cell/1`, `continuity_attrs/3`) |
 | `Exhub.Toonflow.Media` | Frame generation + candidate grids; `Media.Client` behaviour + `Media.Default` (moark t2i/i2i); shared asset insert/query helpers; pure `crop_filter/3`/`crop_argv/6` + `crop_image/5` |
