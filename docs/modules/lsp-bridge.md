@@ -26,6 +26,16 @@ elisp front end), answers call hierarchy (incoming/outgoing), and decodes inlay
 hints and semantic tokens for elisp-side decorations. The design and roadmap live in
 [docs/plans/2026-10-04-lsp-bridge-elixir-port.md](../plans/2026-10-04-lsp-bridge-elixir-port.md).
 
+## Headless / MCP surface
+
+The same sessions are exposed to non-Emacs callers at `/lsp/mcp` — see
+[lsp.md](lsp.md). That layer resolves a project root from the *file* (git
+toplevel, or the language's build markers outside git), mirrors content from
+disk and collects raw LSP payloads, so an agent can ask for diagnostics and
+navigation for any file on the machine without an editor buffer. Sessions are
+shared: one language-server process per `{root, profile}`, warm for both
+clients.
+
 ## Architecture
 
 | Module | Purpose |

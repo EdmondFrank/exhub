@@ -12,6 +12,12 @@ defmodule Exhub.LspBridge.Document do
   `apply_change/2` mirrors them onto the cached content. `did_change_params/3`
   emits incremental changes for incremental-sync servers and whole text for
   full-sync servers.
+
+  A document opened by a headless caller (`Exhub.LspBridge.Headless`) has no
+  editor buffer behind it: disk is authoritative, and `disk_stamp` (mtime +
+  size) records the version last mirrored so a re-read can tell whether the
+  file changed. `disk_stamp` stays `nil` for editor-owned documents, which the
+  headless path must never overwrite with on-disk content.
   """
 
   @enforce_keys [:filepath, :uri, :language_id]
@@ -22,7 +28,8 @@ defmodule Exhub.LspBridge.Document do
             content: "",
             servers: [],
             diagnostics: %{},
-            last_change: nil
+            last_change: nil,
+            disk_stamp: nil
 
   @type t :: %__MODULE__{}
 

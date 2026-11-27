@@ -10,6 +10,8 @@ defmodule Exhub.LspBridge.Application do
       (`{:session, root, profile}`), servers (`{:server, root, name}`) and open
       documents (`{:doc, filepath}` → owning session);
     * `Exhub.LspBridge.Config` — lazy loader/cacher of `langserver/*.json`;
+    * `Exhub.LspBridge.Ledger` — out-of-band diagnostics record for headless
+      callers (`lsp_ledger`);
     * `Exhub.LspBridge.Supervisor` — `DynamicSupervisor` fanning out one
       `Exhub.LspBridge.Server` per language-server process;
     * `Exhub.LspBridge.SessionSupervisor` — `DynamicSupervisor` for
@@ -31,6 +33,7 @@ defmodule Exhub.LspBridge.Application do
     children = [
       {Registry, keys: :unique, name: Exhub.LspBridge.Registry},
       {Exhub.LspBridge.Config, []},
+      {Exhub.LspBridge.Ledger, []},
       {DynamicSupervisor, strategy: :one_for_one, name: Exhub.LspBridge.Supervisor},
       {DynamicSupervisor, strategy: :one_for_one, name: Exhub.LspBridge.SessionSupervisor},
       {Exhub.LspBridge.ClientManager, []}

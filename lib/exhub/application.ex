@@ -266,6 +266,7 @@ defmodule Exhub.Application do
       dispatch: dispatch(),
       protocol_options: [idle_timeout: 86_400_000, reset_idle_timeout_on_send: true]
     ]
+
     options = Keyword.merge(base_opts, Exhub.GracefulRestart.socket_options())
 
     Plug.Cowboy.child_spec(

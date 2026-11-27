@@ -38,6 +38,7 @@ defmodule Exhub.MCP.Hub.BuiltInRegistry do
     "desktop" => Exhub.MCP.DesktopServer,
     "agent" => Exhub.MCP.AgentServer,
     "brain" => Exhub.MCP.BrainServer,
+    "lsp" => Exhub.MCP.LspServer,
     "memory" => Exhub.MCP.MemoryServer,
     "exhub" => Exhub.MCP.ExhubServer,
     "toonflow" => Exhub.MCP.ToonflowServer,

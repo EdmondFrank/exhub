@@ -376,13 +376,16 @@ defmodule Exhub.LspBridge.Server do
     items = params["items"] || []
 
     # Some servers (e.g. zls) crash on an empty list, so answer with one entry
-    # per request item — `nil` when nothing is configured.
+    # per request item — `nil` when nothing is configured. A server that asks
+    # for a section we do not nest under gets the whole settings map: zls reads
+    # its config flat (`enable_build_on_save`) but requests the `zls` section,
+    # and answering `%{}` there would silently reset it to the defaults.
     if map_size(settings) == 0 do
       Enum.map(items, fn _ -> nil end)
     else
       Enum.map(items, fn item ->
         section = item["section"] || info.name
-        Map.get(settings, section, %{})
+        Map.get(settings, section, settings)
       end)
     end
   end

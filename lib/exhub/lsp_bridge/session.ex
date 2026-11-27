@@ -125,6 +125,48 @@ defmodule Exhub.LspBridge.Session do
   def save_file(pid, path), do: GenServer.call(pid, {:save_file, path}, @call_timeout)
   def close_file(pid, path), do: GenServer.call(pid, {:close_file, path}, @call_timeout)
 
+  @doc """
+  Open `path` or re-mirror it from `content` when the on-disk `stamp` differs.
+
+  Returns `{:ok, :opened | :synced | :unchanged | :editor_owned}`. A document
+  opened by an editor has no `disk_stamp`; it is never overwritten from disk
+  (Emacs owns that buffer) and reports `:editor_owned` instead.
+  """
+  def ensure_open(pid, path, content, stamp, opts \\ %{}) do
+    GenServer.call(pid, {:ensure_open, path, content, stamp, opts}, @call_timeout)
+  end
+
+  @doc "Deliver this session's owner notifications to `subscriber` as well."
+  @spec subscribe(pid(), pid()) :: :ok
+  def subscribe(pid, subscriber) when is_pid(subscriber) do
+    GenServer.cast(pid, {:subscribe, subscriber})
+  end
+
+  @spec unsubscribe(pid(), pid()) :: :ok
+  def unsubscribe(pid, subscriber) when is_pid(subscriber) do
+    GenServer.cast(pid, {:unsubscribe, subscriber})
+  end
+
+  @doc "Session shape for diagnostics/observability callers."
+  def info(pid), do: GenServer.call(pid, :info, @call_timeout)
+
+  @doc "Ask pull-capable servers for fresh diagnostics instead of waiting for the debounce."
+  def pull_now(pid, path), do: GenServer.call(pid, {:pull_now, path}, @call_timeout)
+
+  @doc """
+  Restart this session's servers if an idle stop shut them down. `ensure/3`
+  reuses an existing session without waking it, so headless callers must ask.
+  """
+  def wake(pid), do: GenServer.call(pid, :wake, @call_timeout)
+
+  @doc """
+  Cached diagnostics plus whether any server has reported for the document
+  since its last open/change — the signal a headless caller waits on instead
+  of guessing how long analysis takes.
+  """
+  def diagnostics_state(pid, path),
+    do: GenServer.call(pid, {:diagnostics_state, path}, @call_timeout)
+
   def change_cursor(pid, path, position),
     do: GenServer.cast(pid, {:change_cursor, path, position})
 
@@ -176,7 +218,9 @@ defmodule Exhub.LspBridge.Session do
       idle_timeout: idle_timeout(opts),
       last_activity: now_ms(),
       idle_timer: nil,
-      servers_stopped: false
+      servers_stopped: false,
+      subscribers: MapSet.new(),
+      published: MapSet.new()
     }
 
     {state, errors} =
@@ -231,7 +275,7 @@ defmodule Exhub.LspBridge.Session do
           end)
 
         state = put_document(state, %{doc | version: doc.version + 1})
-        state = schedule_pull(state, path)
+        state = state |> clear_published(path) |> schedule_pull(path)
         {:reply, :ok, state}
     end
   end
@@ -275,7 +319,93 @@ defmodule Exhub.LspBridge.Session do
           end)
 
         state = put_document(state, %{doc | version: doc.version + 1})
+        state = clear_published(state, path)
         {:reply, :ok, schedule_pull(state, path)}
+    end
+  end
+
+  def handle_call({:ensure_open, path, content, stamp, opts}, _from, state) do
+    path = Path.expand(path)
+    state = state |> ensure_servers() |> touch()
+
+    case Map.fetch(state.documents, path) do
+      # Editor-owned document: disk content must not clobber an unsaved buffer.
+      {:ok, %Document{disk_stamp: nil}} ->
+        {:reply, {:ok, :editor_owned}, state}
+
+      {:ok, %Document{disk_stamp: ^stamp}} ->
+        {:reply, {:ok, :unchanged}, state}
+
+      {:ok, doc} ->
+        doc = %{doc | content: content || "", disk_stamp: stamp}
+        state = put_document(state, doc)
+
+        state =
+          broadcast(state, "textDocument/didChange", fn _name ->
+            %{
+              "textDocument" => %{"uri" => doc.uri, "version" => doc.version},
+              "contentChanges" => [%{"text" => doc.content}]
+            }
+          end)
+
+        state = put_document(state, %{doc | version: doc.version + 1})
+        state = state |> clear_published(path) |> save_document(doc)
+        {:reply, {:ok, :synced}, schedule_pull(state, path)}
+
+      :error ->
+        doc = Document.new(path, content, language_id(opts, state))
+        register_document(path)
+        doc = %{doc | servers: Map.keys(state.servers), disk_stamp: stamp}
+        state = put_document(state, doc)
+
+        state =
+          broadcast(state, "textDocument/didOpen", fn _name -> Document.did_open_params(doc) end)
+
+        state = state |> clear_published(path) |> save_document(doc)
+        {:reply, {:ok, :opened}, schedule_pull(state, path)}
+    end
+  end
+
+  def handle_call(:wake, _from, state) do
+    {:reply, :ok, state |> ensure_servers() |> touch()}
+  end
+
+  def handle_call(:info, _from, state) do
+    documents = Map.keys(state.documents)
+
+    info = %{
+      root: state.project_path,
+      profile: state.profile,
+      multi: state.multi,
+      exec_path: state.exec_path,
+      servers: Map.keys(state.servers),
+      server_infos: Map.keys(state.server_infos),
+      servers_stopped: state.servers_stopped,
+      capabilities: Map.new(state.capabilities, fn {name, caps} -> {name, providers(caps)} end),
+      documents: Enum.take(documents, 50),
+      document_count: length(documents),
+      subscribers: state |> Map.get(:subscribers, MapSet.new()) |> MapSet.size(),
+      idle_timeout: state.idle_timeout
+    }
+
+    {:reply, info, state}
+  end
+
+  def handle_call({:pull_now, path}, _from, state) do
+    {:reply, :ok, pull_diagnostics(touch(state), Path.expand(path))}
+  end
+
+  def handle_call({:diagnostics_state, path}, _from, state) do
+    path = Path.expand(path)
+
+    case Map.fetch(state.documents, path) do
+      {:ok, doc} ->
+        merged = Diagnostics.merge(doc, hide_severities: state.hide_severities, max: 500)
+        published = MapSet.member?(Map.get(state, :published, MapSet.new()), path)
+        {:reply, {:ok, %{published: published, diagnostics: merged}}, state}
+
+      :error ->
+        {:reply, {:error, :no_document}, state}
     end
   end
 
@@ -353,6 +483,17 @@ defmodule Exhub.LspBridge.Session do
   def handle_call(:shutdown, _from, state) do
     stop_servers(state)
     {:stop, :normal, :ok, state}
+  end
+
+  @impl true
+  def handle_cast({:subscribe, subscriber}, state) do
+    subscribers = Map.get(state, :subscribers, MapSet.new())
+    {:noreply, %{state | subscribers: MapSet.put(subscribers, subscriber)}}
+  end
+
+  def handle_cast({:unsubscribe, subscriber}, state) do
+    subscribers = Map.get(state, :subscribers, MapSet.new())
+    {:noreply, %{state | subscribers: MapSet.delete(subscribers, subscriber)}}
   end
 
   @impl true
@@ -521,6 +662,7 @@ defmodule Exhub.LspBridge.Session do
       {state, errors} = start_servers(Map.values(state.server_infos), state)
 
       for {name, reason} <- errors do
+        Logger.warning("[LspBridge.Session] failed to start #{name}: #{inspect(reason)}")
         notify_owner(state, {:lsp_error, "failed to start #{name}: #{inspect(reason)}"})
       end
 
@@ -587,7 +729,8 @@ defmodule Exhub.LspBridge.Session do
 
       {:ok, doc} ->
         doc = Diagnostics.record(doc, server, diagnostics)
-        state |> put_document(doc) |> schedule_push(path)
+        published = MapSet.put(Map.get(state, :published, MapSet.new()), path)
+        state |> put_document(doc) |> Map.put(:published, published) |> schedule_push(path)
     end
   end
 
@@ -868,6 +1011,26 @@ defmodule Exhub.LspBridge.Session do
     end
   end
 
+  # Headless callers read the file from disk, so the server is told the buffer
+  # was saved. Servers that only run their build on save (zls type-checks via
+  # `zig build`, elixirLS compiles on save) publish nothing without this.
+  defp save_document(state, doc) do
+    broadcast(state, "textDocument/didSave", fn name ->
+      Document.did_save_params(doc, save_include_text?(state, name))
+    end)
+  end
+
+  defp clear_published(state, path) do
+    published = MapSet.delete(Map.get(state, :published, MapSet.new()), Path.expand(path))
+    Map.put(state, :published, published)
+  end
+
+  defp providers(%Capabilities{providers: providers}) do
+    for {name, true} <- providers, do: name
+  end
+
+  defp providers(_), do: []
+
   defp supports?(state, name, capability) do
     case Map.get(state.capabilities, name) do
       %Capabilities{} = capabilities -> Capabilities.supports?(capabilities, capability)
@@ -918,6 +1081,19 @@ defmodule Exhub.LspBridge.Session do
   defp normalize_opts(opts) when is_list(opts), do: Map.new(opts)
   defp normalize_opts(opts) when is_map(opts), do: opts
 
-  defp notify_owner(%{owner: pid}, msg) when is_pid(pid), do: send(pid, msg)
-  defp notify_owner(_state, _msg), do: :ok
+  # Editor callbacks go to the owner (ClientManager) when there is one; the
+  # headless path attaches extra subscribers (the diagnostics Ledger) so a
+  # session created for Emacs still feeds out-of-band observation.
+  defp notify_owner(state, msg) do
+    extra = state |> Map.get(:subscribers, MapSet.new()) |> MapSet.to_list()
+
+    targets =
+      case Map.get(state, :owner) do
+        pid when is_pid(pid) -> [pid | extra]
+        _ -> extra
+      end
+
+    for pid <- targets, do: send(pid, msg)
+    :ok
+  end
 end
